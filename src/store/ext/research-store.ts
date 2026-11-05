@@ -11,9 +11,6 @@ import { assertExtFormat, ensureExtFormat } from "./format.ts";
 import { createLedger } from "./ledger.ts";
 import { createSnapshotStore } from "./snapshot-store.ts";
 
-/** Largest source text a research snapshot may hold (UTF-8 bytes). A larger text is refused, never truncated. */
-export const MAX_SNAPSHOT_BYTES = 2 * 1_048_576;
-
 /**
  * The research loop's four ledgers (each `createLedger`, REQ-port-01), its watchlist file and its
  * snapshot writer.
@@ -80,10 +77,9 @@ export function createResearchStore(dir: string) {
 		}),
 		/** Source-text snapshots, content-addressed like every snapshot (read back with the shared snapshot reader). */
 		snapshots: Object.freeze({
-			/** Returns the sha256. Throws on non-string, blank or oversized (> MAX_SNAPSHOT_BYTES) text, writing nothing. */
+			/** Returns the sha256. Throws on non-string or blank text, writing nothing. */
 			put(text: string): string {
 				if (typeof text !== "string" || text.trim() === "") throw new Error("snapshot: empty text");
-				if (Buffer.byteLength(text, "utf8") > MAX_SNAPSHOT_BYTES) throw new Error(`snapshot: text exceeds ${MAX_SNAPSHOT_BYTES} bytes`);
 				return snapshotStore.put(text);
 			},
 		}),

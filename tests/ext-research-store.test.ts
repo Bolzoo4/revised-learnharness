@@ -8,7 +8,7 @@ import { afterEach, describe, it, mock } from "node:test";
 import { sourceFilePath } from "../src/core/ext/inbox.ts";
 import type { CycleLogEntry } from "../src/core/ext/research-log.ts";
 import { createSnapshotReader } from "../src/store/ext/snapshot-reader.ts";
-import { createResearchStore, MAX_SNAPSHOT_BYTES } from "../src/store/ext/research-store.ts";
+import { createResearchStore } from "../src/store/ext/research-store.ts";
 
 const dirs: string[] = [];
 function tmp(): string {
@@ -236,26 +236,13 @@ describe("research store snapshots", () => {
 		assert.equal(fs.readdirSync(dir).length, 0);
 	});
 
-	it("caps the size in bytes (not characters): at the cap is stored, one byte over is refused", () => {
+	it("has no size cap: a text of several MiB is stored whole, byte for byte", () => {
 		const dir = tmp();
 		const s = createResearchStore(dir);
-		const atCap = "a".repeat(MAX_SNAPSHOT_BYTES);
-		const hash = s.snapshots.put(atCap);
-		assert.equal(fs.statSync(path.join(dir, "snapshots", `${hash}.txt`)).size, MAX_SNAPSHOT_BYTES);
-		assert.throws(() => s.snapshots.put(atCap + "a"), /too large|cap|exceed/i);
-		// multi-byte characters count by their UTF-8 size
-		const wide = "è".repeat(MAX_SNAPSHOT_BYTES / 2 + 1);
-		assert.ok(wide.length < MAX_SNAPSHOT_BYTES);
-		assert.throws(() => s.snapshots.put(wide), /too large|cap|exceed/i);
-		assert.equal(fs.readdirSync(path.join(dir, "snapshots")).length, 1);
-	});
-
-	it("a refused snapshot creates nothing, not even the stamp", () => {
-		const dir = path.join(tmp(), "ext");
-		const s = createResearchStore(dir);
-		assert.throws(() => s.snapshots.put("x".repeat(MAX_SNAPSHOT_BYTES + 1)));
-		assert.throws(() => s.snapshots.put(""));
-		assert.equal(fs.existsSync(dir), false);
+		const big = "è".repeat(3 * 1_048_576);
+		const hash = s.snapshots.put(big);
+		assert.equal(fs.statSync(path.join(dir, "snapshots", `${hash}.txt`)).size, Buffer.byteLength(big, "utf8"));
+		assert.equal(createSnapshotReader(dir).get(hash), big);
 	});
 
 	it("path traversal is impossible: file names are hashes whatever the text says", () => {

@@ -138,22 +138,48 @@ describe("captureFetches", () => {
 		assert.equal(pdf.text.match(/text of page 1/g)!.length, 1);
 	});
 
-	it("marks an oversized text not capturable instead of truncating it, and it stays that way", async () => {
-		const big = tool("web_fetch", (p) => (p.url.endsWith("big") ? `# Big\n\n${"é".repeat(600)}` : "# Small\n\nok"));
-		const cap = captureFetches({ web_fetch: big, web_fetch_pdf: base.web_fetch_pdf, pdf_extract: base.pdf_extract }, { maxTextBytes: 1000 });
-		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/big" });
+	it("refuses a text that would take the capture past its total byte budget, reports it oversized, and still captures what fits", async () => {
+		const sized = tool("web_fetch", (p) => `# T\n\n${p.url.includes("/big") ? "x".repeat(900) : "ok"}`);
+		const cap = captureFetches({ web_fetch: sized }, { maxTotalBytes: 1000 });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/big1" });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/big2" });
+		assert.deepEqual(cap.pages().map((p) => p.locator), ["https://a.org/big1"]);
+		assert.deepEqual(cap.oversized(), ["https://a.org/big2"]);
 		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/small" });
-		assert.deepEqual(cap.pages().map((p) => p.locator), ["https://a.org/small"]);
-		assert.deepEqual(cap.oversized(), ["https://a.org/big"]);
-		// a PDF that grows past the cap page by page is dropped whole, and a later small page does not resurrect it
-		const pages = tool("pdf_extract", (p) => `p${p.pages} ${"x".repeat(p.pages === "2" ? 900 : 100)}`);
-		const cap2 = captureFetches({ web_fetch_pdf: base.web_fetch_pdf, pdf_extract: pages }, { maxTextBytes: 1000 });
+		assert.deepEqual(cap.pages().map((p) => p.locator), ["https://a.org/big1", "https://a.org/small"]);
+	});
+
+	it("has no per-text size cap: a 3 MiB text is captured whole", async () => {
+		const huge = tool("web_fetch", () => `# Huge\n\nSource: x\n\n${"h".repeat(3 * 1024 * 1024)}`);
+		const cap = captureFetches({ web_fetch: huge });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/huge" });
+		assert.equal(cap.pages()[0]!.text.length > 3 * 1024 * 1024, true);
+		assert.deepEqual(cap.oversized(), []);
+	});
+
+	it("a PDF page range already covered by an extract of 'all' is not appended again, and 'all' replaces partial extracts", async () => {
+		const cap = captureFetches(base);
+		await cap.tools.web_fetch_pdf!.execute!("c", { url: "https://a.org/p.pdf" });
+		await cap.tools.pdf_extract!.execute!("c", { path: "/tmp/x/paper-ab12.pdf", pages: "all" });
+		await cap.tools.pdf_extract!.execute!("c", { path: "/tmp/x/paper-ab12.pdf", pages: "1-5" });
+		assert.doesNotMatch(cap.pages()[0]!.text, /text of page 1-5/);
+		assert.equal(cap.pages()[0]!.text.match(/text of page all/g)!.length, 1);
+		const cap2 = captureFetches(base);
 		await cap2.tools.web_fetch_pdf!.execute!("c", { url: "https://a.org/p.pdf" });
-		await cap2.tools.pdf_extract!.execute!("c", { path: "/tmp/x/paper-ab12.pdf", pages: "1" });
-		await cap2.tools.pdf_extract!.execute!("c", { path: "/tmp/x/paper-ab12.pdf", pages: "2" });
-		await cap2.tools.pdf_extract!.execute!("c", { path: "/tmp/x/paper-ab12.pdf", pages: "3" });
-		assert.deepEqual(cap2.pages(), []);
-		assert.deepEqual(cap2.oversized(), ["https://a.org/p.pdf"]);
+		await cap2.tools.pdf_extract!.execute!("c", { path: "/tmp/x/paper-ab12.pdf", pages: "1-5" });
+		await cap2.tools.pdf_extract!.execute!("c", { path: "/tmp/x/paper-ab12.pdf", pages: "all" });
+		assert.doesNotMatch(cap2.pages()[0]!.text, /text of page 1-5/);
+		assert.equal(cap2.pages()[0]!.text.match(/text of page all/g)!.length, 1);
+	});
+
+	it("forgets the oldest PDF download path once more than 100 are remembered", async () => {
+		const downloads = tool("web_fetch_pdf", (p) => ({ path: p.path, url: p.url }));
+		const extract = tool("pdf_extract", (p) => `--- Page 1 ---\ntext from ${p.path}`);
+		const cap = captureFetches({ web_fetch_pdf: downloads, pdf_extract: extract });
+		for (let i = 0; i <= 100; i++) await cap.tools.web_fetch_pdf!.execute!("c", { url: `https://a.org/${i}.pdf`, path: `/tmp/x/p${i}.pdf` });
+		await cap.tools.pdf_extract!.execute!("c", { path: "/tmp/x/p0.pdf", pages: "1" });
+		await cap.tools.pdf_extract!.execute!("c", { path: "/tmp/x/p100.pdf", pages: "1" });
+		assert.deepEqual(cap.pages().map((p) => p.locator), ["https://a.org/100.pdf"]);
 	});
 
 	it("caps the number of captured texts per capture", async () => {

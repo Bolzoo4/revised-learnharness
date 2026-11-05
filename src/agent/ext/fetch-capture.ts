@@ -7,11 +7,12 @@
  * nothing else about them changes, and a tool's result is returned as it came.
  *
  * One capture holds the state of ONE gap: create one per gap, never share it.
- * Texts are keyed by the normalized locator. A text over `maxTextBytes` is never
- * truncated: it is marked not capturable (`oversized()`), so a partial source
- * can not be ingested as if it were whole. The same holds for a page that web_fetch
- * itself cut (its "[Truncated at N characters]" end marker): it is also reported
- * through `oversized()`, which here means "not capturable, the source is partial".
+ * Texts are keyed by the normalized locator. Nothing is truncated: a page the
+ * tool itself cut (its "[Truncated at N characters]" end marker), or a text that
+ * would take the capture past `maxTotalBytes`, is marked not capturable and is
+ * reported by `oversized()`, so a partial source is never ingested as whole.
+ * A PDF's extracts are appended once per page-range string, and an extract of
+ * "all" supersedes the partial ones; the download-path map is bounded.
  */
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -27,25 +28,31 @@ export interface FetchCapture {
 	tools: Record<string, AgentTool<any>>;
 	/** Capturable pages, in first-seen order (copies). */
 	pages(): CapturedPage[];
-	/** Locators whose text exceeded the cap: not capturable. */
+	/** Locators whose text is not capturable: cut by the tool, or past the total byte budget. */
 	oversized(): string[];
 }
 
 export interface CaptureLimits {
-	/** Largest text (UTF-8 bytes) one locator may hold. Mirrors the store's MAX_SNAPSHOT_BYTES (the agent layer can not import the store). */
-	maxTextBytes?: number;
+	/** Most UTF-8 bytes of recorded text one capture may hold in total. A text that would exceed it is refused. */
+	maxTotalBytes?: number;
 	/** Most distinct locators (capturable or oversized) one capture tracks; later ones are ignored. */
 	maxTexts?: number;
 }
 
-export const MAX_CAPTURED_TEXT_BYTES = 2 * 1_048_576;
+export const MAX_CAPTURED_TOTAL_BYTES = 64 * 1_048_576;
 export const MAX_CAPTURED_TEXTS = 50;
+/** Most PDF download paths remembered; the oldest is forgotten first. */
+export const MAX_PDF_PATHS = 100;
 /** The truncation marker web_fetch appends to a page it cut (upstream web.ts, MAX_CONTENT_CHARS). */
 const TRUNCATED = /\n\n\[Truncated at \d+ characters\]\s*$/;
 
 interface Entry {
 	title: string;
 	chunks: string[];
+	/** Total UTF-8 bytes of `chunks`. */
+	bytes: number;
+	/** PDF page-range strings already extracted into `chunks`. */
+	ranges: Set<string>;
 }
 
 function textOf(result: { content: ReadonlyArray<{ type: string; text?: string }> }): string {
@@ -53,34 +60,51 @@ function textOf(result: { content: ReadonlyArray<{ type: string; text?: string }
 }
 
 export function captureFetches(base: Record<string, AgentTool<any>>, limits: CaptureLimits = {}): FetchCapture {
-	const maxBytes = limits.maxTextBytes ?? MAX_CAPTURED_TEXT_BYTES;
+	const maxTotalBytes = limits.maxTotalBytes ?? MAX_CAPTURED_TOTAL_BYTES;
 	const maxTexts = limits.maxTexts ?? MAX_CAPTURED_TEXTS;
 	const pages = new Map<string, Entry>();
 	const tooBig = new Set<string>();
 	const pdfUrlByPath = new Map<string, string>();
+	let total = 0;
 
-	/** Marks a locator not capturable: its text is dropped and it is reported by oversized(). */
+	/** Marks a locator not capturable: its text is dropped (and its bytes freed) and it is reported by oversized(). */
 	const refuse = (rawLocator: string): void => {
 		const locator = normalizeLocator(rawLocator);
 		if (!/^https?:\/\//.test(locator)) return;
-		pages.delete(locator);
+		const prev = pages.get(locator);
+		if (prev !== undefined) {
+			total -= prev.bytes;
+			pages.delete(locator);
+		}
 		tooBig.add(locator);
 	};
 
-	const add = (rawLocator: string, title: string, text: string, mode: "replace" | "append"): void => {
+	const store = (rawLocator: string, title: string, chunks: string[], ranges: Set<string>): void => {
 		const locator = normalizeLocator(rawLocator);
 		if (!/^https?:\/\//.test(locator) || tooBig.has(locator)) return;
 		const prev = pages.get(locator);
 		if (prev === undefined && pages.size + tooBig.size >= maxTexts) return;
-		let chunks: string[];
-		if (prev === undefined || mode === "replace") chunks = [text];
-		else chunks = prev.chunks.includes(text) ? prev.chunks : [...prev.chunks, text];
 		const bytes = chunks.reduce((n, c) => n + Buffer.byteLength(c, "utf8"), 0);
-		if (bytes > maxBytes) {
+		if (total - (prev?.bytes ?? 0) + bytes > maxTotalBytes) {
 			refuse(locator);
 			return;
 		}
-		pages.set(locator, { title: mode === "replace" ? title : prev?.title || title, chunks });
+		total += bytes - (prev?.bytes ?? 0);
+		pages.set(locator, { title, chunks, bytes, ranges });
+	};
+
+	/** A fetched web page replaces whatever was captured under the locator, title included. */
+	const setPage = (rawLocator: string, title: string, text: string): void => store(rawLocator, title, [text], new Set());
+
+	/** One PDF extract. Each page-range string is appended once; an "all" extract replaces the partial ones and blocks later ranges. */
+	const addPdfPart = (rawLocator: string, range: string, text: string): void => {
+		const prev = pages.get(normalizeLocator(rawLocator));
+		if (prev !== undefined && (prev.ranges.has("all") || prev.ranges.has(range))) return;
+		if (range === "all") {
+			store(rawLocator, prev?.title ?? "", [text], new Set(["all"]));
+			return;
+		}
+		store(rawLocator, prev?.title ?? "", [...(prev?.chunks ?? []), text], new Set([...(prev?.ranges ?? []), range]));
 	};
 
 	const wrap = (name: string, after: (params: any, result: Awaited<ReturnType<NonNullable<AgentTool<any>["execute"]>>>) => void): AgentTool<any> | undefined => {
@@ -116,19 +140,22 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 			for (const k of keys) refuse(k);
 			return;
 		}
-		for (const k of keys) add(k, title, text, "replace");
+		for (const k of keys) setPage(k, title, text);
 	});
 	if (webFetch) wrapped.web_fetch = webFetch;
 	const pdfFetch = wrap("web_fetch_pdf", (_params, result) => {
 		const d = result.details as { path?: unknown; url?: unknown } | null;
-		if (d !== null && typeof d === "object" && typeof d.path === "string" && typeof d.url === "string") pdfUrlByPath.set(d.path, d.url);
+		if (d === null || typeof d !== "object" || typeof d.path !== "string" || typeof d.url !== "string") return;
+		pdfUrlByPath.delete(d.path); // re-inserted below, so it counts as the newest
+		pdfUrlByPath.set(d.path, d.url);
+		if (pdfUrlByPath.size > MAX_PDF_PATHS) pdfUrlByPath.delete(pdfUrlByPath.keys().next().value as string);
 	});
 	if (pdfFetch) wrapped.web_fetch_pdf = pdfFetch;
 	const pdfExtract = wrap("pdf_extract", (params, result) => {
 		const url = typeof params?.path === "string" ? pdfUrlByPath.get(params.path) : undefined;
 		const text = textOf(result);
 		if (url === undefined || text.startsWith("pdf_extract failed")) return;
-		add(url, "", text, "append");
+		addPdfPart(url, typeof params?.pages === "string" ? params.pages.trim() : "", text);
 	});
 	if (pdfExtract) wrapped.pdf_extract = pdfExtract;
 
