@@ -9,7 +9,9 @@
  * One capture holds the state of ONE gap: create one per gap, never share it.
  * Texts are keyed by the normalized locator. A text over `maxTextBytes` is never
  * truncated: it is marked not capturable (`oversized()`), so a partial source
- * can not be ingested as if it were whole.
+ * can not be ingested as if it were whole. The same holds for a page that web_fetch
+ * itself cut (its "[Truncated at N characters]" end marker): it is also reported
+ * through `oversized()`, which here means "not capturable, the source is partial".
  */
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -38,6 +40,8 @@ export interface CaptureLimits {
 
 export const MAX_CAPTURED_TEXT_BYTES = 2 * 1_048_576;
 export const MAX_CAPTURED_TEXTS = 50;
+/** The truncation marker web_fetch appends to a page it cut (upstream web.ts, MAX_CONTENT_CHARS). */
+const TRUNCATED = /\n\n\[Truncated at \d+ characters\]\s*$/;
 
 interface Entry {
 	title: string;
@@ -55,6 +59,14 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 	const tooBig = new Set<string>();
 	const pdfUrlByPath = new Map<string, string>();
 
+	/** Marks a locator not capturable: its text is dropped and it is reported by oversized(). */
+	const refuse = (rawLocator: string): void => {
+		const locator = normalizeLocator(rawLocator);
+		if (!/^https?:\/\//.test(locator)) return;
+		pages.delete(locator);
+		tooBig.add(locator);
+	};
+
 	const add = (rawLocator: string, title: string, text: string, mode: "replace" | "append"): void => {
 		const locator = normalizeLocator(rawLocator);
 		if (!/^https?:\/\//.test(locator) || tooBig.has(locator)) return;
@@ -65,8 +77,7 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 		else chunks = prev.chunks.includes(text) ? prev.chunks : [...prev.chunks, text];
 		const bytes = chunks.reduce((n, c) => n + Buffer.byteLength(c, "utf8"), 0);
 		if (bytes > maxBytes) {
-			pages.delete(locator);
-			tooBig.add(locator);
+			refuse(locator);
 			return;
 		}
 		pages.set(locator, { title: mode === "replace" ? title : prev?.title || title, chunks });
@@ -97,10 +108,15 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 		const text = textOf(result);
 		if (text.startsWith("web_fetch failed") || text.startsWith("web_fetch: this URL is a PDF")) return;
 		const title = /^# (.+)$/.exec(text.split("\n", 1)[0] ?? "")?.[1] ?? "";
-		add(params.url, title, text, "replace");
 		// After redirects the tool names the final URL on its Source line: the same text is also recorded under it.
 		const source = /^Source: (\S+)/m.exec(text)?.[1];
-		if (source !== undefined && normalizeLocator(source) !== normalizeLocator(params.url)) add(source, title, text, "replace");
+		const keys = source !== undefined && normalizeLocator(source) !== normalizeLocator(params.url) ? [params.url, source] : [params.url];
+		if (TRUNCATED.test(text)) {
+			// The tool cut the page: a partial text is never capturable, under any of its locators.
+			for (const k of keys) refuse(k);
+			return;
+		}
+		for (const k of keys) add(k, title, text, "replace");
 	});
 	if (webFetch) wrapped.web_fetch = webFetch;
 	const pdfFetch = wrap("web_fetch_pdf", (_params, result) => {

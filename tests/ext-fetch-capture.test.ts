@@ -67,6 +67,24 @@ describe("captureFetches", () => {
 		assert.deepEqual(cap.pages().map((p) => [p.title, p.text]), [["New", "# New\n\nBody two."]]);
 	});
 
+	it("a page cut by web_fetch at 40 000 characters is not capturable and is reported as oversized", async () => {
+		const cut = `# Long\n\nSource: https://a.org/long (HTTP 200)\n\n---\n\n${"w ".repeat(20_000)}\n\n[Truncated at 40000 characters]`;
+		const longTool = tool("web_fetch", (p) => (p.url.endsWith("long") ? cut : "# Short\n\nSource: x\n\nshort text"));
+		const cap = captureFetches({ web_fetch: longTool });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/long" });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/short" });
+		assert.deepEqual(cap.pages().map((p) => p.locator), ["https://a.org/short"]);
+		assert.deepEqual(cap.oversized(), ["https://a.org/long"]);
+	});
+
+	it("a page that merely mentions the truncation marker mid-text is still capturable", async () => {
+		const mentions = tool("web_fetch", () => "# Doc\n\nSource: x\n\nThe tool prints [Truncated at 40000 characters] when cut.\n\nMore text after.");
+		const cap = captureFetches({ web_fetch: mentions });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/doc" });
+		assert.deepEqual(cap.pages().map((p) => p.locator), ["https://a.org/doc"]);
+		assert.deepEqual(cap.oversized(), []);
+	});
+
 	it("leaves every other tool untouched and tolerates a missing tool", () => {
 		const cap = captureFetches({ web_search: base.web_search });
 		assert.equal(cap.tools.web_search, base.web_search);
