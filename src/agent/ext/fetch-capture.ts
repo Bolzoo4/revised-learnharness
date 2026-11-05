@@ -21,16 +21,11 @@
  * itself, so a public URL that redirects to a private host is fetched; DNS rebinding
  * is not checked; the Jina reader fallback fetches the URL through a third party.
  *
- * Provenance of a redirect: the tool writes `Source: <final URL> (HTTP nnn)` in its
- * own header, at the very start of the text (after an optional `# title` line). Only
- * that header is read. A Source-like line anywhere else, or in a headerless text (the
- * reader fallback has no header), is page content and is ignored. The final URL gets
- * the text only when nothing is recorded under it yet: a forged header can never
- * replace or remove a genuine capture of another locator.
- * Residual risk: the reader fallback returns a headerless body, and a body that
- * itself begins with a full header line can still create a redirect-derived record,
- * but only under a locator that has none yet. Closing that needs a header marker
- * from upstream web.ts, which is out of scope here.
+ * Provenance: text is recorded ONLY under the normalized locator that was requested.
+ * The tool's `Source:` header line (a redirect's final URL) is never read, so no
+ * page body, headerless or not, can create a record under another locator. A model
+ * that cites a redirect's final URL gets it reported as unfetched (the agent may
+ * re-fetch the URL it was given).
  */
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -65,8 +60,6 @@ export const MAX_CAPTURED_TEXTS = 50;
 export const MAX_PDF_PATHS = 100;
 /** The truncation marker web_fetch appends to a page it cut (upstream web.ts, MAX_CONTENT_CHARS). */
 const TRUNCATED = /\n\n\[Truncated at \d+ characters\]\s*$/;
-/** The header web_fetch writes (upstream web.ts): an optional `# title` line, then the Source line, at the very start. */
-const SOURCE_HEADER = /^(?:# [^\n]*\n\n)?Source: (\S+) \(HTTP \d{3}\)(?:\n|$)/;
 /** The tools whose URL argument is fetched over the network, and so pass the egress guard. */
 const FETCHING = new Set(["web_fetch", "web_fetch_pdf"]);
 
@@ -115,16 +108,6 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 		}
 		total += bytes - (prev?.bytes ?? 0);
 		pages.set(locator, { title, chunks, bytes, ranges });
-	};
-
-	/** A redirect's final URL gets the text only when nothing is recorded or refused under it, and never past the budgets. */
-	const addIfAbsent = (rawLocator: string, title: string, text: string): void => {
-		const locator = normalizeLocator(rawLocator);
-		if (pages.has(locator) || tooBig.has(locator)) return;
-		const bytes = Buffer.byteLength(text, "utf8");
-		if (pages.size + tooBig.size >= maxTexts || total + bytes > maxTotalBytes) return; // silently skipped: it marks nothing
-		total += bytes;
-		pages.set(locator, { title, chunks: [text], bytes, ranges: new Set() });
 	};
 
 	/** A fetched web page replaces whatever was captured under the locator, title included. */
@@ -180,12 +163,6 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 			return;
 		}
 		setPage(params.url, title, text);
-		// After redirects the tool names the final URL in its header: the same text is also recorded under it, but only
-		// when the requested page itself was recorded (not refused by the budget), that URL is public, and it holds nothing yet.
-		const final = SOURCE_HEADER.exec(text)?.[1];
-		if (final !== undefined && pages.has(normalizeLocator(params.url)) && normalizeLocator(final) !== normalizeLocator(params.url) && isPublicHttpUrl(final)) {
-			addIfAbsent(final, title, text);
-		}
 	});
 	if (webFetch) wrapped.web_fetch = webFetch;
 	const pdfFetch = wrap("web_fetch_pdf", (_params, result) => {

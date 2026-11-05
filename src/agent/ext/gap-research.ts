@@ -5,7 +5,8 @@
  * one `report_findings` tool that ends the run. The agent decides when to stop;
  * code enforces that "I am confident" means at or above the threshold, that the
  * report is well formed, and that what gets ingested is the text the fetch tools
- * returned (fetch-capture.ts), never text the model wrote.
+ * returned (fetch-capture.ts), never text the model wrote. Text is kept only under the
+ * requested URL: a cited redirect's final URL, if that is all the model cites, is unfetched.
  *
  * Spend is recorded here, through the shared cost gate (REQ-cost-01): every
  * admitted model call is recorded as it happens, and the run stops at the

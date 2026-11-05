@@ -191,6 +191,34 @@ describe("createGapResearcher", () => {
 		assert.deepEqual(f.unfetched, []);
 	});
 
+	it("citing a redirect's final URL reports it unfetched: text is kept only under the requested locator", async () => {
+		const redirecting = fetchTool({ "https://short.org/s": "# Final\n\nSource: https://docs.org/final (HTTP 200)\n\n---\n\nBody." });
+		const { researcher } = setup(
+			[
+				() => fauxAssistantMessage([fauxToolCall("web_fetch", { url: "https://short.org/s" }, { id: "f1" })], { stopReason: "toolUse" }),
+				() => fauxAssistantMessage([report({ sources: ["https://docs.org/final"] })], { stopReason: "toolUse" }),
+			],
+			[redirecting],
+		);
+		const f = await researcher.run(brief, [], hooks());
+		assert.deepEqual(f.sources, []);
+		assert.deepEqual(f.unfetched, ["https://docs.org/final"]);
+	});
+
+	it("citing the requested URL of a redirected fetch makes it a source with the fetched text", async () => {
+		const redirecting = fetchTool({ "https://short.org/s": "# Final\n\nSource: https://docs.org/final (HTTP 200)\n\n---\n\nBody." });
+		const { researcher } = setup(
+			[
+				() => fauxAssistantMessage([fauxToolCall("web_fetch", { url: "https://short.org/s" }, { id: "f1" })], { stopReason: "toolUse" }),
+				() => fauxAssistantMessage([report({ sources: ["https://short.org/s"] })], { stopReason: "toolUse" }),
+			],
+			[redirecting],
+		);
+		const f = await researcher.run(brief, [], hooks());
+		assert.deepEqual(f.sources.map((s) => s.locator), ["https://short.org/s"]);
+		assert.deepEqual(f.unfetched, []);
+	});
+
 	it("caps the sources of a finding at maxSources", async () => {
 		const urls = ["https://a.org/1", "https://a.org/2", "https://a.org/3"];
 		const { researcher } = setup([
