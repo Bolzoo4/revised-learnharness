@@ -103,7 +103,6 @@ export async function runChapter(book: BookRef, chapter: Chapter, deps: ChapterR
 		report("outline");
 		const outline = await deps.writeOutline(chapter, chapterText);
 		const groups = splitOutline(outline);
-		for (const old of deps.lectures.list()) if (old.bookId === book.bookId && old.chapter.index === chapter.index) deps.lectures.remove(old.id);
 
 		// 3. lectures in sequence
 		report("writing");
@@ -141,6 +140,12 @@ export async function runChapter(book: BookRef, chapter: Chapter, deps: ChapterR
 			previousSummary = outcome.value.summary;
 			uncovered = uncoveredChapterNodes(saved, chapterNodeIds);
 			report("writing");
+		}
+
+		// Only now, with every new lecture saved, drop the chapter's earlier lectures that were not overwritten.
+		const newIds = new Set(saved.map((l) => l.id));
+		for (const old of deps.lectures.list()) {
+			if (old.bookId === book.bookId && old.chapter.index === chapter.index && !newIds.has(old.id)) deps.lectures.remove(old.id);
 		}
 
 		uncovered = uncoveredChapterNodes(saved, chapterNodeIds);

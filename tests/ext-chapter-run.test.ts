@@ -110,6 +110,18 @@ describe("runChapter", () => {
 		await runChapter(book, chapter, h.deps);
 		assert.deepEqual([...h.store.keys()].sort(), ["lec_b0123abcd_c02_l01", "lec_b0123abcd_c03_l01"]);
 	});
+	it("keeps the previous lectures of the chapter when a re-run fails midway", async () => {
+		const h = harness({
+			writeOutline: async () => Array.from({ length: 8 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })), // 2 lectures
+		});
+		const oldId = "lec_b0123abcd_c02_l09";
+		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
+		let n = 0;
+		h.deps.writeLecture = async () => { if (++n === 2) throw new Error("model down"); return draft; };
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.ok(h.store.has(oldId), "the previous lecture must survive a failed re-run");
+	});
 	it("stops with stopped_cost when the ceiling is reached, before any model call", async () => {
 		const h = harness({ gate: { allowed: () => false, record: () => {} } });
 		const r = await runChapter(book, chapter, h.deps);
