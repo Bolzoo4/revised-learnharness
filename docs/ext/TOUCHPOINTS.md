@@ -33,6 +33,9 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `app/chat/[id]/page.tsx` | pass `"teach"` to `Chat` for an `office_hours` session | Lectures and office hours |
 | `src/core/ext/index.ts` | appended exports for the lecture player | Lectures |
 | `src/server/ext/panel-providers.ts` | `lecturesCiting` member (lecture back-links in a node's panel) | Lectures |
+| `src/core/source-organization.ts` | `chainSourceDirectory` hides every practice-like session (office hours, review) via `isPracticeLike` | Practice-like sessions |
+| `components/minimal-home.tsx` | home counts practice-like sessions as practice | Practice-like sessions |
+| `components/chain-table.tsx` | chain filter hides sources of practice-like sessions | Practice-like sessions |
 
 Planned (not yet touched): the PDF viewer
 and MCP dependencies in `package.json`.
