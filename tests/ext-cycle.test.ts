@@ -75,6 +75,15 @@ describe("runCycle", () => {
 		assert.equal(entry.gaps[0]!.nodesAdded, 0);
 	});
 
+	it("sources fetched but dropped by the source cap are logged as over-cap, never ingested and never lost (review item 5)", async () => {
+		const { deps, calls } = fakeDeps({
+			researchGap: async () => finding({ capped: ["https://a.org/2"] }),
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual(entry.gaps[0]!.sources.map((s) => [s.locator, s.outcome]), [["https://a.org/2", "over-cap"]]);
+		assert.deepEqual(calls.ingested, []);
+	});
+
 	it("a stop mark excludes its region; a hold mark keeps only verification (REQ-rs-03, REQ-res-02)", async () => {
 		const stop: FrontierEvent = { type: "set", markId: "m1", scope: { kind: "goal", id: "goal_1" }, mark: "stop", note: "", author: "user", at: "t" };
 		const stopped = fakeDeps({ frontier: memLog([stop]) });

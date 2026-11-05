@@ -9,7 +9,7 @@
 import type { GapType } from "./research-config.ts";
 
 /** `skipped-active`: an active library source met in a source hunt (verification already uses it). */
-export type SourceOutcome = "ingested" | "inbox" | "skipped-rejected" | "skipped-seen" | "skipped-active" | "not-fetched" | "not-capturable" | "failed";
+export type SourceOutcome = "ingested" | "inbox" | "skipped-rejected" | "skipped-seen" | "skipped-active" | "not-fetched" | "not-capturable" | "over-cap" | "failed";
 
 export interface SourceLog {
 	locator: string;
@@ -56,7 +56,7 @@ export interface CycleLogEntry {
 const GAP_TYPES = new Set<string>(["uncovered", "no-premises", "weak-premise", "unverified", "contested-no-primary"]);
 const STOPS = new Set<string>(["completed", "no-gaps", "ceiling", "aborted", "error"]);
 const GAP_STOPS = new Set<string>(["confidence", "no-more-sources", "turn-limit"]);
-const OUTCOMES = new Set<string>(["ingested", "inbox", "skipped-rejected", "skipped-seen", "skipped-active", "not-fetched", "not-capturable", "failed"]);
+const OUTCOMES = new Set<string>(["ingested", "inbox", "skipped-rejected", "skipped-seen", "skipped-active", "not-fetched", "not-capturable", "over-cap", "failed"]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isNonEmpty = (v: unknown): v is string => typeof v === "string" && v !== "";

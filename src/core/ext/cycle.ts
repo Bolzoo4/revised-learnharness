@@ -66,6 +66,8 @@ export interface GapFinding {
 	unfetched: string[];
 	/** Locators the agent fetched but whose text is not capturable (cut by the tool, or past the byte budget). Logged, never ingested. */
 	notCapturable?: string[];
+	/** Locators the agent fetched but the finding did not keep (over the source cap). Logged, never ingested. */
+	capped?: string[];
 }
 
 export interface WatchClassification {
@@ -98,7 +100,7 @@ export interface CycleDeps {
 	extractChat(chatId: string): Promise<number>;
 	/** Notes-source path of the upstream extraction pipeline (provenance = the source); returns nodes added. */
 	ingest(source: IngestSource): Promise<number>;
-	/** Research one gap. The adapter records the spend itself (also when it throws); a thrown error should carry `costUsd` (see GapError) so the cycle logs it. */
+	/** Research one gap. The researcher records each model call's spend through the shared CostGate itself; the adapter must NOT record it again. A thrown error should carry `costUsd` (see GapError) so the cycle logs it. */
 	researchGap(gap: Gap, opts: { steers: string[]; sourceHunt: boolean; ref: string; maxTurns: number }): Promise<GapFinding & { costUsd: number }>;
 	fetchItems(entry: WatchEntry): Promise<FeedItem[]>;
 	/** May report the call's `costUsd`, summed into the cycle's cost. */
@@ -331,6 +333,10 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 		for (const raw of Array.isArray(finding.notCapturable) ? finding.notCapturable.slice(0, maxSources) : []) {
 			const locator = isStr(raw) ? normalizeLocator(raw) : "";
 			if (locator !== "") log.sources.push({ locator, outcome: "not-capturable", nodesAdded: 0 });
+		}
+		for (const raw of Array.isArray(finding.capped) ? finding.capped.slice(0, maxSources) : []) {
+			const locator = isStr(raw) ? normalizeLocator(raw) : "";
+			if (locator !== "") log.sources.push({ locator, outcome: "over-cap", nodesAdded: 0 });
 		}
 		const inbox = readInbox();
 		for (const src of Array.isArray(finding.sources) ? finding.sources.slice(0, maxSources) : []) {

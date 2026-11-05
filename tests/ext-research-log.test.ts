@@ -58,7 +58,7 @@ describe("cycle log", () => {
 	});
 
 	it("accepts every source outcome the cycle can write, skipped-active included", () => {
-		for (const outcome of ["ingested", "inbox", "skipped-rejected", "skipped-seen", "skipped-active", "not-fetched", "failed"] as const) {
+		for (const outcome of ["ingested", "inbox", "skipped-rejected", "skipped-seen", "skipped-active", "not-fetched", "not-capturable", "over-cap", "failed"] as const) {
 			const e = entry({ gaps: [gap({ sources: [{ locator: "https://a.org/x", outcome, nodesAdded: 0 }] })] });
 			assert.deepEqual(parseCycleLogEntry(e), e, outcome);
 		}
