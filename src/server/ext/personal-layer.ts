@@ -119,5 +119,5 @@ export const personalLayer = createPersonalLayer({
 	reviewStore: extStores.reviewStore,
 	cardsStore: extStores.cardsStore,
 	trustOf: trustOfNode,
-	createReviewChat: (title) => stores.chatStore.createChat(title, "review" as never), // TEMP until Task 11 widens the kind
+	createReviewChat: (title) => stores.chatStore.createChat(title, "review"),
 });
