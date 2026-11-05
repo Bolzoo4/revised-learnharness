@@ -20,6 +20,11 @@ import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
 import { createSourcesStore } from "../../store/ext/sources-store.ts";
 import { createVerificationStore } from "../../store/ext/verification-store.ts";
+import { parseDocumentEvent } from "../../core/ext/study/documents.ts";
+import { parseDraftEvent } from "../../core/ext/study/drafts.ts";
+import { parseStudyLinkEvent } from "../../core/ext/study/links.ts";
+import { parseReadingEvent } from "../../core/ext/study/reading.ts";
+import { createDocumentFiles } from "../../store/ext/documents-store.ts";
 
 export const extStores = {
 	goalsStore: createGoalsStore(EXT_PATHS.dir),
@@ -36,6 +41,11 @@ export const extStores = {
 	explanationsStore: createExplanationsStore(EXT_PATHS.dir),
 	/** ONE store per data dir: the cycle's busy guard is keyed on its `log` object (and `lockKey`). */
 	researchStore: createResearchStore(EXT_PATHS.dir),
+	documentsLedger: createLedger(EXT_PATHS.dir, "documents.jsonl", parseDocumentEvent),
+	readingLedger: createLedger(EXT_PATHS.dir, "reading.jsonl", parseReadingEvent),
+	studyLinksLedger: createLedger(EXT_PATHS.dir, "study-links.jsonl", parseStudyLinkEvent),
+	studyDraftsLedger: createLedger(EXT_PATHS.dir, "study-drafts.jsonl", parseDraftEvent),
+	documentFiles: createDocumentFiles(EXT_PATHS.dir),
 };
 
 export type ExtStores = typeof extStores;
