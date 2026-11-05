@@ -32,7 +32,7 @@ export class NodeKnowledgeError extends Error {
 }
 
 /** Actions other children implement; absent handler = button disabled, route answers 501. */
-export type NodeActionHandlers = Partial<Record<Exclude<NodeAction, "askInChat" | "useAsGoalTarget">, (nodeId: string) => Promise<unknown> | unknown>>;
+export type NodeActionHandlers = Partial<Record<Exclude<NodeAction, "askInChat" | "useAsGoalTarget" | "createCard">, (nodeId: string) => Promise<unknown> | unknown>>;
 
 export interface NodeKnowledgeDeps {
 	graphStore: GraphStore;
@@ -55,7 +55,13 @@ export function createNodeKnowledge(deps: NodeKnowledgeDeps) {
 		}
 	};
 	const availableActions = (): NodeAction[] =>
-		NODE_ACTIONS.filter((a) => a === "askInChat" || a === "useAsGoalTarget" || deps.handlers[a] !== undefined);
+		NODE_ACTIONS.filter(
+			(a) =>
+				a === "askInChat" ||
+				a === "useAsGoalTarget" ||
+				// a card needs a question and an answer: the panel's form posts them to /api/ext/cards
+				(a === "createCard" ? deps.sources.cards !== undefined : deps.handlers[a] !== undefined),
+		);
 	const explanationDeps = () => ({
 		graph: deps.graphStore,
 		explanations: deps.explanations,
@@ -122,7 +128,7 @@ export function createNodeKnowledge(deps: NodeKnowledgeDeps) {
 
 		async runAction(nodeId: string, action: NodeAction): Promise<unknown> {
 			requireNode(nodeId);
-			if (action === "askInChat") throw new NodeKnowledgeError(400, "askInChat runs in the browser");
+			if (action === "askInChat" || action === "createCard") throw new NodeKnowledgeError(400, `${action} runs in the browser`);
 			if (action === "useAsGoalTarget") {
 				const name = deps.graphStore.readNodes().find((n) => n.id === nodeId)?.name ?? nodeId;
 				return createGoal(

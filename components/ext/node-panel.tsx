@@ -144,6 +144,15 @@ export function NodePanel({ request, onClose }: { request: PanelRequest; onClose
 					}
 				})
 			}
+			onCreateCard={(question, answer) =>
+				void guarded(() =>
+					api("/api/ext/cards", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ nodeId, question, answer }),
+					}),
+				)
+			}
 			onSaveEdit={(body) => void guarded(() => post(nodeId, "explanation", { action: "save", body }))}
 			onDecide={(decision) =>
 				void guarded(() => post(nodeId, "explanation", { action: decision === "approved" ? "approve" : "reject" }))

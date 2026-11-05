@@ -34,6 +34,7 @@ export interface NodePanelViewProps {
 	onAction(action: NodeAction): void;
 	onGenerate(): void;
 	onSaveEdit(body: string): void;
+	onCreateCard(question: string, answer: string): void;
 	onDecide(decision: "approved" | "rejected", version: number): void;
 	renderBody?: (markdown: string) => ReactNode;
 }
@@ -85,6 +86,7 @@ export function NodePanelView(p: NodePanelViewProps) {
 	const { explanation: ex } = data;
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState("");
+	const [cardForm, setCardForm] = useState<{ question: string; answer: string } | null>(null);
 	const plain = (md: string): ReactNode => <div className="whitespace-pre-wrap">{md}</div>;
 	const render = p.renderBody ?? plain;
 
@@ -281,12 +283,40 @@ export function NodePanelView(p: NodePanelViewProps) {
 							data-testid={`action-${a}`}
 							disabled={!data.availableActions.includes(a)}
 							title={data.availableActions.includes(a) ? undefined : "Not available yet"}
-							onClick={() => p.onAction(a)}
+							onClick={() => (a === "createCard" ? setCardForm({ question: "", answer: "" }) : p.onAction(a))}
 						>
 							{ACTION_LABELS[a]}
 						</button>
 					))}
 				</div>
+				{cardForm !== null ? (
+					<div data-testid="card-form" className="mt-2 space-y-1">
+						<input
+							className="w-full rounded border bg-background p-1 text-xs"
+							placeholder="Question"
+							value={cardForm.question}
+							onChange={(e) => setCardForm({ ...cardForm, question: e.target.value })}
+						/>
+						<textarea
+							className="h-20 w-full rounded border bg-background p-1 text-xs"
+							placeholder="Answer"
+							value={cardForm.answer}
+							onChange={(e) => setCardForm({ ...cardForm, answer: e.target.value })}
+						/>
+						<button
+							type="button"
+							data-testid="card-save"
+							disabled={cardForm.question.trim() === "" || cardForm.answer.trim() === ""}
+							onClick={() => {
+								p.onCreateCard(cardForm.question.trim(), cardForm.answer.trim());
+								setCardForm(null);
+							}}
+						>
+							Save card
+						</button>{" "}
+						<button type="button" data-testid="card-cancel" onClick={() => setCardForm(null)}>Cancel</button>
+					</div>
+				) : null}
 			</Section>
 		</div>
 	);

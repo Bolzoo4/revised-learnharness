@@ -53,7 +53,7 @@ function props(over: Partial<NodePanelViewProps> = {}): NodePanelViewProps {
 		onBack: () => calls.push("back"), onForward: () => calls.push("forward"), onClose: () => calls.push("close"),
 		onNavigate: (id) => calls.push(`nav:${id}`), onDepth: (d) => calls.push(`depth:${d}`),
 		onAction: (a) => calls.push(`action:${a}`), onGenerate: () => calls.push("generate"),
-		onSaveEdit: (b) => calls.push(`save:${b}`), onDecide: (d, v) => calls.push(`decide:${d}:${v}`),
+		onSaveEdit: (b) => calls.push(`save:${b}`), onCreateCard: (qn, a) => calls.push(`card:${qn}|${a}`), onDecide: (d, v) => calls.push(`decide:${d}:${v}`),
 		...over,
 	};
 }
@@ -155,4 +155,17 @@ it("the user can edit the explanation: the editor starts from the current text a
 it("shows an error message", async () => {
 	await mount(props({ error: "No model is configured" }));
 	assert.match(q('[data-testid="panel-error"]')?.textContent ?? "", /No model is configured/);
+});
+
+it("create card opens an inline form that needs a question and an answer (REQ-node-14)", async () => {
+	const base = data();
+	await mount(props({ data: { ...base, availableActions: ["createCard", "askInChat"] } }));
+	assert.equal(q('[data-testid="card-form"]'), null);
+	await click(q('[data-testid="action-createCard"]'));
+	assert.deepEqual(calls, [], "the form opens in the panel, no server action");
+	assert.notEqual(q('[data-testid="card-form"]'), null);
+	// linkedom does not drive onChange, so the fields stay empty and saving stays disabled
+	assert.equal(q('[data-testid="card-save"]')?.hasAttribute("disabled"), true);
+	await click(q('[data-testid="card-cancel"]'));
+	assert.equal(q('[data-testid="card-form"]'), null);
 });

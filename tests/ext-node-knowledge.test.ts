@@ -51,6 +51,13 @@ describe("createNodeKnowledge", () => {
 		assert.deepEqual(s.knowledge.panel("n_a").availableActions, ["pin", "askInChat", "useAsGoalTarget", "verifyNow"]);
 	});
 
+	it("createCard is a browser-side action, available only when a card source exists (REQ-node-14)", async () => {
+		assert.equal(setup().knowledge.panel("n_a").availableActions.includes("createCard"), false);
+		const s = setup({ sources: { cards: () => [] } });
+		assert.deepEqual(s.knowledge.panel("n_a").availableActions, ["createCard", "askInChat", "useAsGoalTarget"]);
+		assert.equal(await status(() => s.knowledge.runAction("n_a", "createCard")), 400);
+	});
+
 	it("panel reports the ceiling when the gate is closed (REQ-node-05)", () => {
 		const s = setup({ cost: closedGate() });
 		const p = s.knowledge.panel("n_b");
