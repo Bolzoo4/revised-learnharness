@@ -25,3 +25,15 @@ export * from "./lecture-live.ts";
 export * from "./practice-live.ts";
 export { HttpError, httpErrorResponse, readJsonObject } from "./http-error.ts";
 export { ReviewInputError } from "../../core/ext/review-service.ts";
+export {
+	CYCLE_REFUSALS,
+	makeClassify,
+	makeResearchGap,
+	researchAdmin,
+	researchService,
+	researchToolContext,
+	startResearchScheduler,
+	startResearchSession,
+} from "./research-live.ts";
+export { ResearchInputError } from "./research-errors.ts";
+export { InboxError } from "../../core/ext/inbox-service.ts";

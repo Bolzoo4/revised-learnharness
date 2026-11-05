@@ -9,6 +9,7 @@ import {
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
 import { createOfficeHoursAgent } from "../agent/ext/practice/office-hours-agent.ts";
 import { createReviewAgent } from "../agent/ext/review-agent.ts";
+import { createResearchAgent } from "../agent/ext/research-agent.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
 import { chatGPTStreamError } from "../agent/chatgpt-stream.ts";
@@ -38,6 +39,8 @@ import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { personalLayer } from "./ext/personal-layer.ts";
 import { practiceService } from "./ext/practice-live.ts";
+import { researchToolContext } from "./ext/research-live.ts";
+import { liveCostGate } from "./ext/cost-live.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
@@ -478,6 +481,8 @@ export async function handleChatInput(
 			? createOfficeHoursAgent(practiceService.toolContext(chatId, stores.chatStore), agentOpts)
 		: record.kind === "review"
 			? createReviewAgent(personalLayer.reviewToolContext(chatId, stores.chatStore), agentOpts)
+		: record.kind === "research"
+			? createResearchAgent(researchToolContext(chatId), agentOpts, { costGate: liveCostGate })
 		: record.kind === "practice"
 			? createPracticeAgent(
 					{

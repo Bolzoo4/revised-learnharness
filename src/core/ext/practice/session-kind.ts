@@ -5,4 +5,4 @@
  * The single definition; layers import it instead of re-testing the kinds.
  */
 export const isPracticeLike = (kind: string | undefined): boolean =>
-	kind === "practice" || kind === "review" || kind === "office_hours";
+	kind === "practice" || kind === "review" || kind === "office_hours" || kind === "research";
