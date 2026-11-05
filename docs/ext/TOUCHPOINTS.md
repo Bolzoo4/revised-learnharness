@@ -4,7 +4,7 @@ The closed list of files of the LearnHarness fork that this extension edits. Any
 upstream file must stay byte-identical to `upstream/main` (REQ-int-04). Check with:
 
 ```bash
-git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/helpers/**' ':!docs/ext/**'
+git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/helpers/**' ':!docs/ext/**' ':!docs/superpowers/**' ':!app/api/ext/**' ':!components/ext/**' ':!scripts/ext-*'
 ```
 
 | File | Why | Added in |
@@ -22,7 +22,10 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/server/chat-handler.ts` | `isPracticeLike` helper, the review agent branch, two imports | Personal layer |
 | `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `review` session | Personal layer |
 | `src/server/index.ts` | barrel line `export * from "./ext/index.ts";` (shared with other plans) | Personal layer |
-| `src/core/index.ts` | barrel line `export * from "./ext/index.ts";` (browser-safe ext helpers for the node panel) | Node knowledge |
+| `src/core/index.ts` | one line: `export * from "./ext/index.ts"` (browser-safe ext barrel) | Node knowledge |
+| `app/layout.tsx` | mounts `<NodePanelHost />` | Node knowledge |
+| `components/graph-view.tsx` | "Open node panel" button in the node detail card | Node knowledge |
+| `components/graph-context-card.tsx` | proposition name opens the node panel | Node knowledge |
 
 Planned (not yet touched): the PDF viewer
 and MCP dependencies in `package.json`.

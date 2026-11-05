@@ -167,3 +167,68 @@ Inputs: `now`, the deck, node states, review history, parameters (budget 1500 s,
 ## Goal completion
 
 `applyExerciseResult(goalId, results[{nodeId, outcome}])`, outcome `passed` | `weak` | `failed`. Preconditions (checked before any write): the goal exists and is `active`; `results` is non-empty; every node exists. Effects: one `review` event per result with `channel = exercise`, `durationSec = 0`, `rating` 3 for `passed` and 1 otherwise; then, if every result is `passed` AND every target node of the goal has a result, a `goals.jsonl` `status: reached` event. No other code path writes `reached`.
+
+## `explanations.jsonl`
+
+Event `version`: `{type:"version", nodeId, version, body, author, sourceRefs, styleVersion, fingerprint, noSource, proposed, at}`
+- `nodeId`: non-empty string. `version`: integer >= 1, unique per node (the first line for a pair wins).
+- `body`: non-blank Markdown with math in `$...$` and inline node links `[[<node id>]]`.
+- `author`: `agent` | `user`. `sourceRefs`: array of snapshot hashes (may be empty). `styleVersion`: string
+  (first 12 hex digits of the SHA-256 of the style guide text for the agent, `"user"` for user text).
+- `fingerprint`: string, the concluding-chains fingerprint at write time (may be empty). `noSource`: boolean,
+  true when generated without source text ("no source context"). `proposed`: boolean; true only when `author` is `agent`.
+- `at`: ISO-8601 timestamp.
+
+Event `decision`: `{type:"decision", nodeId, version, decision, at}` with `decision` in `approved` | `rejected`.
+It binds only a version whose `proposed` is true; any other decision is ignored.
+
+Derivation (`deriveExplanations`), per node:
+- accepted version: `proposed` is false, or an `approved` decision exists for it;
+- current explanation: the accepted version with the highest number, else none;
+- pending proposal: the highest-numbered `proposed` version with no decision whose number is greater than the current's, else none;
+- `latestVersion`: the highest version number written, proposals and rejected ones included (next version = latest + 1).
+
+Writing rules: an agent text over a current version whose `author` is `user` is written with `proposed = true`;
+in every other case `proposed = false`. The agent never writes a `decision`. A user edit is a `version` with `author = "user"`,
+`proposed = false`, `styleVersion = "user"`, `sourceRefs = []`, `noSource = false` and the current fingerprint.
+An explanation never changes a node's trust level; no explanation event carries trust data.
+
+## Concluding-chains fingerprint and staleness
+
+`concludingFingerprint(nodeId, chains)`: for every chain whose `conclusion` is `nodeId`, take its distinct premise ids, sort them
+in code-unit order and join with `,`; de-duplicate these strings, sort them in code-unit order and join with `|`.
+A node that no chain concludes yields the empty string. Chain ids are not used (the merger rewrites them).
+An explanation is **stale** when its stored `fingerprint` differs from the current value. A stale explanation stays readable and is
+regenerated at the next opening: as a plain new version when the current is agent-authored, as a proposal when it is user-authored.
+Generation is skipped when a pending proposal already carries the current fingerprint.
+
+## Complexity and form
+
+`premiseDepth(n)`: 0 if no chain concludes `n`; otherwise 1 plus the maximum of `premiseDepth(p)` over all premises `p` of all chains
+concluding `n`; a premise already on the current path is skipped (cycle cut).
+A node is **complex** when some chain concluding it has at least 3 distinct premises, or `premiseDepth(n) >= 3`.
+Complex nodes get the `long` form, all others the `short` form.
+
+## Deterministic checks
+
+`checkExplanation(body, validIds, maxSentenceWords = 25)` returns `errors` and `warnings`.
+- Errors (the text is refused): empty or blank body; a link `[[id]]` (id: one or more characters other than `[`, `]` and whitespace)
+  whose id is not an existing node; a placeholder (`TODO`, `TBD`, `FIXME`, `XXX` as whole upper-case words; `lorem ipsum`, `[...]`,
+  `[insert ...]`, `<placeholder>` case-insensitively).
+- Warnings (never refuse): a sentence longer than `maxSentenceWords` words. Sentences are the prose with fenced code, `$$...$$` and
+  `$...$` formulas (counted as one word), headings and list markers removed, and each link counted as one word, split after `.`, `!`, `?`
+  followed by whitespace and at line breaks.
+- A refused agent text is regenerated with the problems as feedback, at most 2 times (3 attempts); then it is dropped and nothing is written.
+
+## Back-links and batching
+
+- Back-links are never stored. `mentionedBy(n)` = ids of the nodes, other than `n`, whose current explanation body links to `n`, sorted.
+  Citing lectures come from lecture records, never from this ledger.
+- Batching (`planBatches`): sort the requested ids; breadth-first over the undirected premise-conclusion adjacency among them, each
+  component starting at its smallest id and neighbours visited in sorted order; cut the visiting order into batches of 6.
+
+## Neighbourhood
+
+`neighbourhood(centre, chains, depth)` with depth 1 or 2: the nodes within `depth` steps over the undirected premise-conclusion
+adjacency (centre depth 0), sorted by depth then id, and the distinct `premise -> conclusion` edges whose endpoints are both included.
+Derived on every call, never stored.
