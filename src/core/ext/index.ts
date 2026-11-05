@@ -8,3 +8,12 @@ export * from "./explanation-check.ts";
 export * from "./neighbourhood.ts";
 export * from "./node-panel-types.ts";
 export * from "./panel-history.ts";
+export { activeCue } from "./lecture/cues.ts";
+export { parseNodeLinks, stripNodeLinks, type TextPart } from "./lecture/lecture.ts";
+export type {
+	Block as LectureBlock,
+	Cue as LectureCue,
+	Lecture,
+	Slide as LectureSlide,
+	SlideElement as LectureSlideElement,
+} from "./lecture/lecture.ts";
