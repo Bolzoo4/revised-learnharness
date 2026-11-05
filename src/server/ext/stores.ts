@@ -14,6 +14,7 @@ import { parseOfficeHoursEvent } from "../../core/ext/practice/office-hours.ts";
 import { createGoalsStore } from "../../store/ext/goals-store.ts";
 import { createLecturesStore } from "../../store/ext/lectures-store.ts";
 import { createLedger } from "../../store/ext/ledger.ts";
+import { createResearchStore } from "../../store/ext/research-store.ts";
 import { createReviewStore } from "../../store/ext/review-store.ts";
 import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
@@ -33,6 +34,8 @@ export const extStores = {
 	officeHoursLedger: createLedger(EXT_PATHS.dir, "office-hours.jsonl", parseOfficeHoursEvent),
 	exercisesLedger: createLedger(EXT_PATHS.dir, "exercises.jsonl", parseExerciseEvent),
 	explanationsStore: createExplanationsStore(EXT_PATHS.dir),
+	/** ONE store per data dir: the cycle's busy guard is keyed on its `log` object (and `lockKey`). */
+	researchStore: createResearchStore(EXT_PATHS.dir),
 };
 
 export type ExtStores = typeof extStores;
