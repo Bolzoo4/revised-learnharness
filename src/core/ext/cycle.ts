@@ -181,6 +181,12 @@ export async function runCycle(deps: CycleDeps, trigger: CycleLogEntry["trigger"
 	}
 }
 
+/** True while a cycle runs on this log (or lock key) in this process. Synchronous, so a caller can refuse a second start before it begins. */
+export function isCycleRunning(log: object, lockKey?: string): boolean {
+	const key = isStr(lockKey) && lockKey !== "" ? lockKey : null;
+	return running.has(log) || (key !== null && runningKeys.has(key));
+}
+
 async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigger"]): Promise<CycleLogEntry> {
 	const config = deps.config;
 	const maxGaps = boundedInt(config.maxGapsPerCycle, 0, DEFAULT_RESEARCH_CONFIG.maxGapsPerCycle);
