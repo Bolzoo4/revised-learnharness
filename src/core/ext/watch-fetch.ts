@@ -24,7 +24,8 @@ export interface FeedFetcherOptions {
 
 const TYPE_OK = /^(?:(?:application|text)\/(?:[\w.-]+\+)?xml|text\/plain)$/;
 
-class FeedError extends Error {
+/** An error of the feed fetch. Its message is always "feed: <fixed reason>": no URL, header or network detail. */
+export class FeedError extends Error {
 	constructor(message: string) {
 		super(`feed: ${message}`);
 		this.name = "FeedError";
@@ -35,27 +36,49 @@ function hostRule(url: string): string | null {
 	return validateWatchTarget({ kind: "feed", query: url });
 }
 
+/** The declared length, or null when the header is absent or not a plain integer (a malformed value is treated as absent). */
+function declaredLength(res: Response): number | null {
+	const raw = res.headers.get("content-length");
+	return raw !== null && /^\d+$/.test(raw.trim()) ? Number(raw) : null;
+}
+
+/** Decodes with the content-type's charset; an unknown or missing charset is utf-8. */
+function decoderFor(contentType: string | null): TextDecoder {
+	const m = /charset\s*=\s*"?([^";\s]+)"?/i.exec(contentType ?? "");
+	try {
+		return new TextDecoder(m ? m[1]! : "utf-8");
+	} catch {
+		return new TextDecoder("utf-8");
+	}
+}
+
 async function readCapped(res: Response, maxBytes: number, signal: AbortSignal): Promise<string> {
-	const declared = Number(res.headers.get("content-length") ?? 0);
-	if (declared > maxBytes) {
+	const declared = declaredLength(res);
+	if (declared !== null && declared > maxBytes) {
 		await res.body?.cancel().catch(() => {});
 		throw new FeedError("response too large");
 	}
 	if (res.body === null) return "";
 	const reader = res.body.getReader();
-	const onAbort = () => void reader.cancel().catch(() => {});
-	signal.addEventListener("abort", onAbort, { once: true });
+	// One abort promise and one listener for the whole body; both are removed in `finally`.
+	let rejectAborted: (e: Error) => void = () => {};
+	const aborted = new Promise<never>((_r, rej) => {
+		rejectAborted = rej;
+	});
+	aborted.catch(() => {}); // settled by the abort below; never an unhandled rejection
+	const onAbort = (): void => {
+		rejectAborted(new FeedError("timed out"));
+		void reader.cancel().catch(() => {});
+	};
+	if (signal.aborted) onAbort();
+	else signal.addEventListener("abort", onAbort, { once: true });
 	const chunks: Uint8Array[] = [];
 	let total = 0;
 	try {
 		for (;;) {
-			const aborted = new Promise<never>((_r, rej) => {
-				if (signal.aborted) rej(new FeedError("timed out"));
-				signal.addEventListener("abort", () => rej(new FeedError("timed out")), { once: true });
-			});
 			const { done, value } = await Promise.race([reader.read(), aborted]);
+			if (done) break; // a body that completed is complete, even if the deadline passed in the same tick
 			if (signal.aborted) throw new FeedError("timed out");
-			if (done) break;
 			total += value.byteLength;
 			if (total > maxBytes) {
 				await reader.cancel().catch(() => {});
@@ -72,7 +95,7 @@ async function readCapped(res: Response, maxBytes: number, signal: AbortSignal):
 		all.set(c, at);
 		at += c.byteLength;
 	}
-	return new TextDecoder("utf-8").decode(all);
+	return decoderFor(res.headers.get("content-type")).decode(all);
 }
 
 export function createFeedFetcher(options: FeedFetcherOptions = {}): (entry: WatchEntry) => Promise<FeedItem[]> {
@@ -99,13 +122,13 @@ export function createFeedFetcher(options: FeedFetcherOptions = {}): (entry: Wat
 					await res.body?.cancel().catch(() => {});
 					if (hop >= MAX_FEED_REDIRECTS) throw new FeedError("too many redirects");
 					const location = res.headers.get("location");
+					if (location === null || location === "") throw new FeedError("redirect without a usable location");
 					let next: URL;
 					try {
-						next = new URL(location ?? "", url);
+						next = new URL(location, url);
 					} catch {
 						throw new FeedError("redirect without a usable location");
 					}
-					if (location === null || location === "") throw new FeedError("redirect without a usable location");
 					if (new URL(url).protocol === "https:" && next.protocol !== "https:") throw new FeedError("redirect refused: https to http");
 					if (hostRule(next.href) !== null) throw new FeedError("redirect refused: target is not a public http(s) address");
 					url = next.href;

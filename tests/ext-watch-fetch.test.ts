@@ -1,5 +1,6 @@
 // tests/ext-watch-fetch.test.ts
 import assert from "node:assert/strict";
+import { getEventListeners } from "node:events";
 import { describe, it } from "node:test";
 import { createFeedFetcher } from "../src/core/ext/watch-fetch.ts";
 import { MAX_FEED_BYTES, feedUrl, type WatchEntry } from "../src/core/ext/watch.ts";
@@ -160,5 +161,43 @@ describe("createFeedFetcher: body, type, time, errors", () => {
 		assert.equal((await createFeedFetcher({ fetch: a.f })(feed("https://x.org/f")))[0]!.title, "Héllo");
 		const b = fake(() => new Response(null, { status: 200, headers: XML }));
 		assert.deepEqual(await createFeedFetcher({ fetch: b.f })(feed("https://x.org/f")), []);
+	});
+});
+
+describe("createFeedFetcher: hardening of the body reader", () => {
+	it("keeps at most one abort listener on the request signal however many chunks the body has", async () => {
+		let signal: AbortSignal | undefined;
+		const stream = new ReadableStream<Uint8Array>({
+			start(c) {
+				for (let i = 0; i < 5000; i++) c.enqueue(new Uint8Array([0x20]));
+				c.close();
+			},
+		});
+		const { f } = fake((_u, _n, init) => {
+			signal = init!.signal!;
+			return new Response(stream, { status: 200, headers: XML });
+		});
+		await createFeedFetcher({ fetch: f })(feed("https://x.org/f"));
+		assert.ok(getEventListeners(signal!, "abort").length <= 1, `listeners left: ${getEventListeners(signal!, "abort").length}`);
+	});
+
+	it("decodes the body with the charset named in content-type", async () => {
+		const latin1Bytes = Buffer.from(ATOM.replace("Hello", "café"), "latin1"); // é is the single byte 0xE9
+		const { f } = fake(() => new Response(latin1Bytes, { status: 200, headers: { "content-type": "application/atom+xml; charset=iso-8859-1" } }));
+		assert.equal((await createFeedFetcher({ fetch: f })(feed("https://x.org/f")))[0]!.title, "café");
+	});
+
+	it("falls back to utf-8 for an unknown charset and ignores a malformed content-length", async () => {
+		const { f } = fake(() => new Response(ATOM.replace("Hello", "Héllo"), { status: 200, headers: { "content-type": "application/atom+xml; charset=no-such-charset", "content-length": "abc" } }));
+		assert.equal((await createFeedFetcher({ fetch: f })(feed("https://x.org/f")))[0]!.title, "Héllo");
+	});
+
+	it("exports FeedError, whose instances carry the feed: prefix", async () => {
+		const mod = (await import("../src/core/ext/watch-fetch.ts")) as unknown as { FeedError?: new (m: string) => Error };
+		assert.equal(typeof mod.FeedError, "function");
+		const { f } = fake(() => new Response(null, { status: 503 }));
+		const err = await createFeedFetcher({ fetch: f })(feed("https://x.org/f")).catch((e: unknown) => e);
+		assert.ok(mod.FeedError !== undefined && err instanceof mod.FeedError);
+		assert.equal((err as Error).message, "feed: HTTP 503");
 	});
 });
