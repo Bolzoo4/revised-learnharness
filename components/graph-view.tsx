@@ -76,6 +76,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
+import { TrustBadge } from "@/components/ext/trust-badge.tsx";
 import { Hint } from "@/components/ui/hint";
 import {
 	ARROW_LENGTH_LADDER,
@@ -1623,6 +1624,7 @@ export function GraphView({
 				>
 					<div className="text-sm font-medium leading-snug">{selected.node.name}</div>
 					<div className="mt-1 text-xs leading-relaxed text-muted-foreground">{selected.node.statement}</div>
+					<TrustBadge nodeId={selected.node.id} />
 					{selected.sourceIds.length > 0 ? (
 						<div className="mt-3 flex flex-col gap-1">
 							<div className="text-xs text-muted-foreground">Sessions</div>
