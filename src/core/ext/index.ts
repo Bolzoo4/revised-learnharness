@@ -8,6 +8,7 @@ export * from "./explanation-check.ts";
 export * from "./neighbourhood.ts";
 export * from "./node-panel-types.ts";
 export * from "./panel-history.ts";
+export { isPracticeLike } from "./practice/session-kind.ts";
 export { activeCue } from "./lecture/cues.ts";
 export { parseNodeLinks, stripNodeLinks, type TextPart } from "./lecture/lecture.ts";
 export type {

@@ -14,6 +14,7 @@ import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
 import { chatGPTStreamError } from "../agent/chatgpt-stream.ts";
 import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "../agent/subscription-request-cycle.ts";
 import { reconstructRequestCause } from "../core/native-messages.ts";
+import { isPracticeLike } from "../core/ext/index.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import type { ModelRole } from "../../config.ts";
@@ -69,9 +70,6 @@ import {
 } from "../core/input-events.ts";
 import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage} from "../core/contracts.ts";
-
-/** Sessions that write nothing to the graph and compact like practice (practice, and the extension's review and office_hours kinds). */
-const isPracticeLike = (kind: string | undefined): boolean => kind === "practice" || kind === "review" || kind === "office_hours";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
