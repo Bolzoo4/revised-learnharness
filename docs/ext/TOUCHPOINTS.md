@@ -36,6 +36,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/source-organization.ts` | `chainSourceDirectory` hides every practice-like session (office hours, review) via `isPracticeLike` | Practice-like sessions |
 | `components/minimal-home.tsx` | home counts practice-like sessions as practice | Practice-like sessions |
 | `components/chain-table.tsx` | chain filter hides sources of practice-like sessions | Practice-like sessions |
+| `src/agent/subagents/pi-run.ts` | `SubagentRunOptions.onAgent?`, one call after the `Agent` is built, so a running research cycle can be steered (REQ-rs-16) | Research loop |
 
 Planned (not yet touched): the PDF viewer
 and MCP dependencies in `package.json`.

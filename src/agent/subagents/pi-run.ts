@@ -46,6 +46,8 @@ export interface SubagentRunOptions {
 	 *  "job:<role>"). Absent or env-off → no observer.
 	 *  Also identifies the source in opt-in LH_BACKGROUND_CAPTURE captures. */
 	chatId?: string;
+	/** Hands the live Agent to the caller right after construction (the research loop steers it). */
+	onAgent?: (agent: Agent) => void;
 }
 
 export interface SubagentRunResult {
@@ -92,6 +94,7 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 		},
 	});
 
+	opts.onAgent?.(agent);
 	const onAbort = () => agent.abort();
 	opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
 

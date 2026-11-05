@@ -64,6 +64,8 @@ export interface GapFinding {
 	sources: FoundSource[];
 	/** Locators the agent cited but never fetched. */
 	unfetched: string[];
+	/** Locators the agent fetched but whose text is not capturable (cut by the tool, or past the byte budget). Logged, never ingested. */
+	notCapturable?: string[];
 }
 
 export interface WatchClassification {
@@ -325,6 +327,10 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 		for (const raw of Array.isArray(finding.unfetched) ? finding.unfetched.slice(0, maxSources) : []) {
 			const locator = isStr(raw) ? normalizeLocator(raw) : "";
 			if (locator !== "") log.sources.push({ locator, outcome: "not-fetched", nodesAdded: 0 });
+		}
+		for (const raw of Array.isArray(finding.notCapturable) ? finding.notCapturable.slice(0, maxSources) : []) {
+			const locator = isStr(raw) ? normalizeLocator(raw) : "";
+			if (locator !== "") log.sources.push({ locator, outcome: "not-capturable", nodesAdded: 0 });
 		}
 		const inbox = readInbox();
 		for (const src of Array.isArray(finding.sources) ? finding.sources.slice(0, maxSources) : []) {

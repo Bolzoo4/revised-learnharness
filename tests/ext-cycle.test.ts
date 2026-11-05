@@ -65,6 +65,16 @@ describe("runCycle", () => {
 		assert.equal(inbox.events.length, 3);
 	});
 
+	it("a fetched page whose text is not capturable is logged as not-capturable and never ingested (review rule 3)", async () => {
+		const { deps, calls } = fakeDeps({
+			researchGap: async () => finding({ notCapturable: ["https://long.org/paper"] }),
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual(entry.gaps[0]!.sources.map((s) => [s.locator, s.outcome]), [["https://long.org/paper", "not-capturable"]]);
+		assert.deepEqual(calls.ingested, []);
+		assert.equal(entry.gaps[0]!.nodesAdded, 0);
+	});
+
 	it("a stop mark excludes its region; a hold mark keeps only verification (REQ-rs-03, REQ-res-02)", async () => {
 		const stop: FrontierEvent = { type: "set", markId: "m1", scope: { kind: "goal", id: "goal_1" }, mark: "stop", note: "", author: "user", at: "t" };
 		const stopped = fakeDeps({ frontier: memLog([stop]) });
