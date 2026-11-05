@@ -22,7 +22,13 @@ const redirect = (to: string, status = 302) => new Response(null, { status, head
 const ok = (body: string, headers: Record<string, string> = XML) => new Response(body, { status: 200, headers });
 
 describe("createFeedFetcher: targets", () => {
-	for (const q of ["http://localhost/f", "http://169.254.169.254/latest", "http://10.0.0.5/f", "http://[::1]/f", "https://user:pw@x.org/f", "ftp://x.org/f"]) {
+	const refused = [
+		"http://localhost/f", "http://169.254.169.254/latest", "http://10.0.0.5/f", "http://[::1]/f", "https://user:pw@x.org/f", "ftp://x.org/f",
+		"https://100.100.100.200/", "http://[::ffff:100.64.0.1]/f", "https://192.0.0.1/f", "https://198.18.0.1/f", "https://224.0.0.1/f",
+		"https://255.255.255.255/f", "http://[ff02::1]/f", "http://[fec0::1]/f", "http://[2002:7f00:1::1]/f", "http://0.0.0.0/f",
+		"http://[::ffff:127.0.0.1]/f", "http://127.1/f", "http://[fe80::1]/f", "http://[fd00::1]/f", "http://x.localhost/f", "http://x.internal/f",
+	];
+	for (const q of refused) {
 		it(`rejects ${q} before any network call`, async () => {
 			const { f, calls } = fake(() => ok(ATOM));
 			await assert.rejects(createFeedFetcher({ fetch: f })(feed(q)), /feed|watch/i);

@@ -413,6 +413,29 @@ describe("hardening 2: watch targets (SSRF)", () => {
 			assert.notEqual(feed(`http://${h}/f`), null, h);
 		}
 	});
+	it("rejects shared (CGN), IETF-reserved, benchmarking, multicast and reserved IPv4 ranges", () => {
+		for (const h of ["100.64.0.1", "100.100.100.200", "100.127.255.255", "192.0.0.1", "192.0.0.170", "198.18.0.1", "198.19.255.255", "224.0.0.1", "239.255.255.255", "240.0.0.1", "255.255.255.255"]) {
+			assert.notEqual(feed(`https://${h}/f`), null, h);
+		}
+	});
+	it("keeps the public neighbours of those ranges allowed", () => {
+		for (const h of ["100.63.255.255", "100.128.0.1", "192.0.1.1", "198.17.255.255", "198.20.0.1", "223.255.255.255"]) {
+			assert.equal(feed(`https://${h}/f`), null, h);
+		}
+	});
+	it("rejects multicast, site-local and 6to4 IPv6 that embeds a private address", () => {
+		for (const h of ["[ff02::1]", "[ff00::1]", "[fec0::1]", "[feff::1]", "[2002:7f00:1::1]", "[2002:0a00:1::1]", "[::ffff:100.64.0.1]", "[2002:a9fe:a9fe::1]"]) {
+			assert.notEqual(feed(`http://${h}/f`), null, h);
+		}
+	});
+	it("keeps a 6to4 address that embeds a public IPv4 allowed", () => {
+		assert.equal(feed("https://[2002:0808:0808::1]/f"), null);
+	});
+	it("rejects the remaining listed hosts", () => {
+		for (const u of ["http://0.0.0.0/f", "http://[::ffff:127.0.0.1]/f", "http://127.1/f", "http://[fe80::1]/f", "http://[fd00::1]/f", "http://x.localhost/f", "http://x.internal/f"]) {
+			assert.notEqual(feed(u), null, u);
+		}
+	});
 	it("rejects repo names made of dots", () => {
 		assert.notEqual(validateWatchTarget({ kind: "repo", query: "o/.." }), null);
 		assert.notEqual(validateWatchTarget({ kind: "repo", query: "../n" }), null);

@@ -58,9 +58,23 @@ export function parseWatchlist(raw: unknown): WatchEntry[] {
 
 const isDots = (s: string): boolean => /^\.+$/.test(s);
 
-/** True for IPv4 addresses that are not public: 0/8, 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16. */
-function privateV4(a: number, b: number): boolean {
-	return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+/**
+ * True for IPv4 addresses that are not public: 0/8, 10/8, 100.64/10 (shared), 127/8, 169.254/16,
+ * 172.16/12, 192.0.0/24, 192.168/16, 198.18/15 (benchmarking), and 224/3 (multicast and reserved, incl. 255.255.255.255).
+ */
+function privateV4(a: number, b: number, c: number): boolean {
+	return (
+		a === 0 ||
+		a === 10 ||
+		a === 127 ||
+		(a === 100 && b >= 64 && b <= 127) ||
+		(a === 169 && b === 254) ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 0 && c === 0) ||
+		(a === 192 && b === 168) ||
+		(a === 198 && (b === 18 || b === 19)) ||
+		a >= 224
+	);
 }
 
 /** `host` is the URL's canonical IPv6 text without brackets (lowercase, hex groups only, "::" allowed). */
@@ -77,8 +91,9 @@ function privateV6(host: string): boolean {
 	const first6Zero = g.slice(0, 6).every((x) => x === 0);
 	const mapped = g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff;
 	const nat64 = g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0);
-	if (first6Zero || mapped || nat64) return privateV4(g[6]! >> 8, g[6]! & 0xff);
-	return (g[0]! & 0xfe00) === 0xfc00 || (g[0]! & 0xffc0) === 0xfe80;
+	if (first6Zero || mapped || nat64) return privateV4(g[6]! >> 8, g[6]! & 0xff, g[7]! >> 8);
+	if (g[0] === 0x2002) return privateV4(g[1]! >> 8, g[1]! & 0xff, g[2]! >> 8); // 6to4 embeds its IPv4 in groups 1-2
+	return (g[0]! & 0xfe00) === 0xfc00 || (g[0]! & 0xffc0) === 0xfe80 || (g[0]! & 0xffc0) === 0xfec0 || (g[0]! & 0xff00) === 0xff00;
 }
 
 /** True for a local/internal name or non-public address; the URL parser has already normalized decimal/hex/octal IPv4 forms. */
@@ -87,7 +102,7 @@ function privateHost(hostname: string): boolean {
 	if (h.startsWith("[")) return privateV6(h.slice(1, -1));
 	if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true;
 	const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
-	return v4 !== null && privateV4(Number(v4[1]), Number(v4[2]));
+	return v4 !== null && privateV4(Number(v4[1]), Number(v4[2]), Number(v4[3]));
 }
 
 /**
