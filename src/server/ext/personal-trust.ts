@@ -1,13 +1,9 @@
 // src/server/ext/personal-trust.ts
-/**
- * ASSUMED INTERFACE (source-verification plan): the live trust level of a
- * node, shown to the review agent. Until verification is wired in, every
- * node reads "unverified". The verification integration task replaces the
- * body of this one function.
- */
+/** The live trust level of a node, shown to the review agent (source-verification plan). */
 
 import type { TrustLevel } from "../../core/ext/review-queries.ts";
+import { trustViews } from "./verification.ts";
 
-export function trustOfNode(_nodeId: string): TrustLevel {
-	return "unverified";
+export function trustOfNode(nodeId: string): TrustLevel {
+	return trustViews([nodeId])[0]?.level ?? "unverified";
 }
