@@ -10,9 +10,12 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | File | Why | Added in |
 |---|---|---|
 | `package.json` | `allowScripts` entries for `fsevents`, `protobufjs`, `unrs-resolver` | Foundation |
+| `src/server/chat-handler.ts` | wrap the exported `extraction` pipeline with `withPostMerge(…, verifyAfterMerge)` (post-merge verification, REQ-src-13) | Source verification |
+| `src/server/index.ts` | barrel line `export * from "./ext/index.ts";` so `app/` routes can reach ext server functions | Source verification |
+| `app/api/chats/route.ts` | tag picked propositions with their trust level in the graph-context message (REQ-src-15) | Source verification |
+| `components/graph-view.tsx` | mount `<TrustBadge />` under the node statement in the detail card (REQ-src-15) | Source verification |
 
-Planned (not yet touched): `src/server/chat-handler.ts` (post-extraction verification hook),
-the `kind` union of `ChatRecord` (`src/core/contracts/chat.ts`), `src/server/index.ts` and
+Planned (not yet touched): the `kind` union of `ChatRecord` (`src/core/contracts/chat.ts`) and
 `src/core/index.ts` (barrel exports when routes and UI arrive), `package.json` (FSRS, PDF viewer
 and MCP dependencies).
 
