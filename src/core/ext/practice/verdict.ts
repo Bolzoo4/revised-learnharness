@@ -5,11 +5,11 @@
  * quotation from the designated source occurs in the source text (the
  * verification stage's checkQuote: normalization, minimum length) and, for
  * `matches` / `differs`, its quotation of the student's work occurs in the
- * work. With nothing surviving the answer is "not_verifiable": the model's own
+ * work and is at least as long as the minimum quote length. With nothing surviving the answer is "not_verifiable": the model's own
  * judgment is never the verdict.
  */
 
-import { checkQuote, normalizeForMatch } from "../quote.ts";
+import { checkQuote, normalizeForMatch, MIN_QUOTE_CHARS } from "../quote.ts";
 
 /** matches: the work says what the source step says. differs: the work states something else for that step. missing: the work has no counterpart. */
 export type VerdictStance = "matches" | "differs" | "missing";
@@ -24,7 +24,7 @@ export interface VerdictItem {
 	stance: VerdictStance;
 }
 
-export type VerdictDiscard = "quote_not_found" | "quote_too_short" | "work_quote_not_found";
+export type VerdictDiscard = "quote_not_found" | "quote_too_short" | "work_quote_too_short" | "work_quote_not_found";
 export type VerdictOutcome = "consistent" | "differs" | "not_verifiable";
 
 const STANCES = new Set<string>(["matches", "differs", "missing"]);
@@ -54,6 +54,11 @@ export function checkVerdictItems(
 		const q = checkQuote(source, item.sourceQuote);
 		if (q !== "ok") {
 			discarded.push({ stepRef: item.stepRef, reason: q });
+			continue;
+		}
+		// The work quotation needs the same minimum as the source one: a trivial fragment ("2", "even") occurs in almost any work and proves nothing.
+		if (item.stance !== "missing" && normalizeForMatch(item.workQuote, "join").length < MIN_QUOTE_CHARS) {
+			discarded.push({ stepRef: item.stepRef, reason: "work_quote_too_short" });
 			continue;
 		}
 		if (item.stance !== "missing" && !contains(work, item.workQuote)) {

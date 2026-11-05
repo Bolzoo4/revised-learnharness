@@ -90,6 +90,8 @@ export function officeHoursTools(ctx: OfficeHoursToolContext): Record<string, Ag
 	const tools: Record<string, AgentTool<any>> = { read_source, ask_user_question: askUserQuestionTool };
 
 	if (verdictRequested(messages)) {
+		// The verdict is recorded (and an exercise graded) once per turn: a repeat call would record a second, possibly contradictory, verdict.
+		let submitted = false;
 		const verdict: AgentTool<typeof verdictInput> = {
 			name: "verdict",
 			label: "verdict",
@@ -98,6 +100,7 @@ export function officeHoursTools(ctx: OfficeHoursToolContext): Record<string, Ag
 			parameters: verdictInput,
 			executionMode: "sequential",
 			execute: async (_id, input) => {
+				if (submitted) return invalidInputResult("verdict", ["the verdict was already recorded this turn; do not call verdict again"]);
 				const items: VerdictItem[] = [];
 				for (const raw of input.items) {
 					const item = parseVerdictItem(raw);
@@ -106,6 +109,7 @@ export function officeHoursTools(ctx: OfficeHoursToolContext): Record<string, Ag
 				}
 				try {
 					const report = ctx.submitVerdict(items, learnerTexts(messages).join("\n\n"));
+					submitted = true;
 					return { ...toToolResult(report.text), details: { kind: "verdict" } };
 				} catch (e) {
 					return invalidInputResult("verdict", [e instanceof Error ? e.message : String(e)]);

@@ -72,7 +72,7 @@ describe("free office-hours session (REQ-lec-12, 13, 14)", () => {
 		const s = h.svc.startSession({ label: "Manual ch.3", sourceText: SRC });
 		const tc = h.svc.toolContext(s.chatId, { getChat: () => null });
 		assert.deepEqual(tc.source(), { label: "Manual ch.3", text: SRC });
-		assert.match(tc.submitVerdict([item("s1", "Write each number as twice an integer", "Let a = 2k")], WORK).text, /consistent/);
+		assert.match(tc.submitVerdict([item("s1", "Write each number as twice an integer", "Let a = 2k and b = 2m")], WORK).text, /consistent/);
 	});
 	it("a session without a source gives no verdict", () => {
 		const h = harness();
@@ -85,7 +85,7 @@ describe("free office-hours session (REQ-lec-12, 13, 14)", () => {
 		const s = h.svc.startSession({ label: "M", sourceText: SRC });
 		const r = h.svc.submitVerdict(s.chatId, [
 			item("s1", "Write each number as twice an integer", "Let a = 2k and b = 2m"),
-			item("s2", "Add them and factor out the two", "a + b = 2(k + m)", "differs"),
+			item("s2", "Add them and factor out the two", "Then a + b = 2(k + m)", "differs"),
 			item("s3", "this quotation was never in the source at all", "Then a + b"),
 		], WORK);
 		assert.match(r.text, /differs from the designated source/);
@@ -98,7 +98,7 @@ describe("free office-hours session (REQ-lec-12, 13, 14)", () => {
 	it("with every quotation invented the verdict is not verifiable, never a model judgment", () => {
 		const h = harness();
 		const s = h.svc.startSession({ label: "M", sourceText: SRC });
-		const r = h.svc.submitVerdict(s.chatId, [item("s1", "an entirely invented passage of the source", "Let a = 2k")], WORK);
+		const r = h.svc.submitVerdict(s.chatId, [item("s1", "an entirely invented passage of the source", "Let a = 2k and b = 2m")], WORK);
 		assert.match(r.text, /Not verifiable/);
 	});
 	it("refuses a verdict before the learner has written anything", () => {
@@ -145,7 +145,7 @@ describe("graded exercises (REQ-lec-16, 17)", () => {
 		const sess = h.svc.startExercise({ setId, exerciseId: "ex1" });
 		return { h, setId, sess };
 	}
-	const both = [item("s1", "Write each number as twice an integer", "Let a = 2k and b = 2m"), item("s2", "Add them and factor out the two", "a + b = 2(k + m)")];
+	const both = [item("s1", "Write each number as twice an integer", "Let a = 2k and b = 2m"), item("s2", "Add them and factor out the two", "Then a + b = 2(k + m)")];
 
 	it("designates the reference solution and grades by node", async () => {
 		const { h, sess } = await setup();
@@ -176,7 +176,7 @@ describe("graded exercises (REQ-lec-16, 17)", () => {
 	});
 	it("a differing step reopens its nodes through the personal layer", async () => {
 		const { h, sess } = await setup();
-		h.svc.submitVerdict(sess.chatId, [both[0]!, item("s2", "Add them and factor out the two", "a + b = 2(k + m)", "differs")], WORK);
+		h.svc.submitVerdict(sess.chatId, [both[0]!, item("s2", "Add them and factor out the two", "Then a + b = 2(k + m)", "differs")], WORK);
 		const byNode = Object.fromEntries(h.applied[0]!.results.map((r) => [r.nodeId, r.outcome]));
 		assert.deepEqual(byNode, { n_a: "passed", n_c: "failed" });
 	});

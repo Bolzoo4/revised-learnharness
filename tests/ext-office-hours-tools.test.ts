@@ -57,6 +57,15 @@ describe("tools", () => {
 		assert.equal(submitted[0]!.work, "Let a=2k.\n\nThen a+b=2(k+m).");
 		assert.deepEqual(submitted[0]!.items, [item]);
 	});
+	it("verdict records only once: a second call is refused and not submitted", async () => {
+		const { ctx, submitted } = ctxFor(msgs("Let a=2k.", "/verdict"), { label: "S", text: "t" });
+		const tools = officeHoursTools(ctx);
+		const item = { stepRef: "s1", sourceQuote: "each is twice an integer", workQuote: "Let a=2k.", stance: "matches" as const };
+		await tools.verdict!.execute("t1", { items: [item] } as never);
+		const second = await tools.verdict!.execute("t2", { items: [item] } as never);
+		assert.equal((second as { isError?: boolean }).isError, true);
+		assert.equal(submitted.length, 1);
+	});
 	it("a service error becomes a retryable error result", async () => {
 		const { ctx } = ctxFor(msgs("/verdict"), null);
 		ctx.submitVerdict = () => {

@@ -8,7 +8,7 @@ const WORK = "Let a=2k and b=2m. Then a+b = 2(k+m), which is twice an integer.";
 const item = (over: Partial<VerdictItem>): VerdictItem => ({
 	stepRef: "s1",
 	sourceQuote: "each is twice an integer",
-	workQuote: "a+b = 2(k+m)",
+	workQuote: "a+b = 2(k+m), which is twice an integer",
 	stance: "matches",
 	...over,
 });
@@ -27,9 +27,14 @@ describe("checkVerdictItems (REQ-lec-14)", () => {
 	it("discards a too-short source quotation", () => {
 		assert.equal(checkVerdictItems([item({ sourceQuote: "even" })], SOURCE, WORK).discarded[0]!.reason, "quote_too_short");
 	});
+	it("discards a too-short work quotation (same minimum as the source check) but not an empty `missing`", () => {
+		assert.equal(checkVerdictItems([item({ workQuote: "a+b = 2(k+m)" })], SOURCE, WORK).discarded[0]!.reason, "work_quote_too_short");
+		assert.equal(checkVerdictItems([item({ workQuote: "twice", stance: "differs" })], SOURCE, WORK).kept.length, 0);
+		assert.equal(checkVerdictItems([item({ workQuote: "", stance: "missing" })], SOURCE, WORK).kept.length, 1);
+	});
 	it("discards matches/differs whose work quotation is not in the work, but not `missing`", () => {
-		assert.equal(checkVerdictItems([item({ workQuote: "never written" })], SOURCE, WORK).discarded[0]!.reason, "work_quote_not_found");
-		assert.equal(checkVerdictItems([item({ workQuote: "", stance: "matches" })], SOURCE, WORK).discarded[0]!.reason, "work_quote_not_found");
+		assert.equal(checkVerdictItems([item({ workQuote: "this was never written by the student" })], SOURCE, WORK).discarded[0]!.reason, "work_quote_not_found");
+		assert.equal(checkVerdictItems([item({ workQuote: "", stance: "matches" })], SOURCE, WORK).discarded[0]!.reason, "work_quote_too_short");
 		assert.equal(checkVerdictItems([item({ workQuote: "", stance: "missing" })], SOURCE, WORK).kept.length, 1);
 	});
 });

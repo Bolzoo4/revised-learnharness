@@ -7,7 +7,7 @@ const T = "2026-11-04T10:00:00.000Z";
 const item = (over: Partial<VerdictItem>): VerdictItem => ({
 	stepRef: "s1",
 	sourceQuote: "each is twice an integer",
-	workQuote: "a+b = 2(k+m)",
+	workQuote: "a+b = 2(k+m), which is twice an integer",
 	stance: "matches",
 	...over,
 });
