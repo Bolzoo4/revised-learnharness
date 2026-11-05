@@ -19,7 +19,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"review"` | Personal layer |
 | `src/store/chats.ts` | `createChat` stamps kind `"review"` | Personal layer |
 | `src/agent/teacher-agent.ts` | `AgentBuildOptions.instructions?` replaces the composed prompt | Personal layer |
-| `src/server/chat-handler.ts` | `isPracticeLike` helper, the review agent branch, two imports | Personal layer |
+| `src/server/chat-handler.ts` | imports `isPracticeLike` (defined in core), the review agent branch, two imports | Personal layer |
 | `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `review` session | Personal layer |
 | `src/server/index.ts` | barrel line `export * from "./ext/index.ts";` (shared with other plans) | Personal layer |
 | `src/core/index.ts` | one line: `export * from "./ext/index.ts"` (browser-safe ext barrel) | Node knowledge |
@@ -29,7 +29,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/contracts/chat.ts` | `ChatKind` gains `"office_hours"` (office-hours sessions) | Lectures and office hours |
 | `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"office_hours"` | Lectures and office hours |
 | `src/store/chats.ts` | `createChat` type widened to the same kinds | Lectures and office hours |
-| `src/server/chat-handler.ts` | `isPracticeLike` also accepts `office_hours`; the office-hours agent branch; two imports | Lectures and office hours |
+| `src/server/chat-handler.ts` | imports `isPracticeLike` (defined in core, also accepts `office_hours`); the office-hours agent branch; two imports | Lectures and office hours |
 | `app/chat/[id]/page.tsx` | pass `"teach"` to `Chat` for an `office_hours` session | Lectures and office hours |
 | `src/core/ext/index.ts` | appended exports for the lecture player | Lectures |
 | `src/server/ext/panel-providers.ts` | `lecturesCiting` member (lecture back-links in a node's panel) | Lectures |
