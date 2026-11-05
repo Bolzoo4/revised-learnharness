@@ -908,4 +908,141 @@ describe("runCycle review fixes: minor", () => {
 	});
 });
 
+describe("runCycle mutation survivors", () => {
+	const item = (id: string) => ({ id, title: `Paper ${id}`, link: `https://arxiv.org/abs/${id}`, summary: "gradients explained" });
+	const w1 = { id: "w1", kind: "arxiv-query" as const, query: "q", cadenceHours: 24 };
+	const gradientNodes = (ids: string[]) => ids.map((id) => ({ id, name: `name-${id}`, statement: `Statement of ${id} about gradients.` }));
+
+	it("maxGapsPerCycle 0 runs no gap", async () => {
+		const { deps, calls } = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 0 } });
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual([entry.gaps.length, calls.research.length, entry.stoppedBy], [0, 0, "no-gaps"]);
+	});
+
+	it("budget spent by earlier cycles counts together with this cycle's gaps", async () => {
+		const mark: FrontierEvent = { type: "set", markId: "mb", scope: { kind: "goal", id: "goal_1" }, mark: "expand", budgetUsd: 0.1, note: "", author: "user", at: "t" };
+		const prior: CycleLogEntry = {
+			type: "cycle", cycleId: "old", trigger: "manual", startedAt: "2026-11-01T00:00:00.000Z", endedAt: "2026-11-01T00:01:00.000Z", stoppedBy: "completed",
+			gaps: [{ gapId: "g", type: "no-premises", markId: "mb", questions: [], sources: [], nodesAdded: 0, costUsd: 0.06, saturated: false }],
+			watch: { entries: 0, items: 0, ingested: 0, inbox: 0 }, nodesAdded: 0, costUsd: 0.06, steers: [],
+		};
+		const ids: string[] = [];
+		const { deps } = fakeDeps({ log: memLog([prior]), frontier: memLog([mark]), researchGap: async (g) => (ids.push(g.id), finding({ costUsd: 0.05 })) });
+		await runCycle(deps, "manual");
+		assert.deepEqual(ids, ["no-premises:p1"]); // 0.06 + 0.05 >= 0.1: the second gap is excluded
+	});
+
+	it("an active check accepts the raw locator or the normalized one", async () => {
+		const { deps, calls } = fakeDeps({
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 },
+			library: { isActive: (l) => l === "HTTPS://Active.org/a/#frag" || l === "https://active.org/b", activeLocators: () => [], activate: () => {} },
+			researchGap: async () => finding({ sources: [src("HTTPS://Active.org/a/#frag"), src("HTTPS://Active.org/b/")] }),
+		});
+		const g = (await runCycle(deps, "manual")).gaps[0]!;
+		assert.deepEqual(g.sources.map((s) => s.outcome), ["ingested", "ingested"]);
+		assert.deepEqual(calls.ingested, ["https://active.org/a", "https://active.org/b"]);
+	});
+
+	it("non-string steers are filtered before they reach the researcher", async () => {
+		const seen: string[][] = [];
+		const { deps } = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, takeSteers: () => ["a", 3, null] as unknown as string[], researchGap: async (_g, o) => (seen.push(o.steers), finding()) });
+		await runCycle(deps, "manual");
+		assert.deepEqual(seen, [["a"]]);
+	});
+
+	it("when the first log append throws, the retry carries no steers or optional text but keeps cost, counts and sources", async () => {
+		const real = memLog<CycleLogEntry>();
+		let tries = 0;
+		const flaky = { readAll: real.readAll, append: (e: CycleLogEntry) => { if (++tries === 1) throw new Error("rejected"); real.append(e); } };
+		const { deps } = fakeDeps({
+			log: flaky,
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 },
+			allSteers: () => ["steer me"],
+			researchGap: async () => finding({ costUsd: 0.25, questions: ["q?"], sources: [src("https://a.org/x")] }),
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual(entry.steers, ["steer me"]);
+		const saved = real.events[0]!;
+		assert.deepEqual([saved.steers, saved.costUsd, saved.gaps[0]!.questions, saved.gaps[0]!.costUsd], [[], 0.25, [], 0.25]);
+		assert.deepEqual([saved.gaps[0]!.confidence, saved.gaps[0]!.rationale, saved.gaps[0]!.sources.length], [undefined, undefined, 1]);
+	});
+
+	it("watch scope: only active goals count, and an entry's goalId narrows it to that goal", async () => {
+		const gnodes = gradientNodes(["t", "p1", "p2", "u", "u1"]);
+		const gchains = [{ premises: ["p1", "p2"], conclusion: "t" }, { premises: ["u1"], conclusion: "u" }];
+		const cand: string[][] = [];
+		const base = {
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 0 },
+			graph: () => ({ nodes: gnodes, chains: gchains }),
+			fetchItems: async () => [item("1")],
+			classify: async (_i: unknown, c: Array<{ id: string }>) => (cand.push(c.map((n) => n.id).sort()), { relation: "extends" as const, action: "ignore" as const, rationale: "", nearestNodeIds: [] }),
+		};
+		// goal_2 is paused: its nodes are not in scope
+		await runCycle(fakeDeps({ ...base, goals: () => [goal(), goal({ id: "goal_2", status: "paused", targetNodeIds: ["u"] })], watchlist: { read: () => [w1] } }).deps, "manual");
+		assert.deepEqual(cand, [["p1", "p2", "t"]]);
+		// a goal-scoped entry only compares against that goal
+		cand.length = 0;
+		await runCycle(fakeDeps({ ...base, goals: () => [goal(), goal({ id: "goal_2", targetNodeIds: ["u"] })], watchlist: { read: () => [{ ...w1, goalId: "goal_2" }] } }).deps, "manual");
+		assert.deepEqual(cand, [["u", "u1"]]);
+		// a goal-scoped entry whose goal is paused has nothing to compare against: no model call
+		cand.length = 0;
+		await runCycle(fakeDeps({ ...base, goals: () => [goal(), goal({ id: "goal_2", status: "paused", targetNodeIds: ["u"] })], watchlist: { read: () => [{ ...w1, goalId: "goal_2" }] } }).deps, "manual");
+		assert.deepEqual(cand, []);
+	});
+
+	it("at most 30 candidate nodes are handed to the classifier", async () => {
+		const ids = Array.from({ length: 45 }, (_, i) => `n${i}`);
+		let seen = -1;
+		const { deps } = fakeDeps({
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 0 },
+			graph: () => ({ nodes: [...gradientNodes(["t"]), ...gradientNodes(ids)], chains: [{ premises: ids, conclusion: "t" }] }),
+			watchlist: { read: () => [w1] },
+			fetchItems: async () => [item("1")],
+			classify: async (_i, c) => (seen = c.length, { relation: "extends", action: "ignore", rationale: "", nearestNodeIds: [] }),
+		});
+		await runCycle(deps, "manual");
+		assert.equal(seen, 30);
+	});
+
+	it("a failed classification is not recorded as seen: the item is classified again at the next check", async () => {
+		const radar = memLog<Radar>();
+		let failOnce = true;
+		const mk = (now: string) => fakeDeps({
+			radar,
+			watchlist: { read: () => [w1] },
+			fetchItems: async () => [item("1")],
+			now: () => new Date(now),
+			classify: async (i) => { if (failOnce) { failOnce = false; throw new Error("llm down"); } return { relation: "extends", action: "ignore", rationale: i.id, nearestNodeIds: [] }; },
+		}).deps;
+		await runCycle(mk("2026-11-04T12:00:00.000Z"), "manual");
+		assert.equal(radar.events.some((e) => e.type === "classified"), false);
+		await runCycle(mk("2026-11-06T12:00:00.000Z"), "manual");
+		assert.deepEqual(radar.events.filter((e) => e.type === "classified").map((e) => e.type === "classified" && e.itemId), ["1"]);
+	});
+
+	it("a snapshot port that returns an empty string makes the source failed, with no inbox event", async () => {
+		const inbox = memLog<Inbox>();
+		const { deps } = fakeDeps({ inbox, config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, snapshots: { put: () => "" }, researchGap: async () => finding({ sources: [src("https://a.org/x")] }) });
+		const g = (await runCycle(deps, "manual")).gaps[0]!;
+		assert.deepEqual(g.sources.map((s) => s.outcome), ["failed"]);
+		assert.equal(inbox.events.length, 0);
+	});
+
+	it("with the gate closed the graph, goals and trust are never read and nothing is researched", async () => {
+		const reads = { graph: 0, goals: 0, uncovered: 0, weak: 0, trust: 0, watch: 0 };
+		const { deps, calls } = fakeDeps({
+			costGate: { allowed: () => false, record: () => {} },
+			graph: () => (reads.graph++, { nodes, chains }),
+			goals: () => (reads.goals++, [goal()]),
+			uncovered: () => (reads.uncovered++, []),
+			weakNodeIds: () => (reads.weak++, []),
+			verification: { trustOf: () => (reads.trust++, new Map()), verifyNodes: async () => {} },
+			watchlist: { read: () => (reads.watch++, []) },
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual(reads, { graph: 0, goals: 0, uncovered: 0, weak: 0, trust: 0, watch: 0 });
+		assert.deepEqual([entry.stoppedBy, calls.research.length], ["ceiling", 0]);
+	});
+});
+
 void ((): CycleDeps | undefined => undefined);
