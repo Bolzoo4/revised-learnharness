@@ -127,12 +127,29 @@ describe("createFeedFetcher: body, type, time, errors", () => {
 		await assert.rejects(createFeedFetcher({ fetch: f })(feed("https://x.org/f")), /too large/i);
 	});
 
-	it("times out a hanging fetch and a hanging body", async () => {
-		const hang = fake((_u, _n, init) => new Promise<Response>((_res, rej) => init!.signal!.addEventListener("abort", () => rej(new Error("secret internal abort detail")))));
-		await assert.rejects(createFeedFetcher({ fetch: hang.f, timeoutMs: 30 })(feed("https://x.org/f")), (e: Error) => /timed out/i.test(e.message) && !/secret/.test(e.message));
-		const body = new ReadableStream<Uint8Array>({ pull: () => new Promise(() => {}) });
-		const slow = fake(() => new Response(body, { status: 200, headers: XML }));
-		await assert.rejects(createFeedFetcher({ fetch: slow.f, timeoutMs: 30 })(feed("https://x.org/f")), /timed out/i);
+	it("times out a hanging fetch", async () => {
+		const timer = setTimeout(() => {}, 500);
+		try {
+			const hang = fake((_u, _n, init) => new Promise<Response>((_res, rej) => init!.signal!.addEventListener("abort", () => rej(new Error("secret internal abort detail")))));
+			await assert.rejects(createFeedFetcher({ fetch: hang.f, timeoutMs: 30 })(feed("https://x.org/f")), (e: Error) => /timed out/i.test(e.message) && !/secret/.test(e.message));
+		} finally {
+			clearTimeout(timer);
+		}
+	});
+
+	it("times out a hanging body", async () => {
+		const timer = setTimeout(() => {}, 500);
+		try {
+			let settle: () => void = () => {};
+			const body = new ReadableStream<Uint8Array>({
+				pull: () => new Promise((resolve) => { settle = () => resolve(); }),
+				cancel: () => { settle(); },
+			});
+			const slow = fake(() => new Response(body, { status: 200, headers: XML }));
+			await assert.rejects(createFeedFetcher({ fetch: slow.f, timeoutMs: 30 })(feed("https://x.org/f")), /timed out/i);
+		} finally {
+			clearTimeout(timer);
+		}
 	});
 
 	it("accepts xml, atom, rss and text bodies and rejects other content types", async () => {

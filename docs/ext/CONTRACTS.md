@@ -284,3 +284,203 @@ An empty set; a duplicate exercise id; an empty prompt; fewer than 2 distinct `n
 ### Grading and results
 
 Per exercise, a step is good when its surviving verdict items all have `stance` `matches`, bad when any is `differs` or `missing`, unknown when it has no surviving item. A node used by the exercise (its `nodeIds` or any step's) has outcome `passed` when all its known steps are good, `failed` when none is good, `weak` otherwise, and has no outcome when none of its steps is known. A grading is `lowConfidence` when any node the reference uses has a trust level other than `sourced` (no verification state counts as `unverified`). A set is complete when every exercise has a latest grading whose `outcome` is not `not_verifiable`. The results handed to the personal layer's exercise interface are, per node, the worst outcome (`failed` over `weak` over `passed`) across the latest gradings, **omitting any `passed` outcome that comes from a `lowConfidence` grading**; when the results are empty nothing is applied. They are applied once per set (`applied` event), as `exercise` review events by the personal layer.
+
+## `frontier.jsonl` (frontier marks ledger)
+
+Events steer the research loop across regions of the knowledge graph (REQ-res-01, REQ-res-02, REQ-rs-03, REQ-rs-06).
+
+Event `set`: `{type:"set", markId, scope, mark, maxDepth?, budgetUsd?, note, author, at}`
+- `markId`: non-empty string.
+- `scope`: `{kind, id}` where `kind` is `node` | `subtree` | `goal`, and `id` is a non-empty string (node id or goal id).
+- `mark`: `expand` (raise priority, research premises/sources) | `hold` (no expansion; verification still allowed) | `stop` (excluded from expansion and verification).
+- `maxDepth`: optional integer >= 0 (tools bound this to 10; default depth is 2).
+- `budgetUsd`: optional finite number > 0 (spending limit for this mark's region).
+- `note`: string (context or reason for the mark).
+- `author`: `user` | `agent`.
+- `at`: ISO-8601 timestamp.
+
+Event `clear`: `{type:"clear", markId, author, at}`
+- `markId`: non-empty string.
+- `author`: `user` | `agent`.
+- `at`: ISO-8601 timestamp.
+
+Derivation (`deriveMarks`):
+Replay events in file order into a map keyed by `markId`.
+- **Author validation rule:** an `agent` event (`set` or `clear`) NEVER overwrites or clears an existing mark whose `author` is `user`. Such agent events are silently ignored.
+- A `set` event with a known id updates the mark (subject to the author rule).
+- A `clear` event removes the mark from the map (subject to the author rule).
+- Returns the surviving marks in order.
+
+Region of a mark's scope (`regionOf(scope, goals, chains)`):
+- `node`: `{id}` (the single node).
+- `subtree`: `{id}` plus the transitive closure of its premises (`goalScope([id], chains)`).
+- `goal`: the goal's target nodes plus their premise closure (`goalScope(goal.targetNodeIds, chains)`).
+
+Overlap resolution (`createMarkResolver(marks, goals, chains).effective(nodeId)`):
+When multiple marks cover a node, the effective mark is chosen by sorting candidates in order:
+1. `user` author wins over `agent` author (`author !== "user"` comparison);
+2. Specificity of scope kind (`node` < `subtree` < `goal`);
+3. Smaller region size (fewest nodes);
+4. Newer timestamp (`at` descending);
+5. Smaller `markId` (lexicographical tie-break).
+
+Frontier mode and enforcement:
+- `frontierMode(mark, spentUsd)`: `none` when no mark covers the node; `stop` when mark is `stop`; `hold` when mark's `budgetUsd` is exhausted (`!(spentUsd < budgetUsd)`); otherwise the mark's kind (`expand` or `hold`). An exhausted budget degrades `expand` to `hold` but never lifts a `stop`.
+- `modeAllows(mode, gapClass)`: `stop` excludes all work; `hold` excludes `expansion` but allows `verification`; `expand` and `none` allow both.
+
+## `watchlist.json` (watchlist configuration file)
+
+`{"entries": [WatchEntry, ...]}`, rewritten atomically on changes (read-modify-write configuration file, not a ledger).
+Invalid entries and duplicate ids are dropped on parse (first entry of a repeated id wins).
+
+`WatchEntry`: `{id, kind, query, cadenceHours, goalId?}`
+- `id`: non-empty string.
+- `kind`: `arxiv-query` | `feed` | `repo`.
+- `query`: non-empty string:
+  - `arxiv-query`: an arXiv search expression (e.g. `cat:cs.AI`);
+  - `feed`: an HTTP or HTTPS feed URL;
+  - `repo`: GitHub repository in `owner/name` format (alphanumerics, `.`, `_`, `-`; names consisting entirely of dots are rejected).
+- `cadenceHours`: finite positive number (default 24, bounds 1 to 8760 hours).
+- `goalId`: optional non-empty string; scopes similarity ranking to that goal's graph nodes instead of all active scopes.
+
+SSRF and egress validation (`validateWatchTarget`, `isPublicHttpUrl`):
+All external fetch targets and URLs cited by models must pass strict public-address validation:
+- Scheme must be `http:` or `https:`.
+- Credentials (`username` or `password`) are forbidden.
+- Internal/local hostnames rejected: `localhost`, `*.localhost`, `*.local`, `*.internal`.
+- Non-public IPv4 ranges rejected: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10` (Carrier-Grade NAT / shared), `127.0.0.0/8` (loopback), `169.254.0.0/16` (link-local), `172.16.0.0/12` (private), `192.0.0.0/24`, `192.168.0.0/16` (private), `198.18.0.0/15` (benchmarking), and `224.0.0.0/3` (multicast and reserved up to `255.255.255.255`).
+- Non-public IPv6 ranges rejected: loopback (`::1`), link-local (`fe80::/10`), unique-local (`fc00::/7`), site-local (`fec0::/10`), multicast (`ff00::/8`), IPv4-mapped (`::ffff:0:0/96`), NAT64 (`64:ff9b::/96`), and 6to4 (`2002::/16` embedding private IPv4).
+- Redirects: followed manually (max 3 hops); every hop must pass the public address rules; https-to-http downgrade is rejected. Response bodies are streamed and aborted if exceeding `MAX_FEED_BYTES` (1 MB) or `MAX_FEED_CHARS` (512 KB decoded).
+
+## `inbox.jsonl` (source inbox ledger)
+
+Ledger tracking candidate sources discovered by the research cycle or watch feed (REQ-rs-07, REQ-rs-08, REQ-rs-09).
+
+Event `proposed`: `{type:"proposed", locator, title, gapId, foundBy, cycleId, snapshot, at}`
+- `locator`: canonical locator string (normalized via `normalizeLocator`: lower-case scheme and host, no fragment, path trailing slashes removed, query preserved).
+- `title`: string.
+- `gapId`: string (identifying the gap or `watch:<entryId>`).
+- `foundBy`: `cycle` | `watch`.
+- `cycleId`: string.
+- `snapshot`: sha256 hash of the stored text in `snapshots/<sha256>.txt`.
+- `at`: ISO-8601 timestamp.
+
+Event `decided`: `{type:"decided", locator, decision, at}`
+- `locator`: canonical locator string.
+- `decision`: `approved` | `rejected` | `activated`.
+- `at`: ISO-8601 timestamp.
+
+Event `ingested`: `{type:"ingested", locator, nodesAdded, at}`
+- `locator`: canonical locator string.
+- `nodesAdded`: integer >= 0.
+- `at`: ISO-8601 timestamp.
+
+Derivation (`deriveInbox`):
+- Replay in file order. The first `proposed` for a canonical locator defines the item (`status = "pending"`, `proposedAt = at`). Later `proposed` events for that locator are ignored.
+- A `decided` event sets `status` to `approved` | `rejected` | `activated` and sets `decidedAt`.
+- `ingestedLocators(events)`: set of locators with an `ingested` event.
+
+Triage rules (`triage(locator, isActive, inbox)`):
+- If the item was previously `rejected`: returns `skip-rejected` (never proposed again).
+- If the item already exists in the inbox (`pending`, `approved`, or `activated`) or has an `ingested` event: returns `skip-seen`.
+- If the source is an active library entry: returns `ingest`.
+- Otherwise: returns `inbox` (proposes to inbox ledger).
+
+Authority constraints:
+- **Agent constraint:** the agent's `decide_inbox` tool may only submit `approved` (ingest once) or `rejected` (never propose again) for a source explicitly named by the learner.
+- **Activation constraint:** `activated` (which adds the URL prefix to `sources.json` as an active source and ingests it) is strictly user-only from the UI and is never permitted to automated agents.
+
+## `research-log.jsonl` (cycle ledger)
+
+Records every completed or terminated research cycle (REQ-rs-10).
+
+Event `cycle`: `{type:"cycle", cycleId, trigger, startedAt, endedAt, stoppedBy, gaps, watch, nodesAdded, costUsd, steers}`
+- `cycleId`: non-empty string.
+- `trigger`: `schedule` | `manual`.
+- `startedAt`, `endedAt`: ISO-8601 timestamps.
+- `stoppedBy`: `completed` | `no-gaps` | `ceiling` | `aborted` | `error`.
+- `gaps`: array of `GapLog` entries:
+  - `gapId`: string.
+  - `type`: `uncovered` | `no-premises` | `weak-premise` | `unverified` | `contested-no-primary`.
+  - `nodeId?`, `chatId?`, `markId?`: optional strings.
+  - `questions`: array of question strings.
+  - `confidence?`: optional number in [0, 1].
+  - `rationale?`: optional string.
+  - `stoppedBy?`: `confidence` | `no-more-sources` | `turn-limit`.
+  - `sources`: array of `{locator, outcome, nodesAdded}` where outcome is `ingested` | `inbox` | `skipped-rejected` | `skipped-seen` | `skipped-active` | `not-fetched` | `not-capturable` | `over-cap` | `failed`.
+  - `nodesAdded`: integer >= 0.
+  - `costUsd`: finite number >= 0.
+  - `saturated`: boolean (true when an expansion gap added < 2 nodes, causing the agent to set a `hold` mark).
+  - `error?`: optional error label string.
+- `watch`: `{entries, items, ingested, inbox}` summary counts.
+- `nodesAdded`: total nodes added across all gaps in the cycle.
+- `costUsd`: total USD cost incurred by the cycle.
+- `steers`: array of user steering messages accepted during the cycle.
+
+Error label invariants:
+To prevent leakage of internal system details, network errors, or stack traces, `research-log.jsonl` only stores fixed error labels:
+- `"the gap failed"` (`GAP_FAILED`)
+- `"the watch failed"` (`WATCH_FAILED`)
+- `"the cycle failed"` (`CYCLE_FAILED`)
+Raw errors are passed to the in-process `onError` callback and are never written to the ledger.
+
+Derivations:
+- `markSpendUsd(log)`: sums the `costUsd` of every gap recorded under each `markId`.
+- `cycleDue(log, nowIso, cycleHours)`: true if the log has no cycle or if elapsed time since the newest cycle's `startedAt` is >= `cycleHours * 3,600,000` ms.
+
+## `radar.jsonl` (radar ledger)
+
+Tracks watch item checks and classifications (REQ-rs-11, REQ-rs-12).
+
+Event `checked`: `{type:"checked", entryId, ok, items, at}`
+- `entryId`: watch entry id.
+- `ok`: boolean (false if fetch or parse failed).
+- `items`: count of feed items discovered.
+- `at`: ISO-8601 timestamp.
+
+Event `classified`: `{type:"classified", entryId, itemId, title, link, nearestNodeIds, relation, action, rationale, at}`
+- `entryId`: watch entry id.
+- `itemId`: unique feed item identifier or link.
+- `title`, `link`: string metadata.
+- `nearestNodeIds`: array of candidate node ids selected by distinct word overlap (4+ letter words).
+- `relation`: proposed relation: `extends` | `contradicts` | `applies` | `unrelated`.
+- `action`: `ingest` (if approved active source) | `ignore`.
+- `rationale`: string explanation from classifier.
+- `at`: ISO-8601 timestamp.
+
+Derivations:
+- `seenItemIds(radar, entryId?)`: set of `itemId`s already classified (optionally scoped to a specific watch entry).
+- `dueEntries(entries, radar, nowIso)`: returns watchlist entries that have never been checked or whose latest `checked` event is older than `cadenceHours`.
+
+## Cycle orchestration and live steering
+
+- **Mutual exclusion:** `runCycle` acquires an in-process lock (`running` Set and `lockKey`). If a cycle is in-flight, any concurrent start throws `CycleBusyError`.
+- **Scheduler cadence:** `createResearchService` exposes `tick()`, invoked periodically. If `canRun()` is true and `cycleDue(...)` is satisfied, starts a cycle with trigger `schedule`.
+- **`CycleControl` and live steering:**
+  - `CycleControl` manages `AbortController` and steering queues.
+  - While a gap's research agent runs, it is attached via `control.attach(agent)`. A steer message sent via `control.steer(message)` is delivered immediately to the live agent (`agent.steer(...)`, returning `"delivered"`).
+  - Between gaps, no agent is attached: steer messages are queued in `takeSteers()` and delivered at the start of the next gap prompt (returning `"queued"`).
+  - When all research gaps complete (`onGapsDone()`), steering is closed (`closeSteering()`). Any subsequent steer attempt returns `"closed"` and is rejected with `ResearchInputError("the cycle has no gap left to steer")`.
+  - Max 50 steering messages per cycle; max 2000 characters per message.
+- **Runner seam (`onAgent`):**
+  - Upstream `runSubagent` accepts `opts.onAgent?: (agent: Agent) => void` and calls it immediately after agent instantiation.
+  - The gap researcher wires `onAgent` to attach the agent to `CycleControl`. On settlement of the gap, the agent is detached (`attach(null)`).
+
+## Research console chat
+
+- **Session kind:** `ChatKind` `"research"`. It is categorized as practice-like (`isPracticeLike`), ensuring it never triggers extraction pipelines and uses practice-style compaction.
+- **Agent:** Built via `createResearchAgent` with `RESEARCH_INSTRUCTIONS`.
+- **Dedicated tools:** The agent is given 9 tools:
+  1. `read_log`: inspect recent cycle log entries and cycle status.
+  2. `list_marks`: list active frontier marks and effective regions.
+  3. `edit_mark`: create (`action: "set"`) or remove (`action: "clear"`) frontier marks.
+  4. `run_cycle`: trigger a manual cycle run.
+  5. `control_cycle`: send a steer message or abort a running cycle.
+  6. `list_inbox`: list pending or decided inbox sources.
+  7. `decide_inbox`: approve or reject a source locator named by the learner.
+  8. `list_watchlist`: inspect configured watch targets.
+  9. `edit_watchlist`: add or remove arXiv query, RSS/Atom feed, or repo targets.
+- **Cost gating:**
+  - Wraps the engine via `gateResearchEngine` against `cost.jsonl`.
+  - Checks if daily spend is below ceiling (default 2 USD; env `LH_EXT_DAILY_CEILING_USD`). If exceeded, throws `"the daily research ceiling is reached"`.
+  - Usage collector records model spend to `cost.jsonl` with `source: "research"`. If recording fails, a latch refuses subsequent model calls.

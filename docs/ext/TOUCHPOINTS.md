@@ -37,8 +37,16 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `components/minimal-home.tsx` | home counts practice-like sessions as practice | Practice-like sessions |
 | `components/chain-table.tsx` | chain filter hides sources of practice-like sessions | Practice-like sessions |
 | `src/agent/subagents/pi-run.ts` | `SubagentRunOptions.onAgent?`, one call after the `Agent` is built, so a running research cycle can be steered (REQ-rs-16) | Research loop |
+| `src/core/contracts/chat.ts` | `ChatKind` gains `"research"` | Research loop |
+| `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"research"` | Research loop |
+| `src/store/chats.ts` | `createChat` stamps kind `"research"` | Research loop |
+| `src/core/ext/practice/session-kind.ts` | `isPracticeLike` accepts `"research"` | Research loop |
+| `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `research` session | Research loop |
+| `src/server/chat-handler.ts` | imports `researchToolContext` and `createResearchAgent`, branches for kind `"research"` | Research loop |
 
-Planned (not yet touched): the PDF viewer
+Completed: All five child specs (Source Verification, Personal Layer, Node Knowledge, Lectures & Office Hours, and Autonomous Research Loop) are implemented.
+
+Planned / future (not yet touched): the standalone PDF viewer
 and MCP dependencies in `package.json`.
 
 Not touched on purpose: `config.ts` (paths are derived in `src/store/ext/paths.ts`) and
