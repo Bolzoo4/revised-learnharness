@@ -49,6 +49,13 @@ describe("snapshot store (REQ-src-04)", () => {
 		assert.equal(store.put("hello snapshot"), hash);
 		assert.notEqual(store.put("changed source"), hash, "a changed source is a different hash");
 	});
+	it("throws on a put of existing text when the data is stamped by a newer build", () => {
+		const dir = tmp();
+		const store = createSnapshotStore(dir);
+		store.put("kept text");
+		fs.writeFileSync(path.join(dir, "format.json"), JSON.stringify({ version: 99 }));
+		assert.throws(() => store.put("kept text"), /format version 99/);
+	});
 });
 
 describe("verification and cost ledgers", () => {

@@ -12,8 +12,8 @@ export function createSnapshotStore(dir: string): SnapshotStore {
 		put(text) {
 			const hash = createHash("sha256").update(text, "utf8").digest("hex");
 			const file = path.join(dir, "snapshots", `${hash}.txt`);
+			assertExtFormat(dir); // before the early return: a newer build's data is never read or reused
 			if (fs.existsSync(file)) return hash;
-			assertExtFormat(dir);
 			ensureExtFormat(dir);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			writeFileAtomicSync(file, text, { allowInPlaceFallback: true });
