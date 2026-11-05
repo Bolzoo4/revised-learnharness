@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { deriveCards } from "../src/core/ext/cards.ts";
+import { deriveMarks } from "../src/core/ext/review-state.ts";
 import { createCardsStore } from "../src/store/ext/cards-store.ts";
 import { extPathsFor } from "../src/store/ext/paths.ts";
 import { createReviewStore } from "../src/store/ext/review-store.ts";
@@ -34,7 +35,7 @@ describe("review and cards stores", () => {
 		store.appendEvent({ type: "pin", nodeId: "n_1", pinned: true, at: AT });
 		const events = createReviewStore(dir).readEvents();
 		assert.equal(events.length, 2);
-		assert.deepEqual(events.map((e) => e.type), ["review", "pin"]); // TEMP until Task 5: deriveMarks
+		assert.deepEqual([...deriveMarks(events).pinned], ["n_1"]);
 		assert.equal(fs.readFileSync(path.join(dir, "review.jsonl"), "utf-8").trim().split("\n").length, 2);
 	});
 
