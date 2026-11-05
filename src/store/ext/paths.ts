@@ -13,6 +13,8 @@ export interface ExtPaths {
 	dir: string;
 	format: string;
 	goals: string;
+	review: string;
+	cards: string;
 	sources: string;
 	snapshots: string;
 	verification: string;
@@ -25,6 +27,8 @@ export function extPathsFor(dataRoot: string): ExtPaths {
 		dir,
 		format: path.join(dir, "format.json"),
 		goals: path.join(dir, "goals.jsonl"),
+		review: path.join(dir, "review.jsonl"),
+		cards: path.join(dir, "cards.jsonl"),
 		sources: path.join(dir, "sources.json"),
 		snapshots: path.join(dir, "snapshots"),
 		verification: path.join(dir, "verification.jsonl"),

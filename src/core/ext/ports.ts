@@ -63,3 +63,20 @@ export interface Verifier {
 		hooks: { signal: AbortSignal; onCostUsd(usd: number): void },
 	): Promise<VerifierRun>;
 }
+
+import type { CardEvent } from "./cards.ts";
+import type { ReviewEvent } from "./review.ts";
+
+export interface ReviewStore {
+	/** Throws if the event is invalid. */
+	appendEvent(event: ReviewEvent): void;
+	/** Valid events in append order. */
+	readEvents(): ReviewEvent[];
+}
+
+export interface CardsStore {
+	/** Throws if the event is invalid. */
+	appendEvent(event: CardEvent): void;
+	/** Valid events in append order. */
+	readEvents(): CardEvent[];
+}

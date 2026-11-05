@@ -11,6 +11,8 @@ describe("extension paths", () => {
 		assert.equal(p.dir, dir);
 		assert.equal(p.format, path.join(dir, "format.json"));
 		assert.equal(p.goals, path.join(dir, "goals.jsonl"));
+		assert.equal(p.review, path.join("/tmp/lh-data", "ext", "review.jsonl"));
+		assert.equal(p.cards, path.join("/tmp/lh-data", "ext", "cards.jsonl"));
 		assert.equal(p.sources, path.join(dir, "sources.json"));
 		assert.equal(p.snapshots, path.join(dir, "snapshots"));
 		assert.equal(p.verification, path.join(dir, "verification.jsonl"));
