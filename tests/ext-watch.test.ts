@@ -430,6 +430,15 @@ describe("hardening 2: weak premises and radar types", () => {
 		const events = [rv({ weakPremises: ["a"], at: "2026-11-03T00:00:00.000Z" }), rv({ weakPremises: ["a"], at: "2026-11-01T00:00:00.000Z" }), rv({ nodeId: "a", channel: "fixed", rating: 3, at: "2026-11-02T00:00:00.000Z" })];
 		assert.deepEqual(weakPremiseNodeIds(events, "2026-11-04T00:00:00.000Z"), ["a"]);
 	});
+	it("a zero-day window lists nothing, even for a flag at the current instant", () => {
+		const flag: ReviewEvent = { type: "review", nodeId: "n9", channel: "dialogic", rating: 2, durationSec: 30, at: "2026-11-04T00:00:00.000Z", weakPremises: ["a"] };
+		assert.deepEqual(weakPremiseNodeIds([flag], "2026-11-04T00:00:00.000Z", 0), []);
+	});
+	it("stops at exactly MAX_FEED_ITEMS entries (the 51st is never returned)", () => {
+		let xml = "<feed>";
+		for (let i = 0; i < 51; i++) xml += `<entry><id>i${i}</id><title>T${i}</title><link href="https://x.org/${i}"/></entry>`;
+		assert.deepEqual(parseFeed(`${xml}</feed>`).map((i) => i.id).slice(-2), ["i48", "i49"]);
+	});
 	it("rejects a classified event whose title or link is not a string", () => {
 		const base = { type: "classified", entryId: "w1", itemId: "i1", title: "t", link: "l", nearestNodeIds: [], relation: "extends", action: "ingest", rationale: "r", at: "2026-11-04T10:00:00.000Z" };
 		assert.equal(parseRadarEvent({ ...base, title: 3 }), null);
