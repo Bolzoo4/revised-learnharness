@@ -6,6 +6,7 @@ import {
 	MAX_FEED_CHARS,
 	dueEntries,
 	feedUrl,
+	isPublicHttpUrl,
 	parseFeed,
 	parseRadarEvent,
 	parseWatchEntry,
@@ -382,6 +383,34 @@ describe("hardening 2: feed parser limits and exclusions", () => {
 		const items = parseFeed(xml);
 		assert.deepEqual(items.map((i) => [i.id, i.title]), [["e", "Real"]]);
 		assert.deepEqual(parseFeed(`<feed><!-- unclosed <entry><id>c</id><title>T</title><link href="https://x.org/c"/></entry>`), []);
+	});
+});
+
+describe("isPublicHttpUrl (egress guard for the research agent's fetches)", () => {
+	it("accepts a legitimate public http(s) URL", () => {
+		assert.equal(isPublicHttpUrl("https://docs.org/bp"), true);
+		assert.equal(isPublicHttpUrl("http://arxiv.org/abs/1706.03762"), true);
+	});
+	it("refuses loopback, link-local metadata, private, shared and internal hosts", () => {
+		for (const u of [
+			"http://localhost/x",
+			"http://127.0.0.1/x",
+			"http://169.254.169.254/latest/meta-data",
+			"http://10.0.0.5/x",
+			"http://[::1]/x",
+			"http://100.100.100.200/x",
+			"http://db.internal/x",
+			"http://192.168.1.1/x",
+			"http://[fd00::1]/x",
+		]) assert.equal(isPublicHttpUrl(u), false, u);
+	});
+	it("refuses non-http(s) schemes, credentials and unparsable text", () => {
+		assert.equal(isPublicHttpUrl("ftp://docs.org/x"), false);
+		assert.equal(isPublicHttpUrl("javascript:alert(1)"), false);
+		assert.equal(isPublicHttpUrl("https://user:pw@docs.org/x"), false);
+		assert.equal(isPublicHttpUrl("https://user@docs.org/x"), false);
+		assert.equal(isPublicHttpUrl("not a url"), false);
+		assert.equal(isPublicHttpUrl(""), false);
 	});
 });
 

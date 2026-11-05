@@ -106,6 +106,22 @@ function privateHost(hostname: string): boolean {
 }
 
 /**
+ * True for a URL the server may fetch on someone else's behalf: http(s), no credentials, and a public host
+ * (the same host rules as a feed). Used as the egress guard for the research agent's fetches and for the
+ * sources it reports. Checks the URL as written; DNS and redirects are not checked here.
+ */
+export function isPublicHttpUrl(url: string): boolean {
+	try {
+		const u = new URL(url);
+		if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+		if (u.username !== "" || u.password !== "") return false;
+		return !privateHost(u.hostname);
+	} catch {
+		return false;
+	}
+}
+
+/**
  * null when the entry's query is usable for its kind, otherwise the reason.
  * A feed must be a public http(s) URL without credentials: loopback, link-local,
  * private and unique-local addresses and local/internal names are rejected so a
