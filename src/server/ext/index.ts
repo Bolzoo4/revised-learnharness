@@ -12,3 +12,12 @@ export {
 } from "./verification.ts";
 export * from "./personal-layer.ts";
 export * from "./personal-panel.ts";
+export {
+	decideNodeProposal,
+	ensureNodeExplanation,
+	generateNodeExplanations,
+	nodePanel,
+	runNodeAction,
+	saveNodeExplanation,
+} from "./node-knowledge-live.ts";
+export { NodeKnowledgeError } from "./node-knowledge.ts";

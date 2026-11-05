@@ -9,7 +9,7 @@
 import { createSourceReader } from "../../agent/ext/source-reader.ts";
 import { createVerifier } from "../../agent/ext/verifier.ts";
 import { piEngineForSpec, type PiEngine } from "../../agent/models.ts";
-import { createCostGate } from "../../core/ext/cost-gate.ts";
+import { createCostGate, type CostGate } from "../../core/ext/cost-gate.ts";
 import type { SourceEntry, SourceTier } from "../../core/ext/sources.ts";
 import { trustTag } from "../../core/ext/trust.ts";
 import { createVerificationService, type TrustView } from "../../core/ext/verification-service.ts";
@@ -36,6 +36,13 @@ function researcherEngine(): PiEngine {
 	return piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[ROLE_SLOT.researcher]?.cacheRetention);
 }
 
+/** The one shared daily cost gate (REQ-cost-01); node knowledge reuses it. */
+export const costGate: CostGate = {
+	// Fresh per call so a LH_EXT_DAILY_CEILING_USD change lands without a restart.
+	allowed: () => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).allowed(),
+	record: (usd, source) => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).record(usd, source),
+};
+
 const service = createVerificationService({
 	graphStore: stores.graphStore,
 	goalsStore: extStores.goalsStore,
@@ -46,11 +53,7 @@ const service = createVerificationService({
 	reader: createSourceReader({
 		allowedPdfPaths: () => extStores.sourcesStore.read().filter((e) => e.kind === "pdf" && e.status === "active").map((e) => e.locator),
 	}),
-	costGate: {
-		// Fresh per call so a LH_EXT_DAILY_CEILING_USD change lands without a restart.
-		allowed: () => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).allowed(),
-		record: (usd, source) => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).record(usd, source),
-	},
+	costGate,
 });
 
 /** On-demand verification of any nodes. */

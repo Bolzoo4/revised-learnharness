@@ -22,8 +22,9 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/server/chat-handler.ts` | `isPracticeLike` helper, the review agent branch, two imports | Personal layer |
 | `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `review` session | Personal layer |
 | `src/server/index.ts` | barrel line `export * from "./ext/index.ts";` (shared with other plans) | Personal layer |
+| `src/core/index.ts` | barrel line `export * from "./ext/index.ts";` (browser-safe ext helpers for the node panel) | Node knowledge |
 
-Planned (not yet touched): `src/core/index.ts` (barrel exports when routes and UI arrive), and the PDF viewer
+Planned (not yet touched): the PDF viewer
 and MCP dependencies in `package.json`.
 
 Not touched on purpose: `config.ts` (paths are derived in `src/store/ext/paths.ts`) and
