@@ -37,3 +37,7 @@ export {
 } from "./research-live.ts";
 export { ResearchInputError } from "./research-errors.ts";
 export { InboxError } from "../../core/ext/inbox-service.ts";
+export type { AddWatchInput, SetMarkInput } from "./research-admin.ts";
+export type { RunTrigger } from "./research-service.ts";
+export type { InboxDecision, InboxItem, InboxStatus } from "../../core/ext/inbox.ts";
+export type { SourceTier } from "../../core/ext/sources.ts";
