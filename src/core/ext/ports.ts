@@ -12,3 +12,12 @@ export interface GoalsStore {
 	/** Valid events in append order. */
 	readEvents(): GoalEvent[];
 }
+
+import type { SourceEntry } from "./sources.ts";
+
+/** The source library: a configuration file, read-modify-write (not an event ledger). */
+export interface SourcesStore {
+	/** Valid entries only; [] when the file is absent or unreadable. Throws on a newer stamp. */
+	read(): SourceEntry[];
+	write(entries: SourceEntry[]): void;
+}
