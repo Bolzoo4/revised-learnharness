@@ -10,7 +10,9 @@ import { createCardsStore } from "../../store/ext/cards-store.ts";
 import { createCostStore } from "../../store/ext/cost-store.ts";
 import { createExplanationsStore } from "../../store/ext/explanations-store.ts";
 import { createGoalsStore } from "../../store/ext/goals-store.ts";
+import { createLecturesStore } from "../../store/ext/lectures-store.ts";
 import { createReviewStore } from "../../store/ext/review-store.ts";
+import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
 import { createSourcesStore } from "../../store/ext/sources-store.ts";
 import { createVerificationStore } from "../../store/ext/verification-store.ts";
@@ -23,6 +25,8 @@ export const extStores = {
 	snapshotStore: createSnapshotStore(EXT_PATHS.dir),
 	verificationStore: createVerificationStore(EXT_PATHS.dir),
 	costStore: createCostStore(EXT_PATHS.dir),
+	lecturesStore: createLecturesStore(EXT_PATHS.dir),
+	snapshotReader: createSnapshotReader(EXT_PATHS.dir),
 	explanationsStore: createExplanationsStore(EXT_PATHS.dir),
 };
 

@@ -21,3 +21,4 @@ export {
 	saveNodeExplanation,
 } from "./node-knowledge-live.ts";
 export { NodeKnowledgeError } from "./node-knowledge.ts";
+export * from "./lecture-live.ts";
