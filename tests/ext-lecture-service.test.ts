@@ -73,6 +73,22 @@ describe("startBookIngest", () => {
 		assert.equal(runs.get(bookId)!.phase, "failed");
 		assert.match(runs.get(bookId)!.chapters[0]!.error!, /boom/);
 	});
+	it("a run-level failure stores a fixed message, not the raw error text, and logs the real one", async () => {
+		const logged: unknown[][] = [];
+		const orig = console.error;
+		console.error = (...a: unknown[]) => void logged.push(a);
+		try {
+			const { svc, runs } = setup({ pdf: { exists: (p) => p === PDF, readBookmarks: async () => { throw new Error("secret /path/boom"); }, readPageTexts: async () => [], readChapterText: async () => "" } });
+			const { bookId, finished } = svc.startBookIngest({ pdfPath: PDF });
+			await finished;
+			const st = runs.get(bookId)!;
+			assert.equal(st.phase, "failed");
+			assert.ok(st.error && !st.error.includes("secret"));
+			assert.ok(logged.some((a) => a.some((x) => String(x).includes("secret /path/boom"))));
+		} finally {
+			console.error = orig;
+		}
+	});
 	it("refuses relative paths, non-pdf files, missing files and a spent ceiling", () => {
 		const { svc } = setup({ gate: { allowed: () => false, record: () => {} } });
 		const code = (f: () => unknown): number => { try { f(); } catch (e) { return (e as LectureServiceError).status; } return 0; };

@@ -111,7 +111,9 @@ export function createLectureService(deps: LectureServiceDeps) {
 			},
 			(err: unknown) => {
 				status.phase = "failed";
-				status.error = err instanceof Error ? err.message : String(err);
+				// The raw message can carry paths or provider detail: the status is served to the client, so log the real one.
+				console.error("[ext] book ingest failed:", err);
+				status.error = "the book run failed; see the server log";
 			},
 		);
 		return { bookId, finished };
