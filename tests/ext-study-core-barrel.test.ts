@@ -16,3 +16,18 @@ describe("browser-safe core barrel for the lecture player", () => {
 		}
 	});
 });
+
+describe("browser-safe core barrel for study", () => {
+	it("exports what study needs", () => {
+		assert.equal(typeof (core as Record<string, unknown>).encodeStudyContext, "function");
+		assert.equal(typeof (core as Record<string, unknown>).parseStudyContext, "function");
+		assert.equal(typeof (core as Record<string, unknown>).latestStudyContext, "function");
+		assert.equal(typeof (core as Record<string, unknown>).pageCitations, "function");
+		assert.equal(typeof (core as Record<string, unknown>).citationAt, "function");
+	});
+	it("the study modules behind it import nothing from node:", () => {
+		for (const f of ["src/core/ext/study/context.ts"]) {
+			assert.equal(/from\s+"node:/.test(fs.readFileSync(f, "utf-8")), false, f);
+		}
+	});
+});
