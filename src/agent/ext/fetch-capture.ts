@@ -69,7 +69,7 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 			tooBig.add(locator);
 			return;
 		}
-		pages.set(locator, { title: prev?.title || title, chunks });
+		pages.set(locator, { title: mode === "replace" ? title : prev?.title || title, chunks });
 	};
 
 	const wrap = (name: string, after: (params: any, result: Awaited<ReturnType<NonNullable<AgentTool<any>["execute"]>>>) => void): AgentTool<any> | undefined => {
@@ -96,7 +96,11 @@ export function captureFetches(base: Record<string, AgentTool<any>>, limits: Cap
 		if (typeof params?.url !== "string") return;
 		const text = textOf(result);
 		if (text.startsWith("web_fetch failed") || text.startsWith("web_fetch: this URL is a PDF")) return;
-		add(params.url, /^# (.+)$/m.exec(text)?.[1] ?? "", text, "replace");
+		const title = /^# (.+)$/.exec(text.split("\n", 1)[0] ?? "")?.[1] ?? "";
+		add(params.url, title, text, "replace");
+		// After redirects the tool names the final URL on its Source line: the same text is also recorded under it.
+		const source = /^Source: (\S+)/m.exec(text)?.[1];
+		if (source !== undefined && normalizeLocator(source) !== normalizeLocator(params.url)) add(source, title, text, "replace");
 	});
 	if (webFetch) wrapped.web_fetch = webFetch;
 	const pdfFetch = wrap("web_fetch_pdf", (_params, result) => {

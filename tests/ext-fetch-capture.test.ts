@@ -42,6 +42,31 @@ describe("captureFetches", () => {
 		assert.match(page!.text, /text of page 1[\s\S]*text of page 2/);
 	});
 
+	it("records a fetched text under the requested locator AND the final Source URL when a redirect changed it", async () => {
+		const redirected = tool("web_fetch", () => "# Final\n\nSource: https://a.org/final/page (HTTP 200)\n\nBody here.");
+		const cap = captureFetches({ web_fetch: redirected });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/short" });
+		const locators = cap.pages().map((p) => p.locator).sort();
+		assert.deepEqual(locators, ["https://a.org/final/page", "https://a.org/short"]);
+		assert.ok(cap.pages().every((p) => /Body here\./.test(p.text)));
+	});
+
+	it("takes the title only from the FIRST line, never from a heading later in the body", async () => {
+		const later = tool("web_fetch", () => "plain first line\n\n# Hidden heading\n\nSource: https://a.org/x (HTTP 200)\n\nBody.");
+		const cap = captureFetches({ web_fetch: later });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/x" });
+		assert.equal(cap.pages()[0]!.title, "");
+	});
+
+	it("a refetch in replace mode takes the NEW title, not the one it replaced", async () => {
+		let n = 0;
+		const retitled = tool("web_fetch", () => (++n === 1 ? "# Old\n\nBody one." : "# New\n\nBody two."));
+		const cap = captureFetches({ web_fetch: retitled });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/x" });
+		await cap.tools.web_fetch!.execute!("c", { url: "https://a.org/x" });
+		assert.deepEqual(cap.pages().map((p) => [p.title, p.text]), [["New", "# New\n\nBody two."]]);
+	});
+
 	it("leaves every other tool untouched and tolerates a missing tool", () => {
 		const cap = captureFetches({ web_search: base.web_search });
 		assert.equal(cap.tools.web_search, base.web_search);
