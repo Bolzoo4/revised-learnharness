@@ -27,6 +27,17 @@ afterEach(() => {
 });
 
 describe("extension ledger", () => {
+	it("a torn line WITHOUT a trailing newline does not swallow the next append", () => {
+		const dir = tmp();
+		const l = createLedger<Ping>(dir, "p.jsonl", parsePing);
+		l.append({ n: 1 });
+		fs.appendFileSync(path.join(dir, "p.jsonl"), '{"n":2');
+		l.append({ n: 3 });
+		assert.deepEqual(l.readAll(), [{ n: 1 }, { n: 3 }]);
+		l.append({ n: 4 });
+		assert.deepEqual(l.readAll(), [{ n: 1 }, { n: 3 }, { n: 4 }], "a clean file gets no extra separator");
+	});
+
 	it("round-trips appended events in order", () => {
 		const dir = tmp();
 		const ledger = createLedger(dir, "pings.jsonl", parsePing);

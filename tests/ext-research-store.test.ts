@@ -80,6 +80,21 @@ describe("research store", () => {
 		assert.equal(fs.existsSync(path.join(dir, "frontier.jsonl")), false, "refused appends write nothing");
 	});
 
+	it("a torn ledger line with no newline (a crash mid-append) loses only itself, never the next event", () => {
+		const dir = tmp();
+		const s = createResearchStore(dir);
+		s.inbox.append({ type: "decided", locator: "https://a.org", decision: "rejected", at: "t" });
+		fs.appendFileSync(path.join(dir, "inbox.jsonl"), '{"type":"decided","loc');
+		s.inbox.append({ type: "decided", locator: "https://b.org", decision: "rejected", at: "t" });
+		assert.deepEqual(s.inbox.readAll().map((e) => e.locator), ["https://a.org", "https://b.org"]);
+		fs.appendFileSync(path.join(dir, "radar.jsonl"), '{"type":"checked"');
+		s.radar.append({ type: "checked", entryId: "w1", ok: true, items: 1, at: "2026-11-04T10:00:00.000Z" });
+		assert.equal(s.radar.readAll().length, 1);
+		fs.appendFileSync(path.join(dir, "research-log.jsonl"), '{"type":"cycle"');
+		s.log.append(cycle("c9"));
+		assert.deepEqual(s.log.readAll().map((e) => e.cycleId), ["c9"]);
+	});
+
 	it("the log keeps the FIRST entry of a duplicate cycleId on read", () => {
 		const dir = tmp();
 		const s = createResearchStore(dir);

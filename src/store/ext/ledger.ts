@@ -19,6 +19,25 @@ export interface Ledger<T> {
 	readAll(): T[];
 }
 
+/** True when the file is non-empty and its last byte is not "\n": a crash left a partial line behind. */
+function endsMidLine(file: string): boolean {
+	let fd: number;
+	try {
+		fd = fs.openSync(file, "r");
+	} catch {
+		return false;
+	}
+	try {
+		const size = fs.fstatSync(fd).size;
+		if (size === 0) return false;
+		const last = Buffer.alloc(1);
+		fs.readSync(fd, last, 0, 1, size - 1);
+		return last[0] !== 0x0a;
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
 export function createLedger<T>(dir: string, fileName: string, parse: (raw: unknown) => T | null): Ledger<T> {
 	const file = path.join(dir, fileName);
 	return {
@@ -26,7 +45,9 @@ export function createLedger<T>(dir: string, fileName: string, parse: (raw: unkn
 			assertExtFormat(dir);
 			if (parse(event) === null) throw new Error(`ledger ${fileName}: event rejected by its parser`);
 			ensureExtFormat(dir);
-			fs.appendFileSync(file, `${JSON.stringify(event)}\n`, "utf-8");
+			// A torn tail must end its line before the new event starts one, or the new event is lost with it.
+			const sep = endsMidLine(file) ? "\n" : "";
+			fs.appendFileSync(file, `${sep}${JSON.stringify(event)}\n`, "utf-8");
 		},
 		readAll(): T[] {
 			assertExtFormat(dir);
