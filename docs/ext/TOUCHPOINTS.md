@@ -14,10 +14,17 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/server/index.ts` | barrel line `export * from "./ext/index.ts";` so `app/` routes can reach ext server functions | Source verification |
 | `app/api/chats/route.ts` | tag picked propositions with their trust level in the graph-context message (REQ-src-15) | Source verification |
 | `components/graph-view.tsx` | mount `<TrustBadge />` under the node statement in the detail card (REQ-src-15) | Source verification |
+| `package.json`, `package-lock.json` | `ts-fsrs` 5.4.2 | Personal layer |
+| `src/core/contracts/chat.ts` | `ChatKind` gains `"review"` | Personal layer |
+| `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"review"` | Personal layer |
+| `src/store/chats.ts` | `createChat` stamps kind `"review"` | Personal layer |
+| `src/agent/teacher-agent.ts` | `AgentBuildOptions.instructions?` replaces the composed prompt | Personal layer |
+| `src/server/chat-handler.ts` | `isPracticeLike` helper, the review agent branch, two imports | Personal layer |
+| `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `review` session | Personal layer |
+| `src/server/index.ts` | barrel line `export * from "./ext/index.ts";` (shared with other plans) | Personal layer |
 
-Planned (not yet touched): the `kind` union of `ChatRecord` (`src/core/contracts/chat.ts`) and
-`src/core/index.ts` (barrel exports when routes and UI arrive), `package.json` (FSRS, PDF viewer
-and MCP dependencies).
+Planned (not yet touched): `src/core/index.ts` (barrel exports when routes and UI arrive), and the PDF viewer
+and MCP dependencies in `package.json`.
 
 Not touched on purpose: `config.ts` (paths are derived in `src/store/ext/paths.ts`) and
 `src/server/stores.ts` (the extension has its own root, `src/server/ext/stores.ts`).
