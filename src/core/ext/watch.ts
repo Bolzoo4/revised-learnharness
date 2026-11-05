@@ -112,7 +112,7 @@ function privateHost(hostname: string): boolean {
  * watchlist cannot aim the fetch at the user's own machine or network.
  *
  * This checks the URL as written (names and literal addresses, not DNS). The fetch
- * adapter (watch-fetch.ts) re-runs it on every redirect hop and caps the body.
+ * adapter (server/ext/watch-fetch.ts) re-runs it on every redirect hop and caps the body.
  */
 export function validateWatchTarget(entry: Pick<WatchEntry, "kind" | "query">): string | null {
 	if (entry.kind === "repo") {
@@ -152,7 +152,7 @@ export interface FeedItem {
 /** parseFeed reads at most this many characters of the document; the rest is ignored. */
 export const MAX_FEED_CHARS = 512_000;
 /**
- * The fetch adapter (watch-fetch.ts) caps the response body to this many bytes
+ * The fetch adapter (server/ext/watch-fetch.ts) caps the response body to this many bytes
  * (stream and abort, do not buffer an unbounded body) before decoding it.
  */
 export const MAX_FEED_BYTES = 1_048_576;

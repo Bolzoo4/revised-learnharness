@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { getEventListeners } from "node:events";
 import { describe, it } from "node:test";
-import { createFeedFetcher } from "../src/core/ext/watch-fetch.ts";
+import { createFeedFetcher } from "../src/server/ext/watch-fetch.ts";
 import { MAX_FEED_BYTES, feedUrl, type WatchEntry } from "../src/core/ext/watch.ts";
 
 const ATOM = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>i1</id><title>Hello</title><link href="https://x.org/1"/><summary>S</summary></entry></feed>`;
@@ -193,7 +193,7 @@ describe("createFeedFetcher: hardening of the body reader", () => {
 	});
 
 	it("exports FeedError, whose instances carry the feed: prefix", async () => {
-		const mod = (await import("../src/core/ext/watch-fetch.ts")) as unknown as { FeedError?: new (m: string) => Error };
+		const mod = (await import("../src/server/ext/watch-fetch.ts")) as unknown as { FeedError?: new (m: string) => Error };
 		assert.equal(typeof mod.FeedError, "function");
 		const { f } = fake(() => new Response(null, { status: 503 }));
 		const err = await createFeedFetcher({ fetch: f })(feed("https://x.org/f")).catch((e: unknown) => e);

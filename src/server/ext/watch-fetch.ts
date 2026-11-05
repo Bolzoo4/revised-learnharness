@@ -1,4 +1,4 @@
-// src/core/ext/watch-fetch.ts
+// src/server/ext/watch-fetch.ts
 /**
  * The watch's network adapter: fetch a watch entry's feed safely and parse it.
  * Every URL (the entry's and each redirect hop's) passes the host rules of
@@ -9,7 +9,7 @@
  * header, stack or network detail. `fetch` is injected (tests, no network).
  */
 
-import { MAX_FEED_BYTES, feedUrl, parseFeed, validateWatchTarget, type FeedItem, type WatchEntry } from "./watch.ts";
+import { MAX_FEED_BYTES, feedUrl, parseFeed, validateWatchTarget, type FeedItem, type WatchEntry } from "../../core/ext/watch.ts";
 
 export const FEED_TIMEOUT_MS = 30_000;
 export const MAX_FEED_REDIRECTS = 3;
