@@ -422,6 +422,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 							nearestNodeIds: Array.isArray(raw?.nearestNodeIds) ? raw.nearestNodeIds.filter((id) => isStr(id) && ids.has(id)) : [],
 						};
 					} catch (e) {
+						watchCostUsd += usd((e as { costUsd?: unknown } | null)?.costUsd); // spend of a failed classification is real
 						if (isConfigError(e)) throw e;
 						continue; // not recorded: the item is tried again at the next check
 					}

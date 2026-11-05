@@ -710,6 +710,30 @@ describe("runCycle hardening: watch", () => {
 		assert.equal(entry.stoppedBy, "completed");
 	});
 
+	it("a failed classification still counts the spend it carried (non-config error: the item is retried)", async () => {
+		const { deps } = fakeDeps({
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 0 },
+			watchlist: { read: () => [entryDef] },
+			fetchItems: async () => [item("1")],
+			classify: async () => { throw Object.assign(new Error("watch classification failed"), { costUsd: 0.5 }); },
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.equal(entry.costUsd, 0.5);
+		assert.notEqual(entry.stoppedBy, "error");
+	});
+
+	it("a config error during classification still counts its spend before the cycle stops", async () => {
+		const { deps } = fakeDeps({
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 0 },
+			watchlist: { read: () => [entryDef] },
+			fetchItems: async () => [item("1")],
+			classify: async () => { throw Object.assign(new ModelsNotConfiguredError(["cheap"]), { costUsd: 0.5 }); },
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.equal(entry.stoppedBy, "error");
+		assert.equal(entry.costUsd, 0.5);
+	});
+
 	it("a missing model during classification ends the cycle with an error entry", async () => {
 		const { deps } = fakeDeps({
 			watchlist: { read: () => [entryDef] },

@@ -30,6 +30,8 @@ const MAX_SUMMARY_CHARS = 2000;
 const MAX_NAME_CHARS = 200;
 const MAX_STATEMENT_CHARS = 500;
 const MAX_RATIONALE_CHARS = 1000;
+/** Matches the candidate count the cycle asks for (WATCH_CANDIDATES in cycle.ts). */
+const MAX_CANDIDATES = 30;
 const CEILING_MESSAGE = "the daily research ceiling is reached";
 const FAILED_MESSAGE = "watch classification failed";
 
@@ -60,7 +62,10 @@ function flat(text: string, max: number): string {
 }
 
 export function buildClassifyPrompt(item: FeedItem, candidates: readonly GraphNodeLite[]): string {
-	const nodes = candidates.map((n) => `- ${n.id}: ${flat(n.name, MAX_NAME_CHARS)}: ${flat(n.statement, MAX_STATEMENT_CHARS)}`).join("\n");
+	const nodes = candidates
+		.slice(0, MAX_CANDIDATES)
+		.map((n) => `- ${flat(n.id, MAX_NAME_CHARS)}: ${flat(n.name, MAX_NAME_CHARS)}: ${flat(n.statement, MAX_STATEMENT_CHARS)}`)
+		.join("\n");
 	return `Item: ${flat(item.title, MAX_TITLE_CHARS)}\nLink: ${flat(item.link, MAX_LINK_CHARS)}\nAbstract: ${flat(item.summary, MAX_SUMMARY_CHARS)}\n\nNodes in scope:\n${nodes}`;
 }
 
@@ -136,7 +141,7 @@ export function createWatchClassifier(deps: { engine: () => PiEngine }) {
 					fill: (input) => ({
 						relation: input.relation,
 						action: input.action,
-						rationale: String(input.rationale).slice(0, MAX_RATIONALE_CHARS),
+						rationale: flat(String(input.rationale), MAX_RATIONALE_CHARS),
 						nearestNodeIds: [...new Set<string>(input.nearest_node_ids)],
 					}),
 					validate: (v) => {
@@ -147,18 +152,17 @@ export function createWatchClassifier(deps: { engine: () => PiEngine }) {
 					prompt: buildClassifyPrompt(item, candidates),
 					engine: gated,
 					signal,
+					// A closed gate after a recorded step does not stop the run here: a valid submit
+					// in this message is already paid for and survives; streamFn refuses the next call.
 					onStep: (usage) => {
 						const amount = usd(usage?.cost?.total);
-						if (amount > 0) {
-							spent += amount;
-							try {
-								hooks.costGate.record(amount, "research");
-							} catch {
-								closeRun();
-								return;
-							}
+						if (amount <= 0) return;
+						try {
+							hooks.costGate.record(amount, "research");
+							spent += amount; // only spend the gate accepted is reported
+						} catch {
+							closeRun();
 						}
-						if (!gateOpen()) closeRun();
 					},
 					neverSubmitted: FAILED_MESSAGE,
 				});
