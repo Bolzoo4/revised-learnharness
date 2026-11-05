@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { openNodePanel } from "@/components/ext/open-node";
 
 /**
  * The graph-context card (owner, 2026-10-04): the session's map pick —
@@ -43,7 +44,14 @@ export function GraphContextCard({ data }: { data: GraphContextData }) {
 				<div data-testid="graph-context-body" className="mt-1 space-y-1 rounded-lg border border-dashed border-border/70 px-4 py-3 text-xs">
 					{propositions.map((p) => (
 						<div key={p.id} data-testid={`graph-context-prop-${p.id}`} className="leading-relaxed">
-							<span className="font-medium text-foreground/80">{p.name}</span>
+							<button
+								type="button"
+								data-testid={`graph-context-open-${p.id}`}
+								className="cursor-pointer font-medium text-foreground/80 underline decoration-dotted"
+								onClick={() => openNodePanel(p.id)}
+							>
+								{p.name}
+							</button>
 							<span className="text-muted-foreground"> — {p.statement}</span>
 						</div>
 					))}
