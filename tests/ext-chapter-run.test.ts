@@ -123,6 +123,29 @@ describe("runChapter", () => {
 		assert.ok(h.store.has(oldId), "the previous lecture must survive a failed re-run");
 		assert.ok(h.store.has("lec_b0123abcd_c02_l01"), "the first new lecture was saved before the failure");
 	});
+	it("an abort midway (REQ-lec-18) stops cleanly: no further model call, saved lectures and old ones are kept", async () => {
+		const ac = new AbortController();
+		const h = harness({
+			writeOutline: async () => Array.from({ length: 12 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })), // 3+ lectures
+		});
+		const oldId = "lec_b0123abcd_c02_l09";
+		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
+		let n = 0;
+		h.deps.writeLecture = async () => {
+			n++;
+			if (n === 2) { ac.abort(); ac.signal.throwIfAborted(); } // the signal fires during lecture 2
+			return draft;
+		};
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(ac.signal.aborted, true);
+		assert.equal(n, 2, "no model call after the abort, and no retry of the aborted one");
+		assert.notEqual(r.state, "done");
+		assert.equal(r.state, "failed"); // runChapter has no distinct aborted state: it reports the abort as a failed run
+		assert.match(r.error!, /abort/i);
+		assert.ok(h.store.has("lec_b0123abcd_c02_l01"), "lecture 1 was saved before the abort");
+		assert.ok(h.store.has(oldId), "old lectures are not deleted by an aborted run");
+		assert.equal(h.progress.at(-1)?.state, "failed");
+	});
 	it("fails without deleting anything when the outline yields no lecture", async () => {
 		const h = harness({ writeOutline: async () => [] });
 		const oldId = "lec_b0123abcd_c02_l09";
