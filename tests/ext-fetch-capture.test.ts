@@ -118,10 +118,13 @@ describe("captureFetches", () => {
 		assert.deepEqual(cap2.pages(), []);
 	});
 
-	it("a malformed call (no string url) neither throws from the wrapper nor records", async () => {
+	it("a malformed call (no string url) surfaces the base tool's own error and records nothing", async () => {
+		const baseErr = await base.web_fetch!.execute!("c", { url: 42 }).then(() => null, (e: unknown) => e);
 		const cap = captureFetches(base);
-		const r = await cap.tools.web_fetch!.execute!("c", { url: 42 }).catch((e: unknown) => e);
-		assert.ok(!(r instanceof TypeError && /locator|trim/.test(String(r))));
+		const wrapErr = await cap.tools.web_fetch!.execute!("c", { url: 42 }).then(() => null, (e: unknown) => e);
+		assert.ok(baseErr instanceof TypeError, "the base tool itself throws on a non-string url");
+		assert.ok(wrapErr instanceof TypeError);
+		assert.equal((wrapErr as Error).message, (baseErr as Error).message);
 		assert.deepEqual(cap.pages(), []);
 	});
 

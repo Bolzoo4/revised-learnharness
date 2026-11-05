@@ -150,7 +150,7 @@ describe("createFeedFetcher: body, type, time, errors", () => {
 		const bad = fake(() => new Response("<html>stack trace at /srv/app.js</html>", { status: 503, headers: { "content-type": "text/html" } }));
 		await assert.rejects(createFeedFetcher({ fetch: bad.f })(feed("https://x.org/secret?token=abc")), (e: Error) => e.message === "feed: HTTP 503");
 		const boom = fake(() => { throw new Error("connect ECONNREFUSED 10.1.2.3:80 at Socket.connect (node:net:1)"); });
-		await assert.rejects(createFeedFetcher({ fetch: boom.f })(feed("https://x.org/f")), (e: Error) => !/10\.1\.2\.3|node:net/.test(e.message) && /feed/.test(e.message) && e.stack !== undefined);
+		await assert.rejects(createFeedFetcher({ fetch: boom.f })(feed("https://x.org/f")), (e: Error) => e.message === "feed: request failed");
 	});
 
 	it("decodes multi-byte characters split across chunks and tolerates an empty body", async () => {
@@ -199,5 +199,64 @@ describe("createFeedFetcher: hardening of the body reader", () => {
 		const err = await createFeedFetcher({ fetch: f })(feed("https://x.org/f")).catch((e: unknown) => e);
 		assert.ok(mod.FeedError !== undefined && err instanceof mod.FeedError);
 		assert.equal((err as Error).message, "feed: HTTP 503");
+	});
+});
+
+describe("createFeedFetcher: redirect targets and body cancellation", () => {
+	for (const target of ["file:///etc/passwd", "data:text/xml,<feed/>", "//169.254.169.254/latest", "http://[::1]/f", "https://[fe80::1]/f"]) {
+		it(`refuses a redirect to ${target}`, async () => {
+			const { f, calls } = fake((url) => (url.startsWith("https://x.org") ? redirect(target) : ok(ATOM)));
+			await assert.rejects(createFeedFetcher({ fetch: f })(feed("https://x.org/f")), /redirect/i);
+			assert.equal(calls.length, 1);
+		});
+	}
+
+	it("refuses a private target reached at hop 2, after a public hop 1", async () => {
+		const { f, calls } = fake((_u, n) => (n === 1 ? redirect("https://y.org/a") : redirect("http://10.0.0.9/x")));
+		await assert.rejects(createFeedFetcher({ fetch: f })(feed("https://x.org/f")), /redirect/i);
+		assert.deepEqual(calls.map((c) => c.url), ["https://x.org/f", "https://y.org/a"]);
+	});
+
+	for (const status of [307, 308]) {
+		it(`follows a ${status} redirect to a public target`, async () => {
+			const { f, calls } = fake((_u, n) => (n === 1 ? redirect("https://y.org/f", status) : ok(ATOM)));
+			assert.equal((await createFeedFetcher({ fetch: f })(feed("https://x.org/f"))).length, 1);
+			assert.deepEqual(calls.map((c) => c.url), ["https://x.org/f", "https://y.org/f"]);
+		});
+	}
+
+	const cancelBody = () => {
+		const state = { cancelled: false };
+		const body = new ReadableStream<Uint8Array>({
+			pull(c) {
+				c.enqueue(new TextEncoder().encode(ATOM));
+				c.close();
+			},
+			cancel() {
+				state.cancelled = true;
+			},
+		});
+		return { body, state };
+	};
+
+	it("cancels the body of a followed redirect", async () => {
+		const { body, state } = cancelBody();
+		const { f } = fake((_u, n) => (n === 1 ? new Response(body, { status: 302, headers: { location: "https://y.org/f" } }) : ok(ATOM)));
+		await createFeedFetcher({ fetch: f })(feed("https://x.org/f"));
+		assert.equal(state.cancelled, true);
+	});
+
+	it("cancels the body of a non-OK response", async () => {
+		const { body, state } = cancelBody();
+		const { f } = fake(() => new Response(body, { status: 500, headers: { "content-type": "text/html" } }));
+		await assert.rejects(createFeedFetcher({ fetch: f })(feed("https://x.org/f")), /HTTP 500/);
+		assert.equal(state.cancelled, true);
+	});
+
+	it("cancels the body of a response with the wrong content type", async () => {
+		const { body, state } = cancelBody();
+		const { f } = fake(() => new Response(body, { status: 200, headers: { "content-type": "text/html" } }));
+		await assert.rejects(createFeedFetcher({ fetch: f })(feed("https://x.org/f")), /content type/i);
+		assert.equal(state.cancelled, true);
 	});
 });

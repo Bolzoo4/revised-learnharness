@@ -59,7 +59,7 @@ describe("research store", () => {
 		fs.appendFileSync(path.join(dir, "inbox.jsonl"), "{ torn\n");
 		assert.equal(createResearchStore(dir).inbox.readAll().length, 1);
 		s.frontier.append({ type: "clear", markId: "m1", author: "user", at: "2026-11-04T10:00:00.000Z" });
-		assert.throws(() => s.frontier.append({ type: "clear", markId: "m1", author: "user", at: "t" }), "unparseable date");
+		assert.throws(() => s.frontier.append({ type: "clear", markId: "m1", author: "user", at: "t" }), /rejected by its parser/);
 		assert.equal(s.frontier.readAll().length, 1);
 	});
 
@@ -109,12 +109,12 @@ describe("research store", () => {
 	it("exposes stable ledger objects and a lockKey identifying the data dir", () => {
 		const dir = tmp();
 		const s = createResearchStore(dir);
-		assert.equal(s.log, s.log);
-		assert.equal(s.inbox, s.inbox);
-		assert.equal(s.frontier, s.frontier);
-		assert.equal(s.radar, s.radar);
-		assert.equal(s.watchlist, s.watchlist);
-		assert.equal(s.snapshots, s.snapshots);
+		// each member is a plain data property: no getter builds a new object per access
+		for (const member of ["log", "inbox", "frontier", "radar", "watchlist", "snapshots"] as const) {
+			const desc = Object.getOwnPropertyDescriptor(s, member);
+			assert.ok(desc !== undefined && "value" in desc, `${member} is a data property`);
+			assert.equal(desc.value, s[member], member);
+		}
 		assert.equal(s.lockKey, path.resolve(dir));
 		assert.equal(s.lockKey, createResearchStore(`${dir}${path.sep}..${path.sep}${path.basename(dir)}`).lockKey);
 		assert.notEqual(s.lockKey, createResearchStore(tmp()).lockKey);
