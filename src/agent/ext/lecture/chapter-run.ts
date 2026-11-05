@@ -103,6 +103,7 @@ export async function runChapter(book: BookRef, chapter: Chapter, deps: ChapterR
 		report("outline");
 		const outline = await deps.writeOutline(chapter, chapterText);
 		const groups = splitOutline(outline);
+		if (groups.length === 0) return result("failed", "the outline produced no lecture");
 
 		// 3. lectures in sequence
 		report("writing");
@@ -142,13 +143,14 @@ export async function runChapter(book: BookRef, chapter: Chapter, deps: ChapterR
 			report("writing");
 		}
 
+		// Known limitation: new lectures overwrite old ones with the same id as they are saved, so a failed
+		// re-run can leave a mix of new and old lectures. Old lectures with ids never reached are kept.
 		// Only now, with every new lecture saved, drop the chapter's earlier lectures that were not overwritten.
 		const newIds = new Set(saved.map((l) => l.id));
 		for (const old of deps.lectures.list()) {
 			if (old.bookId === book.bookId && old.chapter.index === chapter.index && !newIds.has(old.id)) deps.lectures.remove(old.id);
 		}
 
-		uncovered = uncoveredChapterNodes(saved, chapterNodeIds);
 		return result("done");
 	} catch (err) {
 		if (err instanceof CostCeilingError) return result("stopped_cost", err.message);

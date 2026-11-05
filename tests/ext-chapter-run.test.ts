@@ -121,6 +121,16 @@ describe("runChapter", () => {
 		const r = await runChapter(book, chapter, h.deps);
 		assert.equal(r.state, "failed");
 		assert.ok(h.store.has(oldId), "the previous lecture must survive a failed re-run");
+		assert.ok(h.store.has("lec_b0123abcd_c02_l01"), "the first new lecture was saved before the failure");
+	});
+	it("fails without deleting anything when the outline yields no lecture", async () => {
+		const h = harness({ writeOutline: async () => [] });
+		const oldId = "lec_b0123abcd_c02_l09";
+		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /no lecture/);
+		assert.ok(h.store.has(oldId), "the previous lecture must be kept");
 	});
 	it("stops with stopped_cost when the ceiling is reached, before any model call", async () => {
 		const h = harness({ gate: { allowed: () => false, record: () => {} } });
