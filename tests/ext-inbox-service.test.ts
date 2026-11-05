@@ -94,6 +94,51 @@ describe("decideInboxItem: hardening", () => {
 		assert.equal((await decideInboxItem(deps, "https://a.org/x", "approved")).nodesAdded, 0);
 	});
 
+	it("activate without a tier defaults to secondary; an empty title falls back to the locator", async () => {
+		const s = setup();
+		s.inbox.append({ type: "proposed", locator: "https://b.org/y", title: "", gapId: "g", foundBy: "cycle", cycleId: "c", snapshot: "h1", at: "t" });
+		await decideInboxItem(s.deps, "https://b.org/y", "activated");
+		assert.deepEqual(s.activated, [{ locator: "https://b.org/y", kind: "url-prefix", label: "https://b.org/y", tier: "secondary" }]);
+	});
+
+	it("two different locators decided concurrently both succeed", async () => {
+		const s = setup();
+		s.inbox.append({ type: "proposed", locator: "https://b.org/y", title: "Y", gapId: "g", foundBy: "cycle", cycleId: "c", snapshot: "h1", at: "t" });
+		const r = await Promise.allSettled([decideInboxItem(s.deps, "https://a.org/x", "approved"), decideInboxItem(s.deps, "https://b.org/y", "approved")]);
+		assert.deepEqual(r.map((x) => x.status), ["fulfilled", "fulfilled"]);
+		assert.equal(s.ingested.length, 2);
+	});
+
+	it("a reject during an in-flight approve is refused as in-progress and nothing is lost", async () => {
+		const s = setup();
+		let release!: () => void;
+		const gate = new Promise<void>((res) => (release = res));
+		const deps = { ...s.deps, ingest: async () => (await gate, 2) };
+		const first = decideInboxItem(deps, "https://a.org/x", "approved");
+		await assert.rejects(decideInboxItem(deps, "https://a.org/x", "rejected"), (e) => e instanceof InboxError && e.code === "in-progress");
+		release();
+		assert.equal((await first).nodesAdded, 2);
+		assert.equal(deriveInbox(s.inbox.events)[0]!.status, "approved");
+	});
+
+	it("an invalid tier is refused before any side effect", async () => {
+		const s = setup();
+		await assert.rejects(decideInboxItem(s.deps, "https://a.org/x", "activated", "tertiary" as never), (e) => e instanceof InboxError && e.code === "bad-tier");
+		assert.deepEqual(s.activated, []);
+		assert.deepEqual(s.ingested, []);
+		assert.equal(s.inbox.events.length, 1);
+	});
+
+	it("records decided before ingested, with a negative or fractional count as 0", async () => {
+		for (const bad of [-3, 2.5]) {
+			const s = setup();
+			const deps = { ...s.deps, ingest: async () => bad };
+			assert.equal((await decideInboxItem(deps, "https://a.org/x", "approved")).nodesAdded, 0);
+			assert.deepEqual(s.inbox.events.slice(1).map((e) => e.type), ["decided", "ingested"]);
+			assert.equal((s.inbox.events[2] as { nodesAdded: number }).nodesAdded, 0);
+		}
+	});
+
 	it("refuses an unknown decision and an empty snapshot without side effects", async () => {
 		const s = setup();
 		await assert.rejects(decideInboxItem(s.deps, "https://a.org/x", "pending" as never), (e) => e instanceof InboxError && e.code === "bad-decision");

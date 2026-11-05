@@ -6,13 +6,13 @@
  * USER decides; nothing in the cycle calls this.
  */
 
-import { deriveInbox, normalizeLocator, type InboxDecision, type InboxEvent } from "./inbox.ts";
+import { deriveInbox, ingestedEvent, normalizeLocator, type InboxDecision, type InboxEvent } from "./inbox.ts";
 import type { EventLog, IngestSource, LibraryEntryInput } from "./research-ports.ts";
 import type { SourceTier } from "./sources.ts";
 
 export class InboxError extends Error {
 	constructor(
-		readonly code: "not-found" | "not-pending" | "snapshot-missing" | "bad-decision",
+		readonly code: "not-found" | "not-pending" | "in-progress" | "snapshot-missing" | "bad-decision" | "bad-tier",
 		message: string,
 	) {
 		super(message);
@@ -34,9 +34,24 @@ export interface InboxDecisionResult {
 	nodesAdded: number;
 }
 
-/** Decisions in flight per inbox log: two concurrent calls on one locator must not both ingest. */
+/**
+ * Decisions in flight per inbox log: two concurrent calls on one locator must not both ingest.
+ * The guard is in-process only, and keyed on the stable `inbox` log object (not on `deps`, which
+ * callers may rebuild per call); a second process or a different log object is not covered.
+ */
 const inFlight = new WeakMap<object, Set<string>>();
 
+/**
+ * Apply the user's decision to a pending item.
+ *
+ * Ordering and failure semantics:
+ * - Validation (decision, tier, item, snapshot) happens before any side effect.
+ * - `activated` adds the library entry BEFORE ingesting. If the ingest then fails, the entry stays
+ *   active while the item is still pending; retrying is safe because activate is idempotent.
+ * - At-least-once: there is a crash window between the ingest and the two ledger appends
+ *   (`decided`, then `ingested`). A crash there leaves the item pending although its nodes exist,
+ *   so a retry ingests again. Accepted: the log has no transaction across ingest and append.
+ */
 export async function decideInboxItem(
 	deps: InboxServiceDeps,
 	rawLocator: string,
@@ -46,13 +61,14 @@ export async function decideInboxItem(
 	if (decision !== "approved" && decision !== "rejected" && decision !== "activated") {
 		throw new InboxError("bad-decision", `unknown decision ${String(decision)}`);
 	}
+	if (tier !== "primary" && tier !== "secondary") throw new InboxError("bad-tier", `unknown tier ${String(tier)}`);
 	const locator = normalizeLocator(rawLocator);
 	const item = deriveInbox(deps.inbox.readAll()).find((i) => i.locator === locator);
 	if (item === undefined) throw new InboxError("not-found", `no inbox item for ${locator}`);
 	if (item.status !== "pending") throw new InboxError("not-pending", `${locator} was already ${item.status}`);
 	const busy = inFlight.get(deps.inbox) ?? new Set<string>();
 	inFlight.set(deps.inbox, busy);
-	if (busy.has(locator)) throw new InboxError("not-pending", `${locator} is being decided`);
+	if (busy.has(locator)) throw new InboxError("in-progress", `${locator} is being decided`);
 	busy.add(locator);
 	try {
 		const at = deps.now().toISOString();
@@ -64,10 +80,10 @@ export async function decideInboxItem(
 		if (text === null || text === "") throw new InboxError("snapshot-missing", `the stored text of ${locator} is gone`);
 		if (decision === "activated") deps.library.activate({ locator, kind: "url-prefix", label: item.title || locator, tier });
 		const count = await deps.ingest({ locator, title: item.title, text });
-		const nodesAdded = Number.isInteger(count) && count >= 0 ? count : 0;
+		const ingested = ingestedEvent(locator, count, at);
 		deps.inbox.append({ type: "decided", locator, decision, at });
-		deps.inbox.append({ type: "ingested", locator, nodesAdded, at });
-		return { decision, nodesAdded };
+		deps.inbox.append(ingested);
+		return { decision, nodesAdded: ingested.nodesAdded };
 	} finally {
 		busy.delete(locator);
 	}

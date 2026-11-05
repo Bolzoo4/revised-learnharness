@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	deriveInbox,
+	ingestedEvent,
 	ingestedLocators,
 	normalizeLocator,
 	parseInboxEvent,
@@ -59,8 +60,8 @@ describe("locators", () => {
 	});
 
 	it("derives a stable notes path from a locator", () => {
-		assert.equal(sourceFilePath("https://www.arxiv.org/abs/1706.03762"), "research/arxiv.org/abs-1706.03762.md");
-		assert.equal(sourceFilePath("https://x.org"), "research/x.org/index.md");
+		assert.match(sourceFilePath("https://www.arxiv.org/abs/1706.03762"), /^research\/arxiv\.org\/abs-1706\.03762-[0-9a-f]{8}\.md$/);
+		assert.match(sourceFilePath("https://x.org"), /^research\/x\.org\/index-[0-9a-f]{8}\.md$/);
 		assert.equal(sourceFilePath("https://x.org/a?b=1"), sourceFilePath("https://x.org/a?b=1"));
 		assert.ok(sourceFilePath("not a url at all").startsWith("research/source/"));
 	});
@@ -123,7 +124,44 @@ describe("hardening: edge cases", () => {
 		assert.equal(sourceFilePath("https://x.org/a/#f"), sourceFilePath("https://X.org/a"));
 		assert.notEqual(sourceFilePath("https://x.org/a?b=1"), sourceFilePath("https://x.org/a?b=2"));
 		assert.notEqual(sourceFilePath(`https://x.org/${"a".repeat(100)}1`), sourceFilePath(`https://x.org/${"a".repeat(100)}2`));
-		assert.match(sourceFilePath("http://[::1]:3000/p"), /^research\/[A-Za-z0-9._-]+\/p\.md$/);
+		assert.match(sourceFilePath("http://[::1]:3000/p"), /^research\/[A-Za-z0-9._-]+\/p-[0-9a-f]{8}\.md$/);
 		assert.match(sourceFilePath("../../etc/passwd"), /^research\/source\/[A-Za-z0-9._-]+\.md$/);
+	});
+
+	it("source paths never collide for distinct canonical locators", () => {
+		const pairs: [string, string][] = [
+			["https://x.org/a/b", "https://x.org/a-b"],
+			["http://x.org/a", "https://x.org/a"],
+			["https://x.org:3000/a", "https://x.org:4000/a"],
+			["https://www.x.org/a", "https://x.org/a"],
+			["file:///a/b", "file:///a-b"],
+		];
+		for (const [a, b] of pairs) assert.notEqual(sourceFilePath(a), sourceFilePath(b), `${a} vs ${b}`);
+		assert.equal(sourceFilePath("https://X.org:443/a/#f"), sourceFilePath("https://x.org/a"));
+	});
+});
+
+describe("hardening: locators and events (round 2)", () => {
+	it("leaves non-http URLs untouched", () => {
+		assert.equal(normalizeLocator("file:///tmp/x/"), "file:///tmp/x/");
+		assert.equal(normalizeLocator("ftp://X.org/a/"), "ftp://X.org/a/");
+	});
+
+	it("drops default ports and userinfo, punycodes IDN hosts, lowercases the scheme", () => {
+		assert.equal(normalizeLocator("https://x.org:443/a"), "https://x.org/a");
+		assert.equal(normalizeLocator("http://x.org:80/a"), "http://x.org/a");
+		assert.equal(normalizeLocator("https://user:pw@x.org/a"), "https://x.org/a");
+		assert.equal(normalizeLocator("https://b\u00fccher.example/a"), "https://xn--bcher-kva.example/a");
+		assert.equal(normalizeLocator("HTTPS://X.org:8443/a"), "https://x.org:8443/a");
+	});
+
+	it("ingestedEvent normalizes the locator and coerces the count", () => {
+		assert.deepEqual(ingestedEvent("HTTPS://X.org/a/", 3, "t"), { type: "ingested", locator: "https://x.org/a", nodesAdded: 3, at: "t" });
+		for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) assert.equal(ingestedEvent("u", bad, "t").nodesAdded, 0);
+		assert.equal(ingestedEvent("u", 0, "t").nodesAdded, 0);
+	});
+
+	it("parseInboxEvent returns null for an unknown type", () => {
+		assert.equal(parseInboxEvent({ type: "weird", locator: "u", at: "t" }), null);
 	});
 });

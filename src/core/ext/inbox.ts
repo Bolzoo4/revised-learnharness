@@ -100,27 +100,32 @@ export function normalizeLocator(raw: string): string {
 
 /**
  * Deterministic notes-source path for a locator (the extraction pipeline hashes it into the `src_` id).
- * Equivalent locators share a path; a query or a truncated slug adds a short digest so distinct sources cannot collide.
+ * Equivalent locators share a path; the file name always ends in the 8-hex sha256 digest of the full
+ * canonical locator, so distinct locators can never collide whatever the readable slug looks like.
  */
 export function sourceFilePath(locator: string): string {
 	const canonical = normalizeLocator(locator);
 	let host = "source";
 	let rest = canonical;
-	let lossy = false;
 	try {
 		const url = new URL(canonical);
 		host = url.hostname.replace(/^www\./, "").replace(/[^A-Za-z0-9.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "source";
 		rest = `${url.pathname}${url.search}`;
-		lossy = url.search !== "";
 	} catch {
-		lossy = true; /* not a URL: the whole text is squeezed into a slug */
+		/* not a URL: the whole text is squeezed into a slug */
 	}
-	const full = rest.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-	let slug = full.slice(0, 80);
-	if (slug.length < full.length) lossy = true;
-	if (slug === "") slug = "index";
-	if (lossy) slug = `${slug.slice(0, 70)}-${createHash("sha256").update(canonical).digest("hex").slice(0, 8)}`;
-	return `research/${host}/${slug}.md`;
+	const slug = rest.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70) || "index";
+	const digest = createHash("sha256").update(canonical).digest("hex").slice(0, 8);
+	return `research/${host}/${slug}-${digest}.md`;
+}
+
+/**
+ * The one way to build an `ingested` event: normalizes the locator and coerces the count to a
+ * non-negative integer (anything else is recorded as 0). decideInboxItem uses it, and the research
+ * cycle (Task 7) MUST use it too, so both writers produce identical, parseable log entries.
+ */
+export function ingestedEvent(locator: string, count: number, at: string): Extract<InboxEvent, { type: "ingested" }> {
+	return { type: "ingested", locator: normalizeLocator(locator), nodesAdded: Number.isInteger(count) && count >= 0 ? count : 0, at };
 }
 
 export type TriageDecision = "ingest" | "inbox" | "skip-rejected" | "skip-seen";
