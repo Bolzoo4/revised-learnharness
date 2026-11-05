@@ -60,7 +60,6 @@ describe("cycle log", () => {
 	it("rejects unparseable dates, bad counts, bad costs and bad confidence", () => {
 		assert.equal(bad({ startedAt: "yesterday" }), null);
 		assert.equal(bad({ endedAt: "" }), null);
-		assert.equal(bad({ endedAt: "2026-11-04T09:00:00.000Z" }), null, "ended before it started");
 		assert.equal(bad({ costUsd: -1 }), null);
 		assert.equal(bad({ costUsd: Number.NaN }), null);
 		assert.equal(bad({ costUsd: Number.POSITIVE_INFINITY }), null);
@@ -72,20 +71,41 @@ describe("cycle log", () => {
 		assert.equal(bad({ watch: { entries: -1, items: 0, ingested: 0, inbox: 0 } }), null);
 		assert.equal(bad({ watch: { entries: 0, items: 0.5, ingested: 0, inbox: 0 } }), null);
 		assert.equal(bad({ gaps: "x" }), null);
-		assert.equal(badGap({ confidence: 1.1 }), null);
-		assert.equal(badGap({ confidence: -0.1 }), null);
-		assert.equal(badGap({ confidence: Number.NaN }), null);
 		assert.equal(badGap({ costUsd: -0.01 }), null);
 		assert.equal(badGap({ nodesAdded: -1 }), null);
 		assert.equal(badGap({ gapId: "" }), null);
 		assert.equal(badGap({ type: "nope" }), null);
-		assert.equal(badGap({ stoppedBy: "nope" }), null);
 		assert.equal(badGap({ questions: [1] }), null);
 		assert.equal(badGap({ sources: [{ locator: "u", outcome: "weird", nodesAdded: 0 }] }), null);
 		assert.equal(badGap({ sources: [{ locator: "u", outcome: "ingested", nodesAdded: -1 }] }), null);
 		assert.equal(badGap({ markId: 3 }), null);
-		assert.equal(badGap({ rationale: 3 }), null);
 		assert.equal(badGap({ saturated: "yes" }), null);
+	});
+
+	it("keeps the entry (and its cost) when an optional gap field is invalid, dropping only that field", () => {
+		const full = gap({ confidence: 0.5, rationale: "r", stoppedBy: "confidence", costUsd: 2.5, markId: "m1" });
+		for (const [key, value] of [["confidence", 1.1], ["confidence", -0.1], ["confidence", Number.NaN], ["confidence", "high"], ["rationale", 3], ["stoppedBy", "nope"], ["stoppedBy", 7], ["nodeId", 3], ["chatId", {}], ["error", 1]] as const) {
+			const parsed = parseCycleLogEntry({ ...entry(), gaps: [{ ...full, [key]: value }] });
+			assert.ok(parsed, `${key}=${String(value)} must not reject the entry`);
+			const g = parsed.gaps[0]!;
+			assert.equal(key in g, false, `${key} is dropped`);
+			assert.equal(g.costUsd, 2.5);
+			assert.equal(g.markId, "m1");
+			assert.equal(g.gapId, full.gapId);
+		}
+		assert.equal(markSpendUsd([parseCycleLogEntry({ ...entry(), gaps: [{ ...full, confidence: 9 }] })!]).get("m1"), 2.5);
+	});
+
+	it("does not reject an entry that ended before it started (the cost is still real)", () => {
+		assert.ok(bad({ endedAt: "2026-11-04T09:00:00.000Z" }));
+	});
+
+	it("still rejects what cost accounting depends on", () => {
+		assert.equal(badGap({ costUsd: "1" }), null);
+		assert.equal(badGap({ markId: 3 }), null);
+		assert.equal(bad({ endedAt: "nope" }), null);
+		assert.equal(bad({ startedAt: "nope" }), null);
+		assert.equal(bad({ cycleId: "" }), null);
 	});
 
 	it("accepts the boundary values (confidence 0 and 1, zero cost)", () => {
@@ -141,5 +161,18 @@ describe("cycle log", () => {
 		assert.equal(cycleDue(log, "2026-11-05T10:00:00.000Z", 0), false);
 		assert.equal(cycleDue(log, "2026-11-05T10:00:00.000Z", -1), false);
 		assert.equal(cycleDue(log, "2026-11-05T10:00:00.000Z", Number.POSITIVE_INFINITY), false);
+	});
+
+	it("cycleDue ignores cycles that ended in the future (clock skew) and is closed when no end time parses", () => {
+		const now = "2026-11-04T12:00:00.000Z";
+		const past = entry({ endedAt: "2026-11-04T10:00:00.000Z" });
+		const future = entry({ endedAt: "2099-01-01T00:00:00.000Z" });
+		assert.equal(cycleDue([past, future], now, 6), false, "the future entry does not hide the recent past one");
+		assert.equal(cycleDue([future, entry({ endedAt: "2026-11-04T05:00:00.000Z" })], now, 6), true, "the future entry does not postpone forever");
+		assert.equal(cycleDue([future], now, 6), true, "only future entries: as if none ran");
+		assert.equal(cycleDue([entry({ endedAt: "garbage" })], now, 6), false, "all unparseable: do not spend");
+		assert.equal(cycleDue([entry({ endedAt: "garbage" }), entry({ endedAt: "" })], now, 6), false);
+		assert.equal(cycleDue([entry({ endedAt: "garbage" }), entry({ endedAt: "2026-11-04T05:00:00.000Z" })], now, 6), true);
+		assert.equal(cycleDue([entry({ endedAt: now })], now, 6), false, "ended exactly now is not in the future");
 	});
 });

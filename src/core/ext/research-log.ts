@@ -91,29 +91,30 @@ function parseGap(g: unknown): GapLog | null {
 		costUsd: g.costUsd,
 		saturated: g.saturated,
 	};
-	for (const key of ["nodeId", "chatId", "markId", "rationale", "error"] as const) {
-		const v = g[key];
-		if (v === undefined) continue;
-		if (!isStr(v)) return null;
-		out[key] = v;
+	// markId and costUsd drive the budget, so a bad one rejects the entry. The rest is
+	// informational: an invalid value is dropped so the cost it sits next to is not lost.
+	if (g.markId !== undefined) {
+		if (!isStr(g.markId)) return null;
+		out.markId = g.markId;
 	}
-	if (g.confidence !== undefined) {
-		if (typeof g.confidence !== "number" || !(g.confidence >= 0 && g.confidence <= 1)) return null;
-		out.confidence = g.confidence;
+	for (const key of ["nodeId", "chatId", "rationale", "error"] as const) {
+		if (isStr(g[key])) out[key] = g[key];
 	}
-	if (g.stoppedBy !== undefined) {
-		if (!isStr(g.stoppedBy) || !GAP_STOPS.has(g.stoppedBy)) return null;
-		out.stoppedBy = g.stoppedBy as GapStop;
-	}
+	if (typeof g.confidence === "number" && g.confidence >= 0 && g.confidence <= 1) out.confidence = g.confidence;
+	if (isStr(g.stoppedBy) && GAP_STOPS.has(g.stoppedBy)) out.stoppedBy = g.stoppedBy as GapStop;
 	return out;
 }
 
-/** Validates a log line; returns a clean copy (unknown keys dropped) or null. */
+/**
+ * Validates a log line; returns a clean copy (unknown keys and invalid optional
+ * fields dropped) or null. Strict only where the budget depends on it: cycleId,
+ * parseable start/end times (their order is not checked), counts, costUsd and markId.
+ */
 export function parseCycleLogEntry(raw: unknown): CycleLogEntry | null {
 	if (!isObj(raw) || raw.type !== "cycle") return null;
 	if (!isNonEmpty(raw.cycleId)) return null;
 	if (raw.trigger !== "schedule" && raw.trigger !== "manual") return null;
-	if (!isDate(raw.startedAt) || !isDate(raw.endedAt) || Date.parse(raw.endedAt) < Date.parse(raw.startedAt)) return null;
+	if (!isDate(raw.startedAt) || !isDate(raw.endedAt)) return null;
 	if (!isStr(raw.stoppedBy) || !STOPS.has(raw.stoppedBy)) return null;
 	if (!Array.isArray(raw.gaps)) return null;
 	const gaps: GapLog[] = [];
@@ -145,6 +146,7 @@ export function markSpendUsd(log: readonly CycleLogEntry[]): Map<string, number>
 	const out = new Map<string, number>();
 	for (const entry of log) {
 		for (const gap of entry.gaps) {
+			// isFinite is redundant for parsed entries; kept because callers may pass hand-built ones and NaN would poison the sum.
 			if (gap.markId === undefined || !Number.isFinite(gap.costUsd)) continue;
 			out.set(gap.markId, (out.get(gap.markId) ?? 0) + gap.costUsd);
 		}
@@ -167,13 +169,23 @@ export function lastCycleEndedAt(log: readonly CycleLogEntry[]): string | null {
 
 /**
  * A scheduled cycle is due when none ran yet or the last ended at least `cycleHours` ago.
- * Fail closed: an unparseable `nowIso` or a `cycleHours` that is not a finite number > 0 is never due
- * (a broken clock or config must not start paid work).
+ * Fail closed: an unparseable `nowIso`, a `cycleHours` that is not a finite number > 0, or a
+ * log whose end times all fail to parse is never due (a broken clock, config or log must not
+ * start paid work). A cycle that "ended" after `nowIso` (clock skew, corrupt date) is ignored,
+ * so it can neither hide a recent cycle nor postpone the next one indefinitely.
  */
 export function cycleDue(log: readonly CycleLogEntry[], nowIso: string, cycleHours: number): boolean {
 	const now = Date.parse(nowIso);
 	if (Number.isNaN(now) || !Number.isFinite(cycleHours) || cycleHours <= 0) return false;
-	const last = lastCycleEndedAt(log);
-	if (last === null) return true;
-	return now - Date.parse(last) >= cycleHours * 3_600_000;
+	if (log.length === 0) return true;
+	let last = Number.NEGATIVE_INFINITY;
+	let parseable = 0;
+	for (const e of log) {
+		const ms = Date.parse(e.endedAt);
+		if (Number.isNaN(ms)) continue;
+		parseable++;
+		if (ms <= now && ms > last) last = ms;
+	}
+	if (parseable === 0) return false;
+	return now - last >= cycleHours * 3_600_000;
 }
