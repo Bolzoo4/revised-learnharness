@@ -10,3 +10,5 @@ export {
 	verifyNodesNow,
 	withTrustTags,
 } from "./verification.ts";
+export * from "./personal-layer.ts";
+export * from "./personal-panel.ts";
