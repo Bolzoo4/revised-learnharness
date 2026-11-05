@@ -21,3 +21,17 @@ export interface SourcesStore {
 	read(): SourceEntry[];
 	write(entries: SourceEntry[]): void;
 }
+
+import type { VerificationEvent } from "./trust.ts";
+
+/** Immutable text snapshots addressed by sha256 (REQ-src-04). */
+export interface SnapshotStore {
+	/** Stores the text (idempotent) and returns its sha256 hex. */
+	put(text: string): string;
+}
+
+export interface VerificationStore {
+	/** Throws if the event is invalid. */
+	appendEvent(event: VerificationEvent): void;
+	readEvents(): VerificationEvent[];
+}
