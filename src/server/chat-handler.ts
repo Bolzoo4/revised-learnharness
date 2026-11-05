@@ -7,6 +7,7 @@ import {
 	type TeachingAgent,
 } from "../agent/teacher-agent.ts";
 import { piEngineForSpec, type PiEngine } from "../agent/models.ts";
+import { createOfficeHoursAgent } from "../agent/ext/practice/office-hours-agent.ts";
 import { createReviewAgent } from "../agent/ext/review-agent.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
@@ -35,6 +36,7 @@ import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
 import { personalLayer } from "./ext/personal-layer.ts";
+import { practiceService } from "./ext/practice-live.ts";
 import { searchAvailable, searchProvider } from "./search.ts";
 import { providerKeyPresent } from "./keys.ts";
 import { CLAUDE_CODE_PROVIDER } from "../core/contracts/claude-code.ts";
@@ -68,8 +70,8 @@ import {
 import { steerDelivered } from "../core/contracts.ts";
 import type {CallUsage} from "../core/contracts.ts";
 
-/** Sessions that write nothing to the graph and compact like practice (practice, and the extension's review kind). */
-const isPracticeLike = (kind: string | undefined): boolean => kind === "practice" || kind === "review";
+/** Sessions that write nothing to the graph and compact like practice (practice, and the extension's review and office_hours kinds). */
+const isPracticeLike = (kind: string | undefined): boolean => kind === "practice" || kind === "review" || kind === "office_hours";
 
 /**
  * One chat turn over the server-owned native record. Framework-free (plain
@@ -474,6 +476,8 @@ export async function handleChatInput(
 	// uniform across kinds).
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
+		: record.kind === "office_hours"
+			? createOfficeHoursAgent(practiceService.toolContext(chatId, stores.chatStore), agentOpts)
 		: record.kind === "review"
 			? createReviewAgent(personalLayer.reviewToolContext(chatId, stores.chatStore), agentOpts)
 		: record.kind === "practice"
