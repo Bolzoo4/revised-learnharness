@@ -144,3 +144,115 @@ describe("findGaps", () => {
 		assert.equal(gaps[0]!.score, 3 * 0.7);
 	});
 });
+
+describe("findGaps: eligibility uses the minimum goal distance", () => {
+	it("a node in a lower-priority goal's scope keeps its distance-0 gaps although a higher-priority goal reaches it farther", () => {
+		// A (priority 10) targets w; x sits one hop above w. B (priority 1) targets x, so x is in B's scope.
+		const ch = [{ premises: ["w"], conclusion: "x" }];
+		const ns = ["w", "x"].map((id) => ({ id, name: id }));
+		const goals = [goal({ id: "A", priority: 10, targetNodeIds: ["w"] }), goal({ id: "B", priority: 1, targetNodeIds: ["x"] })];
+		const r = reachFromGoals(goals, ch, 0.5);
+		assert.equal(r.get("x")!.weight, 5); // A wins the weight ...
+		assert.equal(r.get("x")!.distance, 1);
+		assert.equal(r.get("x")!.minDistance, 0); // ... but B reaches it at distance 0
+		const gaps = findGaps(input({ goals, chains: ch, nodes: ns }));
+		const x = gaps.find((g) => g.id === "unverified:x");
+		assert.ok(x, "x is in B's scope and unverified");
+		assert.equal(x.score, 10 * 0.5 * 0.6); // scoring still follows the winning weight
+	});
+
+	it("the depth limit also uses the minimum distance", () => {
+		const ch = [{ premises: ["w"], conclusion: "x" }];
+		const ns = ["w", "x"].map((id) => ({ id, name: id }));
+		const goals = [goal({ id: "A", priority: 10, targetNodeIds: ["w"] }), goal({ id: "B", priority: 1, targetNodeIds: ["x"] })];
+		const gaps = findGaps(input({ goals, chains: ch, nodes: ns, weakNodeIds: ["x"], config: { ...DEFAULT_RESEARCH_CONFIG, defaultMaxDepth: 0 } }));
+		assert.equal(gaps.some((g) => g.nodeId === "x"), true); // winning distance 1 > 0, but minDistance 0
+	});
+});
+
+describe("findGaps: depth limit boundaries", () => {
+	it("a gap at exactly the maximum depth is kept", () => {
+		const gaps = findGaps(input({ weakNodeIds: ["u2"] }));
+		assert.equal(gaps.some((g) => g.id === "weak-premise:u2"), true);
+	});
+
+	it("maxDepth 0 keeps only distance-0 nodes", () => {
+		const gaps = findGaps(input({ weakNodeIds: ["u1", "p2"], config: { ...DEFAULT_RESEARCH_CONFIG, defaultMaxDepth: 0 } }));
+		assert.equal(gaps.some((g) => g.nodeId === "u1"), false);
+		assert.equal(gaps.some((g) => g.nodeId === "p2"), true);
+	});
+
+	it("a mark with a lower maxDepth than the default tightens the limit", () => {
+		const marks = [{ id: "m", scope: { kind: "node" as const, id: "u2" }, mark: "expand" as const, maxDepth: 1, note: "", author: "user" as const, at: "t" }];
+		const gaps = findGaps(input({ weakNodeIds: ["u1", "u2"], marks }));
+		assert.equal(gaps.some((g) => g.id === "weak-premise:u1"), true);
+		assert.equal(gaps.some((g) => g.id === "weak-premise:u2"), false); // default 2 would keep it
+	});
+});
+
+describe("findGaps: ordering and robustness", () => {
+	it("equal weights per node tie-break on id", () => {
+		const config = { ...DEFAULT_RESEARCH_CONFIG, weights: { ...DEFAULT_RESEARCH_CONFIG.weights, unverified: 1 } };
+		const p2 = findGaps(input({ config })).filter((g) => g.nodeId === "p2");
+		assert.deepEqual(p2.map((g) => g.id), ["no-premises:p2"]); // 3 == 3, "no-premises" < "unverified"
+	});
+
+	it("equal scores across gaps sort by id", () => {
+		const ids = findGaps(input()).filter((g) => g.score === 3).map((g) => g.id);
+		assert.deepEqual(ids, ["no-premises:p2", "no-premises:q"]);
+	});
+
+	it("an in-reach node missing from nodes yields no gap and no error", () => {
+		const gaps = findGaps(input({ chains: [...chains, { premises: ["ghost"], conclusion: "t" }], weakNodeIds: ["ghost"] }));
+		assert.equal(gaps.some((g) => g.nodeId === "ghost"), false);
+	});
+
+	it("terminates on a cycle in the chains", () => {
+		const cyc = [{ premises: ["a"], conclusion: "b" }, { premises: ["b"], conclusion: "a" }];
+		const r = reachFromGoals([goal({ targetNodeIds: ["a"] })], cyc, 0.5);
+		assert.equal(r.get("a")!.distance, 0);
+		assert.equal(r.get("b")!.distance, 0);
+		const gaps = findGaps(input({ goals: [goal({ targetNodeIds: ["a"] })], chains: cyc, nodes: ["a", "b"].map((id) => ({ id, name: id })) }));
+		assert.deepEqual(gaps.map((g) => g.id), ["unverified:a", "unverified:b"]);
+	});
+
+	it("is independent of input order and matches a fixed expected order", () => {
+		const uncovered = [{ chatId: "c1", title: "C", messages: 1 }];
+		const expected = ["no-premises:p2", "no-premises:q", "uncovered:c1", "unverified:p1", "unverified:t"];
+		assert.deepEqual(findGaps(input({ uncovered })).map((g) => g.id), expected);
+		const shuffled = input({ uncovered, chains: [...chains].reverse(), nodes: [...nodes].reverse() });
+		assert.deepEqual(findGaps(shuffled).map((g) => g.id), expected);
+	});
+
+	it("attaches markId on an expand gap", () => {
+		const gaps = findGaps(input({ marks: [{ id: "m", scope: { kind: "node", id: "p2" }, mark: "expand", note: "", author: "user", at: "t" }] }));
+		assert.equal(gaps.find((g) => g.id === "no-premises:p2")!.markId, "m");
+	});
+
+	it("skips candidates whose score is not finite", () => {
+		const config = { ...DEFAULT_RESEARCH_CONFIG, weights: { ...DEFAULT_RESEARCH_CONFIG.weights, "no-premises": Number.NaN, uncovered: Number.NaN } };
+		const gaps = findGaps(input({ config, uncovered: [{ chatId: "c", title: "t", messages: 1 }] }));
+		assert.equal(gaps.every((g) => Number.isFinite(g.score)), true);
+		assert.equal(gaps.some((g) => g.type === "no-premises" || g.type === "uncovered"), false);
+		assert.equal(gaps.some((g) => g.id === "unverified:p2"), true);
+	});
+});
+
+describe("findGaps: uncovered chats", () => {
+	it("ignore marks (chats have no node): a stop mark does not remove them", () => {
+		const marks = [{ id: "m", scope: { kind: "goal" as const, id: "goal_1" }, mark: "stop" as const, note: "", author: "user" as const, at: "t" }];
+		const gaps = findGaps(input({ marks, uncovered: [{ chatId: "c", title: "t", messages: 1 }] }));
+		assert.deepEqual(gaps.map((g) => g.id), ["uncovered:c"]);
+	});
+
+	it("skip NaN message counts and dedupe by chat id", () => {
+		const gaps = findGaps(input({ uncovered: [
+			{ chatId: "nan", title: "n", messages: Number.NaN },
+			{ chatId: "d", title: "first", messages: 1 },
+			{ chatId: "d", title: "second", messages: 5 },
+		] }));
+		const u = gaps.filter((g) => g.type === "uncovered");
+		assert.deepEqual(u.map((g) => g.id), ["uncovered:d"]);
+		assert.equal(u[0]!.label, "first");
+	});
+});

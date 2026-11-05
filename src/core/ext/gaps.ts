@@ -9,6 +9,12 @@
  * breadth-first walk from its scope (distance 0) over the chains, undirected,
  * gives each reachable node a best weight priority x distanceBase^distance.
  * Marks filter (REQ-rs-03) and carry the depth limit (REQ-rs-05).
+ *
+ * Scoring follows the winning (highest-weight) goal, but eligibility (distance-0
+ * gap types, depth limit) uses the minimum distance over all active goals, so a
+ * higher-priority goal reaching a node farther cannot hide it from a goal whose
+ * scope contains it. Uncovered-chat gaps ignore marks (chats have no node) and
+ * are deduplicated by chat id. Candidates with a non-finite score are skipped.
  */
 
 import type { Goal } from "./goals.ts";
@@ -47,8 +53,12 @@ export interface GapInput {
 }
 
 interface Reach {
+	/** Highest weight over the active goals. */
 	weight: number;
+	/** Distance at which the winning goal reaches the node (scoring). */
 	distance: number;
+	/** Minimum distance over all active goals (eligibility). */
+	minDistance: number;
 }
 
 /** Best weight and its distance for every node reachable from the active goals' scopes. */
@@ -85,9 +95,14 @@ export function reachFromGoals(goals: readonly Goal[], chains: readonly ChainLit
 		for (const [id, distance] of dist) {
 			const weight = goal.priority * Math.pow(distanceBase, distance);
 			const prev = best.get(id);
-			if (prev === undefined || weight > prev.weight || (weight === prev.weight && distance < prev.distance)) {
-				best.set(id, { weight, distance });
+			if (prev === undefined) {
+				best.set(id, { weight, distance, minDistance: distance });
+				continue;
 			}
+			const minDistance = Math.min(prev.minDistance, distance);
+			if (weight > prev.weight || (weight === prev.weight && distance < prev.distance)) {
+				best.set(id, { weight, distance, minDistance });
+			} else prev.minDistance = minDistance;
 		}
 	}
 	return best;
@@ -104,7 +119,7 @@ export function findGaps(input: GapInput): Gap[] {
 	const candidates: Array<{ type: GapType; nodeId: string }> = [];
 	for (const [id, r] of reach) {
 		if (!names.has(id)) continue;
-		if (r.distance === 0) {
+		if (r.minDistance === 0) {
 			if (!concluded.has(id)) candidates.push({ type: "no-premises", nodeId: id });
 			if (trustOf(id).trust === "unverified") candidates.push({ type: "unverified", nodeId: id });
 		}
@@ -121,7 +136,9 @@ export function findGaps(input: GapInput): Gap[] {
 		const mark = resolver.effective(c.nodeId);
 		const mode = frontierMode(mark, mark === null ? 0 : (input.markSpendUsd.get(mark.id) ?? 0));
 		if (!modeAllows(mode, GAP_CLASS[c.type])) continue;
-		if (r.distance > (mark?.maxDepth ?? config.defaultMaxDepth)) continue;
+		if (r.minDistance > (mark?.maxDepth ?? config.defaultMaxDepth)) continue;
+		const score = r.weight * config.weights[c.type] * (mode === "expand" ? config.expandBoost : 1);
+		if (!Number.isFinite(score)) continue;
 		const gap: Gap = {
 			id: `${c.type}:${c.nodeId}`,
 			type: c.type,
@@ -129,7 +146,7 @@ export function findGaps(input: GapInput): Gap[] {
 			nodeId: c.nodeId,
 			label: names.get(c.nodeId) ?? c.nodeId,
 			distance: r.distance,
-			score: r.weight * config.weights[c.type] * (mode === "expand" ? config.expandBoost : 1),
+			score,
 			...(mark !== null ? { markId: mark.id } : {}),
 		};
 		const prev = bestPerNode.get(c.nodeId);
@@ -139,8 +156,11 @@ export function findGaps(input: GapInput): Gap[] {
 	const activePriority = input.goals.filter((g) => g.status === "active").reduce((m, g) => Math.max(m, g.priority), 0);
 	const chatPriority = activePriority > 0 ? activePriority : DEFAULT_GOAL_PRIORITY;
 	const gaps: Gap[] = [...bestPerNode.values()];
+	const seenChats = new Set<string>();
+	const uncoveredScore = chatPriority * config.weights.uncovered;
 	for (const chat of input.uncovered) {
-		if (chat.messages <= 0) continue;
+		if (!(chat.messages > 0) || !Number.isFinite(uncoveredScore) || seenChats.has(chat.chatId)) continue;
+		seenChats.add(chat.chatId);
 		gaps.push({
 			id: `uncovered:${chat.chatId}`,
 			type: "uncovered",
@@ -148,7 +168,7 @@ export function findGaps(input: GapInput): Gap[] {
 			chatId: chat.chatId,
 			label: chat.title,
 			distance: 0,
-			score: chatPriority * config.weights.uncovered,
+			score: uncoveredScore,
 		});
 	}
 	return gaps.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
