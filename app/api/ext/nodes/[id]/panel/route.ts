@@ -1,6 +1,5 @@
 // app/api/ext/nodes/[id]/panel/route.ts
-import { nodePanel } from "@/src/server";
-import { errorResponse } from "../../../error-response";
+import { httpErrorResponse, nodePanel } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +9,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 	try {
 		return Response.json(nodePanel(id));
 	} catch (error) {
-		return errorResponse(error);
+		return httpErrorResponse(error);
 	}
 }

@@ -1,6 +1,5 @@
 // app/api/ext/nodes/[id]/explanation/route.ts
-import { decideNodeProposal, ensureNodeExplanation, saveNodeExplanation } from "@/src/server";
-import { errorResponse } from "../../../error-response";
+import { decideNodeProposal, httpErrorResponse, ensureNodeExplanation, saveNodeExplanation } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +28,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 				return Response.json({ error: "unknown action" }, { status: 400 });
 		}
 	} catch (error) {
-		return errorResponse(error);
+		return httpErrorResponse(error);
 	}
 }

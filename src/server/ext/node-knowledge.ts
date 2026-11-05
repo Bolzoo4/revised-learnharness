@@ -20,14 +20,13 @@ import { NODE_ACTIONS, type NodeAction, type NodePanelData, type PanelSources } 
 import type { CostGate, ExplanationsStore, ExplanationWriter, SourceContext } from "../../core/ext/node-knowledge-ports.ts";
 import type { GoalsStore } from "../../core/ext/ports.ts";
 import type { GraphStore } from "../../core/ports.ts";
+import { HttpError } from "./http-error.ts";
 
 /** An expected failure with the HTTP status the route should return. */
-export class NodeKnowledgeError extends Error {
-	status: number;
+export class NodeKnowledgeError extends HttpError {
 	constructor(status: number, message: string) {
-		super(message);
+		super(status, message);
 		this.name = "NodeKnowledgeError";
-		this.status = status;
 	}
 }
 

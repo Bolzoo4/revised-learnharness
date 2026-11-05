@@ -1,7 +1,6 @@
 // app/api/ext/nodes/[id]/actions/route.ts
 import { NODE_ACTIONS, type NodeAction } from "@/src/core";
-import { runNodeAction } from "@/src/server";
-import { errorResponse } from "../../../error-response";
+import { httpErrorResponse, runNodeAction } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +15,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 	try {
 		return Response.json(await runNodeAction(id, action as NodeAction));
 	} catch (error) {
-		return errorResponse(error);
+		return httpErrorResponse(error);
 	}
 }
