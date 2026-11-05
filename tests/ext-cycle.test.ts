@@ -179,14 +179,14 @@ describe("runCycle", () => {
 		const { deps } = fakeDeps({ researchGap: async () => { throw new ModelsNotConfiguredError(["cheap"]); } });
 		const entry = await runCycle(deps, "manual");
 		assert.equal(entry.stoppedBy, "error");
-		assert.match(entry.gaps[0]!.error ?? "", /No model configured/);
+		assert.equal(entry.gaps[0]!.error, "the gap failed");
 	});
 
 	it("any other gap error is logged and the cycle continues", async () => {
 		let first = true;
 		const { deps } = fakeDeps({ researchGap: async () => { if (first) { first = false; throw new Error("boom"); } return finding(); } });
 		const entry = await runCycle(deps, "manual");
-		assert.equal(entry.gaps[0]!.error, "boom");
+		assert.equal(entry.gaps[0]!.error, "the gap failed");
 		assert.equal(entry.gaps.length > 1, true);
 		assert.equal(entry.stoppedBy, "completed");
 	});
@@ -420,7 +420,7 @@ describe("runCycle hardening: the log never loses cost", () => {
 		const entry = await runCycle(deps, "manual");
 		assert.equal(entry.stoppedBy, "error");
 		assert.equal(entry.gaps[0]!.costUsd, 0.6);
-		assert.match(entry.gaps[0]!.error ?? "", /No model configured/);
+		assert.equal(entry.gaps[0]!.error, "the gap failed");
 		assert.equal(entry.costUsd, 0.6);
 	});
 
@@ -428,7 +428,7 @@ describe("runCycle hardening: the log never loses cost", () => {
 		const mark: FrontierEvent = { type: "set", markId: "mx", scope: { kind: "goal", id: "goal_1" }, mark: "expand", note: "", author: "user", at: "t" };
 		const { deps } = fakeDeps({ frontier: memLog([mark]), config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, researchGap: async () => { throw new Error("boom"); } });
 		const g = (await runCycle(deps, "manual")).gaps[0]!;
-		assert.deepEqual([g.error, g.costUsd, g.markId], ["boom", 0, "mx"]);
+		assert.deepEqual([g.error, g.costUsd, g.markId], ["the gap failed", 0, "mx"]);
 	});
 
 	it("GapLog.stoppedBy and the cycle's stoppedBy are separate: a turn-limit gap does not end the cycle", async () => {
@@ -545,11 +545,11 @@ describe("runCycle hardening: bounds, gate and concurrency", () => {
 			extractChat: async (id) => { if (id === "c1") throw new Error("extract boom"); return 4; },
 		});
 		const entry = await runCycle(deps, "manual");
-		assert.deepEqual(entry.gaps.map((g) => [g.gapId, g.error, g.nodesAdded]), [["uncovered:c1", "extract boom", 0], ["uncovered:c2", undefined, 4]]);
+		assert.deepEqual(entry.gaps.map((g) => [g.gapId, g.error, g.nodesAdded]), [["uncovered:c1", "the gap failed", 0], ["uncovered:c2", undefined, 4]]);
 		assert.deepEqual(log.events, [entry]);
 		const v = fakeDeps({ verification: { trustOf: () => new Map(), verifyNodes: async () => { throw new Error("verify boom"); } } });
 		const e2 = await runCycle(v.deps, "manual");
-		assert.deepEqual(e2.gaps.filter((g) => g.type === "unverified").map((g) => g.error), ["verify boom"]);
+		assert.deepEqual(e2.gaps.filter((g) => g.type === "unverified").map((g) => g.error), ["the gap failed"]);
 		assert.equal(e2.gaps.length > 1, true);
 	});
 
@@ -558,7 +558,8 @@ describe("runCycle hardening: bounds, gate and concurrency", () => {
 		const { deps } = fakeDeps({ log, graph: () => { throw new Error("graph gone"); } });
 		const entry = await runCycle(deps, "manual");
 		assert.equal(entry.stoppedBy, "error");
-		assert.match(entry.gaps[0]!.error ?? "", /graph gone/);
+		assert.equal(entry.gaps[0]!.error, "the cycle failed");
+		assert.doesNotMatch(JSON.stringify(entry), /graph gone/);
 		assert.deepEqual(log.events, [entry]);
 	});
 
@@ -843,7 +844,7 @@ describe("runCycle review fixes: cost of failures", () => {
 	it("a failed research call keeps the cost its error carries, in the gap, the entry and the mark's spend", async () => {
 		const { deps } = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, researchGap: async () => { throw failing(0.3); } });
 		const entry = await runCycle(deps, "manual");
-		assert.deepEqual([entry.gaps[0]!.error, entry.gaps[0]!.costUsd, entry.costUsd], ["research failed", 0.3, 0.3]);
+		assert.deepEqual([entry.gaps[0]!.error, entry.gaps[0]!.costUsd, entry.costUsd], ["the gap failed", 0.3, 0.3]);
 		assert.equal(markSpendUsd([entry]).size, 0); // no mark in force here
 		const mark: FrontierEvent = { type: "set", markId: "mf", scope: { kind: "goal", id: "goal_1" }, mark: "expand", budgetUsd: 0.1, note: "", author: "user", at: "t" };
 		const ids: string[] = [];
@@ -948,6 +949,82 @@ describe("runCycle review fixes: minor", () => {
 		});
 		const entry = await runCycle(deps, "manual");
 		assert.deepEqual([entry.stoppedBy, fetched, entry.watch.entries], ["error", 0, 0]);
+	});
+});
+
+describe("runCycle review fixes: steering close, abort and fixed labels", () => {
+	const watchEntry = { id: "w1", kind: "arxiv-query" as const, query: "gradients", cadenceHours: 24 };
+	const feedItem = { id: "i1", title: "Gradients paper", link: "https://arxiv.org/abs/i1", summary: "gradients explained" };
+	const oneGap = { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 };
+
+	it("onGapsDone runs once, after the last research gap and before the watch", async () => {
+		const order: string[] = [];
+		const { deps } = fakeDeps({
+			config: oneGap,
+			researchGap: async () => (order.push("gap"), finding()),
+			onGapsDone: () => void order.push("gaps-done"),
+			watchlist: { read: () => [watchEntry] },
+			fetchItems: async () => (order.push("fetch"), []),
+		});
+		await runCycle(deps, "manual");
+		assert.deepEqual(order, ["gap", "gaps-done", "fetch"]);
+	});
+
+	it("onGapsDone runs once even when the cycle stops before any gap", async () => {
+		let calls = 0;
+		const { deps } = fakeDeps({ isAborted: () => true, onGapsDone: () => void calls++ });
+		assert.equal((await runCycle(deps, "manual")).stoppedBy, "aborted");
+		assert.equal(calls, 1);
+	});
+
+	it("a throwing onGapsDone hook does not break the cycle", async () => {
+		const { deps } = fakeDeps({
+			config: oneGap,
+			onGapsDone: () => {
+				throw new Error("hook");
+			},
+		});
+		assert.equal((await runCycle(deps, "manual")).stoppedBy, "completed");
+	});
+
+	it("an abort called right after the cycle starts runs no research gap (researchGap is called zero times)", async () => {
+		let aborted = false;
+		let calls = 0;
+		const { deps } = fakeDeps({ isAborted: () => aborted, researchGap: async () => (calls++, finding()) });
+		const pending = runCycle(deps, "manual");
+		aborted = true;
+		const entry = await pending;
+		assert.deepEqual([calls, entry.stoppedBy, entry.gaps.length], [0, "aborted", 0]);
+	});
+
+	it("a gap error keeps a fixed label in the log; the raw text goes only to onError", async () => {
+		const seen: unknown[] = [];
+		const { deps } = fakeDeps({
+			config: oneGap,
+			onError: (e: unknown) => void seen.push(e),
+			researchGap: async () => {
+				throw new Error("secret detail");
+			},
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.equal(entry.gaps[0]!.error, "the gap failed");
+		assert.doesNotMatch(JSON.stringify(entry), /secret/);
+		assert.deepEqual(seen.map((e) => (e as Error).message), ["secret detail"]);
+	});
+
+	it("a config error in the watch is logged with the fixed watch label, not the raw text", async () => {
+		const { deps } = fakeDeps({
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 0 },
+			watchlist: { read: () => [watchEntry] },
+			fetchItems: async () => [feedItem],
+			classify: async () => {
+				throw new ModelsNotConfiguredError(["cheap"]);
+			},
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.equal(entry.stoppedBy, "error");
+		assert.ok(entry.gaps.some((g) => g.error === "the watch failed"));
+		assert.doesNotMatch(JSON.stringify(entry), /No model configured/);
 	});
 });
 

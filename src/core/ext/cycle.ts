@@ -26,6 +26,10 @@
  *    and items per watch entry all have caps (see ResearchConfig).
  *  - `GapLog.stoppedBy` (why a gap's research ended) and `CycleLogEntry.stoppedBy`
  *    (why the cycle ended) are different fields and never mixed.
+ *  - The log stores only fixed error labels (GAP_FAILED, WATCH_FAILED, CYCLE_FAILED).
+ *    The raw error goes to `deps.onError` and nowhere else.
+ *  - `deps.onGapsDone` runs once when the research-gap phase is over, before the
+ *    watch: a steer after it has no gap left to reach and must be refused.
  */
 
 import type { CostGate } from "./cost-gate.ts";
@@ -109,6 +113,10 @@ export interface CycleDeps {
 	takeSteers(): string[];
 	allSteers(): string[];
 	isAborted(): boolean;
+	/** Called once when the research-gap phase is over (the last gap settled, or it was cut short). Its throws are ignored. */
+	onGapsDone?(): void;
+	/** Receives the raw error of a failed gap, watch or cycle. The log keeps only the fixed labels. Its throws are ignored. */
+	onError?(err: unknown): void;
 }
 
 /** Another cycle is already running on the same log (in this process). */
@@ -129,7 +137,10 @@ export class CycleClockError extends Error {
 
 const MAX_WATCH_ITEMS_PER_ENTRY = 10;
 const WATCH_CANDIDATES = 30;
-const MAX_ERROR_CHARS = 500;
+/** The only error texts the log stores: the raw error never leaves the cycle through the log. */
+const GAP_FAILED = "the gap failed";
+const WATCH_FAILED = "the watch failed";
+const CYCLE_FAILED = "the cycle failed";
 const RELATIONS = new Set<string>(["extends", "contradicts", "applies", "unrelated"]);
 const GAP_STOPS = new Set<string>(["confidence", "no-more-sources", "turn-limit"]);
 
@@ -144,10 +155,6 @@ const usd = (v: unknown): number => (typeof v === "number" && Number.isFinite(v)
 /** A count: an integer >= 0, anything else is recorded as 0. */
 const count = (v: unknown): number => (typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : 0);
 const boundedInt = (v: number, min: number, fallback: number): number => (Number.isInteger(v) && v >= min ? v : fallback);
-
-function errorMessage(e: unknown): string {
-	return (e instanceof Error ? e.message : String(e)).slice(0, MAX_ERROR_CHARS);
-}
 
 function isConfigError(e: unknown): boolean {
 	return e instanceof ModelsNotConfiguredError || e instanceof ProviderKeyMissingError;
@@ -214,6 +221,26 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 	let watchNodesAdded = 0;
 	let watchCostUsd = 0;
 	let stoppedBy: CycleLogEntry["stoppedBy"] = "completed";
+
+	/** The raw error goes to the hook only; a broken hook never breaks the cycle. */
+	const report = (e: unknown): void => {
+		try {
+			deps.onError?.(e);
+		} catch {
+			/* ignored: the cycle's record does not depend on the hook */
+		}
+	};
+	let gapsDone = false;
+	/** Once per cycle, when no research gap is left to run (CycleDeps.onGapsDone). */
+	const finishGaps = (): void => {
+		if (gapsDone) return;
+		gapsDone = true;
+		try {
+			deps.onGapsDone?.();
+		} catch {
+			/* ignored: the cycle goes on without the hook */
+		}
+	};
 
 	const stopReason = (): CycleLogEntry["stoppedBy"] | null => {
 		try {
@@ -464,9 +491,12 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 	}
 
 	try {
+		// Yield once, so an abort called right after the cycle started is seen before the first gap.
+		await Promise.resolve();
 		const early = stopReason();
 		if (early !== null) {
 			stoppedBy = early;
+			finishGaps();
 		} else {
 			const { nodes, chains } = deps.graph();
 			baseSpend = markSpendUsd(deps.log.readAll());
@@ -495,7 +525,8 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 					await runGap(gap, log);
 					gapLogs.push(log);
 				} catch (e) {
-					log.error = errorMessage(e);
+					report(e);
+					log.error = GAP_FAILED;
 					gapLogs.push(log);
 					if (isConfigError(e)) {
 						stoppedBy = "error";
@@ -503,6 +534,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 					}
 				}
 			}
+			finishGaps();
 			if (stoppedBy === "completed" || stoppedBy === "no-gaps") {
 				try {
 					await runWatch();
@@ -510,13 +542,17 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 					if (stop !== null) stoppedBy = stop;
 				} catch (e) {
 					if (!isConfigError(e)) throw e;
+					report(e);
+					gapLogs.push({ gapId: "watch", type: "uncovered", questions: [], sources: [], nodesAdded: 0, costUsd: 0, saturated: false, error: WATCH_FAILED });
 					stoppedBy = "error";
 				}
 			}
 		}
 	} catch (e) {
 		stoppedBy = "error";
-		gapLogs.push({ gapId: "cycle", type: "uncovered", questions: [], sources: [], nodesAdded: 0, costUsd: 0, saturated: false, error: errorMessage(e) });
+		finishGaps();
+		report(e);
+		gapLogs.push({ gapId: "cycle", type: "uncovered", questions: [], sources: [], nodesAdded: 0, costUsd: 0, saturated: false, error: CYCLE_FAILED });
 	}
 
 	let steers: string[] = [];
@@ -555,6 +591,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 					nodesAdded: g.nodesAdded,
 					costUsd: g.costUsd,
 					saturated: g.saturated,
+					...(g.error !== undefined ? { error: g.error } : {}),
 				})),
 				steers: [],
 			});

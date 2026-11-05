@@ -83,6 +83,13 @@ const INBOX_MESSAGES: Record<InboxError["code"], string> = {
 const isId = (v: unknown): v is string => typeof v === "string" && v.length >= 1 && v.length <= MAX_ID_CHARS;
 const bad = (message: string): ResearchInputError => new ResearchInputError(message);
 
+/** The newest `limit` items, in their order. The default and the maximum are MAX_READ_LOG_LIMIT, as for the log. */
+function bounded<T>(items: T[], limit: number | undefined): T[] {
+	const n = limit ?? MAX_READ_LOG_LIMIT;
+	if (!Number.isInteger(n) || n < 1 || n > MAX_READ_LOG_LIMIT) throw bad(`limit must be from 1 to ${MAX_READ_LOG_LIMIT}`);
+	return items.slice(-n);
+}
+
 export function createResearchAdmin(deps: ResearchAdminDeps) {
 	/** An ISO time from the clock; a clock that gives no valid instant is an internal failure, not an input mistake. */
 	function stamp(): string {
@@ -150,7 +157,7 @@ export function createResearchAdmin(deps: ResearchAdminDeps) {
 	}
 
 	return {
-		listMarks: (): Mark[] => deriveMarks(deps.frontier.readAll()),
+		listMarks: (limit?: number): Mark[] => bounded(deriveMarks(deps.frontier.readAll()), limit),
 
 		/** The learner's marks: author "user". */
 		setMark: (input: SetMarkInput): Mark => writeMark(input, "user"),
@@ -166,15 +173,18 @@ export function createResearchAdmin(deps: ResearchAdminDeps) {
 			},
 		}),
 
-		listInbox(status?: InboxStatus): InboxItem[] {
+		listInbox(status?: InboxStatus, limit?: number): InboxItem[] {
 			if (status !== undefined && !INBOX_STATUSES.has(status)) throw bad("a status must be pending, approved, rejected or activated");
-			return deriveInbox(deps.inboxService.inbox.readAll()).filter((i) => status === undefined || i.status === status);
+			return bounded(
+				deriveInbox(deps.inboxService.inbox.readAll()).filter((i) => status === undefined || i.status === status),
+				limit,
+			);
 		},
 
 		/** The learner's decision on a pending source. "activated" also adds the library entry (the only activation path). */
 		decideInbox: (locator: string, decision: InboxDecision, tier: SourceTier = "secondary"): Promise<InboxDecisionResult> => decide(locator, decision, tier),
 
-		listWatchlist: (): WatchEntry[] => deps.watchlist.read(),
+		listWatchlist: (limit?: number): WatchEntry[] => bounded(deps.watchlist.read(), limit),
 
 		addWatch(input: AddWatchInput): WatchEntry {
 			if (typeof input.kind !== "string" || !WATCH_KINDS.has(input.kind)) throw bad("a watch entry is an arxiv-query, a feed or a repo");

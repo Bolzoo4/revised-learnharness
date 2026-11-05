@@ -7,16 +7,19 @@ import type { FrontierEvent } from "../src/core/ext/frontier.ts";
 import type { InboxEvent } from "../src/core/ext/inbox.ts";
 import type { CycleLogEntry } from "../src/core/ext/research-log.ts";
 import type { RadarEvent, WatchEntry } from "../src/core/ext/watch.ts";
+import type { EventLog } from "../src/core/ext/research-ports.ts";
 import { memLog } from "./helpers/research-fakes.ts";
 
 const NOW = "2026-11-04T12:00:00.000Z";
 
-function make() {
+function make(opts: { ingest?: () => Promise<number>; inbox?: EventLog<InboxEvent> } = {}) {
 	let n = 0;
 	let watch: WatchEntry[] = [];
-	const inbox = memLog<InboxEvent>([
-		{ type: "proposed", locator: "https://a.org/x", title: "X", gapId: "g", foundBy: "cycle", cycleId: "c", snapshot: "h1", at: "2026-11-04T11:00:00.000Z" },
-	]);
+	const inbox =
+		opts.inbox ??
+		memLog<InboxEvent>([
+			{ type: "proposed", locator: "https://a.org/x", title: "X", gapId: "g", foundBy: "cycle", cycleId: "c", snapshot: "h1", at: "2026-11-04T11:00:00.000Z" },
+		]);
 	const calls = { activated: [] as unknown[], ingested: [] as string[] };
 	const admin = createResearchAdmin({
 		frontier: memLog<FrontierEvent>(),
@@ -27,7 +30,7 @@ function make() {
 			inbox,
 			snapshots: { get: (h) => (h === "h1" ? "text" : null) },
 			library: { activate: (e) => void calls.activated.push(e) },
-			ingest: async (src) => (calls.ingested.push(src.locator), 2),
+			ingest: async (src) => (calls.ingested.push(src.locator), opts.ingest ? opts.ingest() : 2),
 			now: () => new Date(NOW),
 		},
 		newId: (p) => `${p}_${++n}`,
@@ -126,6 +129,34 @@ describe("research admin: inbox", () => {
 		assert.deepEqual(calls.ingested, []);
 	});
 
+	it("a second decision while the first is still ingesting is refused with the fixed in-progress phrase", async () => {
+		let release!: () => void;
+		const hold = new Promise<void>((r) => (release = r));
+		const { admin, calls } = make({ ingest: () => hold.then(() => 2) });
+		const first = admin.decideInbox("https://a.org/x", "approved");
+		await assert.rejects(
+			admin.decideInbox("https://a.org/x", "approved"),
+			(e: unknown) => e instanceof ResearchInputError && e.message === "that source is already being decided",
+		);
+		release();
+		assert.deepEqual(await first, { decision: "approved", nodesAdded: 2 });
+		assert.deepEqual(calls.ingested, ["https://a.org/x"]);
+	});
+
+	it("a source decided between the admin's check and the service's check is refused with the fixed not-pending phrase", async () => {
+		const pending: InboxEvent = { type: "proposed", locator: "https://a.org/x", title: "X", gapId: "g", foundBy: "cycle", cycleId: "c", snapshot: "h1", at: "2026-11-04T11:00:00.000Z" };
+		const rejected: InboxEvent = { type: "decided", locator: "https://a.org/x", decision: "rejected", at: NOW };
+		let reads = 0;
+		// The first read (the admin's pending check) sees the item pending; the second (the service's) sees it already decided.
+		const inbox: EventLog<InboxEvent> = { readAll: () => (reads++ === 0 ? [pending] : [pending, rejected]), append: () => {} };
+		const { admin, calls } = make({ inbox });
+		await assert.rejects(
+			admin.decideInbox("https://a.org/x", "approved"),
+			(e: unknown) => e instanceof ResearchInputError && e.message === "no pending inbox source at that locator",
+		);
+		assert.deepEqual([reads, calls.ingested], [2, []]);
+	});
+
 	it("refuses a bad decision or tier with a fixed message", async () => {
 		const { admin, calls } = make();
 		await assert.rejects(admin.decideInbox("https://a.org/x", "maybe" as never), ResearchInputError);
@@ -172,5 +203,25 @@ describe("research admin: watchlist and log", () => {
 		assert.deepEqual(admin.readLog(), []);
 		assert.throws(() => admin.readLog(0), ResearchInputError);
 		assert.throws(() => admin.readLog(21), ResearchInputError);
+	});
+
+	it("listMarks, listInbox and listWatchlist are bounded: the default and the maximum are 20, anything outside 1 to 20 is refused", () => {
+		const { admin, inbox } = make();
+		for (let i = 0; i < 24; i++) {
+			admin.setMark({ ...goodMark, scope: { kind: "node", id: `n${i}` } });
+			inbox.append({ type: "proposed", locator: `https://b.org/${i}`, title: "B", gapId: "g", foundBy: "cycle", cycleId: "c", snapshot: "h1", at: NOW });
+			admin.addWatch({ kind: "repo", query: `owner/repo${i}` });
+		}
+		assert.equal(admin.listMarks().length, 20);
+		assert.equal(admin.listMarks(3).length, 3);
+		assert.equal(admin.listInbox(undefined).length, 20);
+		assert.equal(admin.listInbox(undefined, 5).length, 5);
+		assert.equal(admin.listWatchlist().length, 20);
+		assert.equal(admin.listWatchlist(2).length, 2);
+		for (const bad of [0, 21, 1.5]) {
+			assert.throws(() => admin.listMarks(bad), ResearchInputError, `marks ${bad}`);
+			assert.throws(() => admin.listInbox(undefined, bad), ResearchInputError, `inbox ${bad}`);
+			assert.throws(() => admin.listWatchlist(bad), ResearchInputError, `watchlist ${bad}`);
+		}
 	});
 });

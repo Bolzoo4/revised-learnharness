@@ -97,6 +97,9 @@ export function createResearchService(deps: ResearchServiceDeps) {
 			lockKey: deps.store.lockKey,
 			isAborted: () => control.isAborted(),
 			takeSteers: () => control.takeSteers(),
+			// No gap is left to steer once the gap phase is over (the watch phase included).
+			onGapsDone: () => control.closeSteering(),
+			onError: (err) => report(err),
 			allSteers: () => control.allSteers(),
 			// The live agent is attached per gap by the researcher; it is detached as soon as that gap settles.
 			researchGap: async (gap, opts) => {
@@ -148,13 +151,15 @@ export function createResearchService(deps: ResearchServiceDeps) {
 			};
 		},
 
-		/** null when no cycle runs. A message that is empty, too long, or beyond the cycle's steer cap is refused. */
+		/** null when no cycle runs. A message that is empty, too long, beyond the cycle's steer cap, or sent after the gap phase is refused. */
 		steer(message: string): "delivered" | "queued" | null {
 			const text = typeof message === "string" ? message.trim() : "";
 			if (text === "" || text.length > MAX_STEER_CHARS) throw new ResearchInputError(`a steering message is 1 to ${MAX_STEER_CHARS} characters`);
 			if (current === null) return null;
 			if (current.control.allSteers().length >= MAX_STEERS_PER_CYCLE) throw new ResearchInputError("this cycle has enough steering messages");
-			return current.control.steer(text);
+			const result = current.control.steer(text);
+			if (result === "closed") throw new ResearchInputError("the cycle has no gap left to steer");
+			return result;
 		},
 
 		/** True when a running cycle was asked to stop; false when none runs (or it was already asked). */
