@@ -27,6 +27,17 @@ export interface ReviewDeps {
 	implicitWeight?: number;
 }
 
+/** A rejected input: "unknown" names a node, goal or card that does not exist; "invalid" is any other rule violation. Routes map the kind to 404 / 400. */
+export class ReviewInputError extends Error {
+	constructor(
+		public readonly kind: "unknown" | "invalid",
+		message: string,
+	) {
+		super(message);
+		this.name = "ReviewInputError";
+	}
+}
+
 export const nowOf = (deps: ReviewDeps): string => (deps.now ? deps.now() : new Date().toISOString());
 
 /** Everything derived from the ledgers at one instant. */
@@ -97,13 +108,13 @@ export interface RecordReviewResult {
 export function recordReview(input: RecordReviewInput, deps: ReviewDeps): RecordReviewResult {
 	const now = nowOf(deps);
 	const snap = snapshot(deps, now);
-	if (!snap.nodeIds.has(input.nodeId)) throw new Error(`unknown node: ${input.nodeId}`);
-	if (!isValidRating(input.rating)) throw new Error("rating must be 1, 2, 3 or 4");
-	if (!Number.isFinite(input.durationSec) || input.durationSec < 0) throw new Error("durationSec must be >= 0");
+	if (!snap.nodeIds.has(input.nodeId)) throw new ReviewInputError("unknown", `unknown node: ${input.nodeId}`);
+	if (!isValidRating(input.rating)) throw new ReviewInputError("invalid", "rating must be 1, 2, 3 or 4");
+	if (!Number.isFinite(input.durationSec) || input.durationSec < 0) throw new ReviewInputError("invalid", "durationSec must be >= 0");
 	const weak = input.weakPremises ?? [];
-	if (input.channel !== "dialogic" && weak.length > 0) throw new Error("only a dialogic review can flag weak premises");
+	if (input.channel !== "dialogic" && weak.length > 0) throw new ReviewInputError("invalid", "only a dialogic review can flag weak premises");
 	const premises = premisesOf(input.nodeId, snap.chains);
-	for (const w of weak) if (!premises.includes(w)) throw new Error(`weak premise ${w} is not a premise of ${input.nodeId}`);
+	for (const w of weak) if (!premises.includes(w)) throw new ReviewInputError("invalid", `weak premise ${w} is not a premise of ${input.nodeId}`);
 	const rating: ReviewRating = input.rating;
 
 	deps.reviewStore.appendEvent({
@@ -145,7 +156,7 @@ function newCardId(deps: ReviewDeps): string {
 }
 
 function requireNode(deps: ReviewDeps, nodeId: string): void {
-	if (!deps.graphStore.readNodes().some((n) => n.id === nodeId)) throw new Error(`unknown node: ${nodeId}`);
+	if (!deps.graphStore.readNodes().some((n) => n.id === nodeId)) throw new ReviewInputError("unknown", `unknown node: ${nodeId}`);
 }
 
 /** REQ-pl-02: the user's own card is schedulable at once. */
@@ -166,13 +177,13 @@ export function proposeAgentCard(input: { nodeId: string; question: string; answ
 
 function cardById(deps: ReviewDeps, cardId: string): ContentCard {
 	const card = deriveCards(deps.cardsStore.readEvents()).find((c) => c.id === cardId);
-	if (card === undefined) throw new Error(`unknown card: ${cardId}`);
+	if (card === undefined) throw new ReviewInputError("unknown", `unknown card: ${cardId}`);
 	return card;
 }
 
 /** The user's approval of a draft. Only a draft can be approved. */
 export function approveCard(cardId: string, deps: ReviewDeps): void {
-	if (cardById(deps, cardId).status !== "draft") throw new Error("only a draft card can be approved");
+	if (cardById(deps, cardId).status !== "draft") throw new ReviewInputError("invalid", "only a draft card can be approved");
 	deps.cardsStore.appendEvent({ type: "status", cardId, status: "active", at: nowOf(deps) });
 }
 
@@ -205,8 +216,8 @@ export function setChannelPin(nodeId: string, channel: "fixed" | "dialogic" | nu
 
 /** REQ-pl-08: per-goal desired retention. */
 export function setGoalRetention(goalId: string, retention: number, deps: ReviewDeps): void {
-	if (!isValidRetention(retention)) throw new Error("retention must be between 0.7 and 0.97");
-	if (!deriveGoals(deps.goalsStore.readEvents()).some((g) => g.id === goalId)) throw new Error(`unknown goal: ${goalId}`);
+	if (!isValidRetention(retention)) throw new ReviewInputError("invalid", "retention must be between 0.7 and 0.97");
+	if (!deriveGoals(deps.goalsStore.readEvents()).some((g) => g.id === goalId)) throw new ReviewInputError("unknown", `unknown goal: ${goalId}`);
 	deps.reviewStore.appendEvent({ type: "retention", goalId, retention, at: nowOf(deps) });
 }
 
@@ -227,11 +238,11 @@ export interface ExerciseResult {
  */
 export function applyExerciseResult(input: ExerciseResult, deps: ReviewDeps): { reached: boolean } {
 	const goal = deriveGoals(deps.goalsStore.readEvents()).find((g) => g.id === input.goalId);
-	if (goal === undefined) throw new Error(`unknown goal: ${input.goalId}`);
-	if (goal.status !== "active") throw new Error("only an active goal can take an exercise result");
-	if (input.results.length === 0) throw new Error("an exercise result needs at least one node");
+	if (goal === undefined) throw new ReviewInputError("unknown", `unknown goal: ${input.goalId}`);
+	if (goal.status !== "active") throw new ReviewInputError("invalid", "only an active goal can take an exercise result");
+	if (input.results.length === 0) throw new ReviewInputError("invalid", "an exercise result needs at least one node");
 	const known = new Set(deps.graphStore.readNodes().map((n) => n.id));
-	for (const r of input.results) if (!known.has(r.nodeId)) throw new Error(`unknown node: ${r.nodeId}`);
+	for (const r of input.results) if (!known.has(r.nodeId)) throw new ReviewInputError("unknown", `unknown node: ${r.nodeId}`);
 	const at = nowOf(deps);
 	for (const r of input.results) {
 		deps.reviewStore.appendEvent({

@@ -5,7 +5,7 @@ import { deriveGoals } from "../src/core/ext/goals.ts";
 import { computePlan, goalReadinessReport, nextItem } from "../src/core/ext/review-queries.ts";
 import {
 	applyExerciseResult, approveCard, createUserCard, proposeAgentCard, recordReview, retireCard,
-	setChannelPin, setGoalRetention, setPinned, setRetired, snapshot,
+	ReviewInputError, setChannelPin, setGoalRetention, setPinned, setRetired, snapshot,
 } from "../src/core/ext/review-service.ts";
 import { addGoal, chain, harness, node, type Harness } from "./helpers/ext-memory-stores.ts";
 
@@ -22,6 +22,27 @@ function world(): Harness {
 }
 const fixedReview = (h: Harness, nodeId: string, rating = 3, durationSec = 15) =>
 	recordReview({ nodeId, channel: "fixed", rating, durationSec }, h.deps);
+
+describe("ReviewInputError", () => {
+	const kindOf = (fn: () => unknown): string | undefined => {
+		try {
+			fn();
+		} catch (e) {
+			return e instanceof ReviewInputError ? e.kind : `other:${String(e)}`;
+		}
+		return undefined;
+	};
+	it("tells an unknown target (unknown) from a rule violation (invalid)", () => {
+		const h = world();
+		assert.equal(kindOf(() => fixedReview(h, "ghost")), "unknown");
+		assert.equal(kindOf(() => setPinned("ghost", true, h.deps)), "unknown");
+		assert.equal(kindOf(() => setGoalRetention("nope", 0.9, h.deps)), "unknown");
+		assert.equal(kindOf(() => approveCard("nope", h.deps)), "unknown");
+		assert.equal(kindOf(() => fixedReview(h, "a", 7)), "invalid");
+		assert.equal(kindOf(() => setGoalRetention("goal_1", 0.99, h.deps)), "invalid");
+		assert.equal(kindOf(() => applyExerciseResult({ goalId: "goal_1", results: [] }, h.deps)), "invalid");
+	});
+});
 
 describe("recordReview", () => {
 	it("appends a review event and returns the next due date", () => {

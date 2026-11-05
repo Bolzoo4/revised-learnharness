@@ -1,7 +1,4 @@
-import { HttpError, httpErrorResponse, personalLayer, readJsonObject, type MarkRequest } from "@/src/server";
-
-/** The review service reports a node or goal it does not know as "unknown node: …" / "unknown goal: …". */
-const UNKNOWN_TARGET = /^unknown (node|goal):/;
+import { HttpError, httpErrorResponse, personalLayer, readJsonObject, ReviewInputError, type MarkRequest } from "@/src/server";
 
 /** Manual marks: pin, retire, channel pin of a node, or the desired retention of a goal. */
 export async function POST(req: Request) {
@@ -15,16 +12,11 @@ export async function POST(req: Request) {
 			mark = { nodeId: b.nodeId, channel: b.channel };
 		}
 		if (mark === null) throw new HttpError(400, "invalid mark");
-		try {
-			personalLayer.mark(mark);
-		} catch (e) {
-			// Domain rejections of the review service are plain Errors: an unknown target is a 404, any other rejection (e.g. retention out of range) a 400.
-			if (e instanceof Error && UNKNOWN_TARGET.test(e.message)) throw new HttpError(404, e.message);
-			if (e instanceof Error && !(e instanceof HttpError) && /must be|only /.test(e.message)) throw new HttpError(400, e.message);
-			throw e;
-		}
+		personalLayer.mark(mark);
 		return Response.json({ ok: true });
 	} catch (error) {
+		// A rejected mark is a 404 for an unknown node or goal and a 400 for any other rule violation.
+		if (error instanceof ReviewInputError) return httpErrorResponse(new HttpError(error.kind === "unknown" ? 404 : 400, error.message));
 		return httpErrorResponse(error);
 	}
 }
