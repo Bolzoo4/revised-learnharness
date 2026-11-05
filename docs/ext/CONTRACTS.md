@@ -232,3 +232,55 @@ Complex nodes get the `long` form, all others the `short` form.
 `neighbourhood(centre, chains, depth)` with depth 1 or 2: the nodes within `depth` steps over the undirected premise-conclusion
 adjacency (centre depth 0), sorted by depth then id, and the distinct `premise -> conclusion` edges whose endpoints are both included.
 Derived on every call, never stored.
+
+## `lectures/<id>/lecture.json` (lecture document, one file per lecture)
+
+A JSON object written atomically (temp file and rename), not a ledger. Readers skip a file that is not valid JSON or whose shape this schema rejects; a reader that finds `format.json` newer than it understands must refuse.
+
+- `version`: `1`. `id`: `lec_b<8 hex>_c<NN>_l<NN>` (`NN` at least 2 digits, zero padded). The id is the directory name; no other string is a valid id.
+- `bookId`: `b` plus the first 8 hex of the SHA-256 of the absolute PDF path. `bookTitle`: string. `title`: non-empty. `summary`: string (3 to 4 sentences handed to the next lecture of the chapter).
+- `chapter`: `{index (1-based int), title, pageStart, pageEnd}` (pages 1-based, inclusive). `order`: int at least 1, the position inside the chapter.
+- `chapterSourceId`: the notes-source id (`src_` plus the first 12 hex of the SHA-256 of the chapter label `"<bookTitle>/<NN> <chapter title>"`, `NN` the chapter index padded to 2) under which the chapter graph was extracted. `createdAt`: ISO-8601.
+- `slides`: array of `{id, heading, elements}`; `elements`: array of `{id, type, content?, items?}` with `type` in `text` | `formula` | `list`. `text` and `formula` carry `content` (string); `list` carries `items` (strings). `text` and list items may contain node links `[[n_<id>]]` or `[[n_<id>|label]]` (`n_` followed by letters, digits, `_` or `-`; the label may be empty). A `formula` is LaTeX without delimiters.
+- `blocks`: ordered array of `{id, role, slideId, text, nodeIds, cues, seconds?}`. `role` in `narrate` (spoken discourse), `note` (editorial addition not in the source), `exercise` (timed prompt; `seconds` is required and a positive int), `reveal` (discussion following an exercise). `seconds` appears on `exercise` blocks only. `nodeIds`: graph node ids the block covers. `cues`: array of `{atChar (int >= 0), target (element id), style}` with `style` in `box` | `underline`.
+
+### Lecture validator rules (semantic; the lecture is rejected when any applies)
+
+1. No slides, or no blocks. 2. Duplicate slide ids or duplicate block ids. 3. A block whose `slideId` is not a slide. 4. A `narrate` block with empty `nodeIds` (a `note` may have none). 5. A block `nodeId`, or a node link on any slide, that is not a node of the graph. 6. A cue with `atChar` greater than the block text length, or whose `target` is not an element of the block's slide. 7. An `exercise` block not immediately followed by a `reveal`; a `reveal` block not immediately preceded by an `exercise`. 8. **Verbatim:** after lower-casing and splitting into maximal runs of letters and digits (Unicode), a block text (node-link markup replaced by its label or id) shares any run of 12 consecutive words with the plain text of the chapter it was written from.
+
+A rejected lecture is regenerated with the list of violations as feedback, at most 2 times after the first attempt (3 attempts in all); a lecture still invalid is not stored and its chapter run is failed. **Coverage report:** the chapter's nodes (graph nodes whose provenance `chatId` is the chapter's source id) that no stored lecture of the book cites in a block `nodeIds` or a slide link.
+
+### Chapter rules and the outline split
+
+- A proposed chapter list is valid when it is non-empty, every title is non-blank, every start page is an integer within 1 to the page count, and pages strictly increase. A chapter runs to the page before the next one; the last to the end of the book. PDF bookmarks (outline top level, or the level below when the top has fewer than 3 entries and the next level has at least 3), normalized by dropping blank titles and any entry whose page does not exceed the previous kept page, are used when valid; otherwise a model proposes the list from an excerpt, validated by the same rules.
+- Lectures are split from the chapter outline, never from page count: each outline block has an estimated spoken length by kind (`definition` 150, `theorem` 375, `example` 100, `motivation` 120, `remark` 80 words); blocks are packed in order into a lecture until adding one would exceed 2000 words; a block alone above the target forms its own lecture. Lectures of a chapter are produced in order, each receiving the previous lecture's `summary`.
+
+### Lecture overlay and back-links (derived, nothing stored)
+
+For every lecture: one special node `{id: lectureId, title, kind: "lecture"}`; for every node id the lecture cites (block `nodeIds` and slide links) that exists in the graph, one edge `{from: lectureId, to: nodeId, type: "cites"}`. Back-links of a node: the lectures whose citations include it, ordered by lecture id. No lecture is written to `nodes.jsonl` or `chains.jsonl`.
+
+## `office-hours.jsonl` (ledger, keyed by chat id)
+
+Event `designated`: `{type:"designated", chatId, label, sha256, exercise?, at}`. `sha256` is 64 lowercase hex, the name of a file `snapshots/<sha256>.txt`; `exercise`, when present, is `{setId, exerciseId}`. The latest `designated` event of a chat is its designated source.
+
+Event `verdict`: `{type:"verdict", chatId, outcome, items, discarded, at}`; `outcome` in `consistent` | `differs` | `not_verifiable`; `items`: the kept items `{stepRef, sourceQuote, workQuote, stance}` with `stance` in `matches` | `differs` | `missing`; `discarded`: count of dropped items.
+
+### Verdict rules
+
+The model proposes items; the following decide. For each item, `checkQuote(source, sourceQuote)` of the "Quote check" section above must return `ok`, otherwise the item is dropped (`quote_too_short` or `quote_not_found`). Unless `stance` is `missing`, the item is also dropped when `normalize(workQuote, join)` is empty or does not occur in `normalize(work, join)` (`work_quote_not_found`). The work is every message of the learner in the session except messages beginning with `/verdict`. Outcome: no item kept gives `not_verifiable`; all kept items `matches` gives `consistent`; otherwise `differs`. A verdict exists only when the learner's newest message begins with `/verdict` and the session has a designated source; the text of a verdict never states correctness, only consistency with the designated source.
+
+## `exercises.jsonl` (ledger)
+
+Event `set_created`: `{type:"set_created", setId, goalId, exercises, at}`; `exercises` non-empty array of `{id, prompt, nodeIds, steps}` with `steps` an array of `{id, text, nodeIds}` (the reference solution).
+Event `graded`: `{type:"graded", setId, exerciseId, outcome, nodeOutcomes, lowConfidence, at}`; `outcome` as in a verdict; `nodeOutcomes`: array of `{nodeId, outcome}` with `outcome` in `passed` | `weak` | `failed`; `lowConfidence`: boolean.
+Event `applied`: `{type:"applied", setId, reached, at}`.
+
+Derivation (`deriveExerciseSets`): replay in file order; the first `set_created` per `setId` defines the set; `graded` and `applied` for an unknown set are ignored; a `graded` for an exercise id not in the set is ignored; the latest `graded` per exercise wins; the first `applied` wins.
+
+### Exercise set validation (rejected when any applies)
+
+An empty set; a duplicate exercise id; an empty prompt; fewer than 2 distinct `nodeIds`; any node (exercise or step) outside the goal's scope (`goalScope` of the contract above); a prompt whose normalized text contains the normalized statement of one of its nodes when that statement has at least 40 normalized characters; an exercise without steps; a duplicate step id within an exercise; a step text under 20 characters; a step citing no node; a goal target node covered by no exercise. A rejected set is regenerated with the violations as feedback, at most 2 times after the first attempt.
+
+### Grading and results
+
+Per exercise, a step is good when its surviving verdict items all have `stance` `matches`, bad when any is `differs` or `missing`, unknown when it has no surviving item. A node used by the exercise (its `nodeIds` or any step's) has outcome `passed` when all its known steps are good, `failed` when none is good, `weak` otherwise, and has no outcome when none of its steps is known. A grading is `lowConfidence` when any node the reference uses has a trust level other than `sourced` (no verification state counts as `unverified`). A set is complete when every exercise has a latest grading whose `outcome` is not `not_verifiable`. The results handed to the personal layer's exercise interface are, per node, the worst outcome (`failed` over `weak` over `passed`) across the latest gradings, **omitting any `passed` outcome that comes from a `lowConfidence` grading**; when the results are empty nothing is applied. They are applied once per set (`applied` event), as `exercise` review events by the personal layer.

@@ -4,7 +4,7 @@ The closed list of files of the LearnHarness fork that this extension edits. Any
 upstream file must stay byte-identical to `upstream/main` (REQ-int-04). Check with:
 
 ```bash
-git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/helpers/**' ':!docs/ext/**' ':!docs/superpowers/**' ':!app/api/ext/**' ':!components/ext/**' ':!scripts/ext-*'
+git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/helpers/**' ':!docs/ext/**' ':!docs/superpowers/**' ':!app/api/ext/**' ':!app/lectures/**' ':!app/practice/**' ':!components/ext/**' ':!scripts/ext-*'
 ```
 
 | File | Why | Added in |
@@ -26,6 +26,13 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `app/layout.tsx` | mounts `<NodePanelHost />` | Node knowledge |
 | `components/graph-view.tsx` | "Open node panel" button in the node detail card | Node knowledge |
 | `components/graph-context-card.tsx` | proposition name opens the node panel | Node knowledge |
+| `src/core/contracts/chat.ts` | `ChatKind` gains `"office_hours"` (office-hours sessions) | Lectures and office hours |
+| `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"office_hours"` | Lectures and office hours |
+| `src/store/chats.ts` | `createChat` type widened to the same kinds | Lectures and office hours |
+| `src/server/chat-handler.ts` | `isPracticeLike` also accepts `office_hours`; the office-hours agent branch; two imports | Lectures and office hours |
+| `app/chat/[id]/page.tsx` | pass `"teach"` to `Chat` for an `office_hours` session | Lectures and office hours |
+| `src/core/ext/index.ts` | appended exports for the lecture player | Lectures |
+| `src/server/ext/panel-providers.ts` | `lecturesCiting` member (lecture back-links in a node's panel) | Lectures |
 
 Planned (not yet touched): the PDF viewer
 and MCP dependencies in `package.json`.
