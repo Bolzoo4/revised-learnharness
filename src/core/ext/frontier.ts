@@ -58,7 +58,7 @@ const AUTHORS = new Set<string>(["user", "agent"]);
 export function parseFrontierEvent(raw: unknown): FrontierEvent | null {
 	if (typeof raw !== "object" || raw === null) return null;
 	const r = raw as Record<string, unknown>;
-	if (typeof r.markId !== "string" || r.markId === "" || typeof r.at !== "string") return null;
+	if (typeof r.markId !== "string" || r.markId === "" || typeof r.at !== "string" || Number.isNaN(Date.parse(r.at))) return null;
 	if (typeof r.author !== "string" || !AUTHORS.has(r.author)) return null;
 	const author = r.author as MarkAuthor;
 	if (r.type === "clear") return { type: "clear", markId: r.markId, author, at: r.at };
@@ -137,6 +137,7 @@ export function createMarkResolver(marks: readonly Mark[], goals: readonly Goal[
 				if (spec !== 0) return spec;
 				if (a.nodes.size !== b.nodes.size) return a.nodes.size - b.nodes.size;
 				if (a.mark.at !== b.mark.at) return a.mark.at < b.mark.at ? 1 : -1;
+				if (a.mark.id === b.mark.id) return 0;
 				return a.mark.id < b.mark.id ? -1 : 1;
 			});
 			return hits[0]!.mark;
@@ -146,11 +147,11 @@ export function createMarkResolver(marks: readonly Mark[], goals: readonly Goal[
 
 export type FrontierMode = "none" | "expand" | "hold" | "stop";
 
-/** The mode a mark imposes now. An exhausted budget degrades `expand` to `hold`; it never lifts a `stop`. */
+/** The mode a mark imposes now. A non-finite spend counts as exhausted. An exhausted budget degrades `expand` to `hold`; it never lifts a `stop`. */
 export function frontierMode(mark: Mark | null, spentUsd: number): FrontierMode {
 	if (mark === null) return "none";
 	if (mark.mark === "stop") return "stop";
-	if (mark.budgetUsd !== undefined && spentUsd >= mark.budgetUsd) return "hold";
+	if (mark.budgetUsd !== undefined && !(spentUsd < mark.budgetUsd)) return "hold";
 	return mark.mark;
 }
 

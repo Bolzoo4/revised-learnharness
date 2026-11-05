@@ -10,6 +10,7 @@ import {
 	type Mark,
 } from "../src/core/ext/frontier.ts";
 import type { Goal } from "../src/core/ext/goals.ts";
+import { DEFAULT_RESEARCH_CONFIG, researchConfigFromEnv } from "../src/core/ext/research-config.ts";
 
 const chains = [
 	{ premises: ["a", "b"], conclusion: "c" },
@@ -49,7 +50,33 @@ describe("frontier events", () => {
 		assert.equal(parseFrontierEvent({ ...set("m1"), budgetUsd: 0 }), null);
 		assert.equal(parseFrontierEvent({ ...set("m1"), scope: { kind: "region", id: "a" } }), null);
 		assert.equal(parseFrontierEvent({ ...set("m1"), author: "bot" }), null);
-		assert.equal(parseFrontierEvent({ type: "clear", markId: "", author: "user", at: "t" }), null);
+		assert.equal(parseFrontierEvent({ type: "clear", markId: "", author: "user", at: "2026-11-04T10:00:00.000Z" }), null);
+		assert.equal(parseFrontierEvent({ type: "clear", markId: "m1", author: "bot", at: "2026-11-04T10:00:00.000Z" }), null);
+		assert.equal(parseFrontierEvent({ type: "clear", markId: "m1", author: "user" }), null);
+	});
+
+	it("rejects an unparseable `at` on set and clear", () => {
+		assert.equal(parseFrontierEvent({ ...set("m1"), at: "not a date" }), null);
+		assert.equal(parseFrontierEvent({ type: "clear", markId: "m1", author: "user", at: "garbage" }), null);
+		assert.deepEqual(parseFrontierEvent({ type: "clear", markId: "m1", author: "user", at: "2026-11-04T10:00:00.000Z" }), {
+			type: "clear",
+			markId: "m1",
+			author: "user",
+			at: "2026-11-04T10:00:00.000Z",
+		});
+	});
+
+	it("an agent can replace or clear an agent mark", () => {
+		const replaced = deriveMarks([set("m1", { author: "agent" }), set("m1", { author: "agent", mark: "stop" })]);
+		assert.equal(replaced[0]!.mark, "stop");
+		assert.deepEqual(deriveMarks([set("m1", { author: "agent" }), { type: "clear", markId: "m1", author: "agent", at: "t" }]), []);
+	});
+
+	it("after a user clears a mark an agent can set the same id again", () => {
+		const marks = deriveMarks([set("m1", { author: "user" }), { type: "clear", markId: "m1", author: "user", at: "t" }, set("m1", { author: "agent", mark: "expand" })]);
+		assert.equal(marks.length, 1);
+		assert.equal(marks[0]!.author, "agent");
+		assert.equal(marks[0]!.mark, "expand");
 	});
 
 	it("a set with a known id replaces; a clear removes", () => {
@@ -88,7 +115,7 @@ describe("mark resolution", () => {
 
 	it("regions: node, subtree (premise closure) and goal", () => {
 		const r = createMarkResolver(
-			[m("n", { scope: { kind: "node", id: "b" } }), m("s", { scope: { kind: "subtree", id: "c" }, mark: "expand" }), m("g", { scope: { kind: "goal", id: "goal_1" }, mark: "stop" })],
+			[m("g", { scope: { kind: "goal", id: "goal_1" }, mark: "stop" }), m("s", { scope: { kind: "subtree", id: "c" }, mark: "expand" }), m("n", { scope: { kind: "node", id: "b" } })],
 			[goal],
 			chains,
 		);
@@ -96,6 +123,37 @@ describe("mark resolution", () => {
 		assert.equal(r.effective("a")!.id, "s"); // subtree beats goal
 		assert.equal(r.effective("d")!.id, "g"); // only the goal region holds d
 		assert.equal(r.effective("zzz"), null);
+	});
+
+	it("specificity beats id order when region size, author and time tie", () => {
+		// subtree of the leaf "a" is {a}: same size as the node region. Only specificity separates them.
+		const r = createMarkResolver(
+			[m("a-subtree", { scope: { kind: "subtree", id: "a" } }), m("z-node", { scope: { kind: "node", id: "a" } })],
+			[],
+			chains,
+		);
+		assert.equal(r.effective("a")!.id, "z-node");
+	});
+
+	it("an unknown goal id has an empty region", () => {
+		const r = createMarkResolver([m("g", { scope: { kind: "goal", id: "nope" } })], [goal], chains);
+		assert.equal(r.effective("a"), null);
+		assert.equal(r.effective("d"), null);
+	});
+
+	it("subtree on a cyclic chain terminates", () => {
+		const cyc = [
+			{ premises: ["x"], conclusion: "y" },
+			{ premises: ["y"], conclusion: "x" },
+		];
+		const r = createMarkResolver([m("s", { scope: { kind: "subtree", id: "x" } })], [], cyc);
+		assert.equal(r.effective("x")!.id, "s");
+		assert.equal(r.effective("y")!.id, "s");
+	});
+
+	it("equal ids compare as equal (resolver is deterministic with duplicate ids)", () => {
+		const r = createMarkResolver([m("same", { note: "1" }), m("same", { note: "2" })], [], chains);
+		assert.equal(r.effective("a")!.id, "same");
 	});
 
 	it("a user mark beats a more specific agent mark", () => {
@@ -139,11 +197,47 @@ describe("mode", () => {
 		assert.equal(frontierMode(mark({ mark: "stop", budgetUsd: 1 }), 5), "stop");
 	});
 
+	it("a non-finite spend counts as exhausted; a negative spend does not trip the budget", () => {
+		assert.equal(frontierMode(mark({ budgetUsd: 1 }), NaN), "hold");
+		assert.equal(frontierMode(mark({ budgetUsd: 1 }), Infinity), "hold");
+		assert.equal(frontierMode(mark({ budgetUsd: 1 }), -5), "expand");
+		assert.equal(frontierMode(mark({ mark: "stop", budgetUsd: 1 }), NaN), "stop");
+	});
+
+	it("hold with an exhausted budget stays hold", () => {
+		assert.equal(frontierMode(mark({ mark: "hold", budgetUsd: 1 }), 2), "hold");
+	});
+
 	it("stop excludes all, hold keeps verification only", () => {
 		assert.equal(modeAllows("stop", "verification"), false);
 		assert.equal(modeAllows("hold", "expansion"), false);
 		assert.equal(modeAllows("hold", "verification"), true);
+		assert.equal(modeAllows("stop", "expansion"), false);
+		assert.equal(modeAllows("expand", "verification"), true);
 		assert.equal(modeAllows("none", "expansion"), true);
 		assert.equal(modeAllows("expand", "expansion"), true);
+	});
+});
+
+describe("researchConfigFromEnv", () => {
+	const D = DEFAULT_RESEARCH_CONFIG;
+	it("falls back on unset or invalid confidence", () => {
+		for (const v of [undefined, "abc", "0", "-1", "1.5", ""]) {
+			assert.equal(researchConfigFromEnv({ LH_EXT_CONFIDENCE_THRESHOLD: v }).confidenceThreshold, D.confidenceThreshold, String(v));
+		}
+		assert.equal(researchConfigFromEnv({}).confidenceThreshold, D.confidenceThreshold);
+	});
+	it("accepts a confidence in (0, 1] from the right key", () => {
+		assert.equal(researchConfigFromEnv({ LH_EXT_CONFIDENCE_THRESHOLD: "0.9" }).confidenceThreshold, 0.9);
+		assert.equal(researchConfigFromEnv({ LH_EXT_CONFIDENCE_THRESHOLD: "1" }).confidenceThreshold, 1);
+		assert.equal(researchConfigFromEnv({ LH_EXT_CYCLE_HOURS: "0.9" }).confidenceThreshold, D.confidenceThreshold);
+	});
+	it("cycle hours: valid accepted, invalid or below 0.1 falls back", () => {
+		assert.equal(researchConfigFromEnv({ LH_EXT_CYCLE_HOURS: "12" }).cycleHours, 12);
+		assert.equal(researchConfigFromEnv({ LH_EXT_CYCLE_HOURS: "0.1" }).cycleHours, 0.1);
+		for (const v of [undefined, "abc", "0", "-1", "0.05", "0.0001"]) {
+			assert.equal(researchConfigFromEnv({ LH_EXT_CYCLE_HOURS: v }).cycleHours, D.cycleHours, String(v));
+		}
+		assert.equal(researchConfigFromEnv({ LH_EXT_CONFIDENCE_THRESHOLD: "0.5" }).cycleHours, D.cycleHours);
 	});
 });

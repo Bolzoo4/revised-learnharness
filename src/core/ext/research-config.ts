@@ -29,7 +29,7 @@ export interface ResearchConfig {
 	expandBoost: number;
 	/** Depth limit (hops from the scope) when no mark carries one (REQ-rs-05). */
 	defaultMaxDepth: number;
-	/** The agent stops a gap when it reports confidence at or above this (REQ-rs-04). */
+	/** The agent stops a gap when it reports confidence at or above this, in (0, 1] (REQ-rs-04). */
 	confidenceThreshold: number;
 	/** A gap that ingested sources but added fewer new nodes than this saturates its node (REQ-rs-06). */
 	saturationMinNodes: number;
@@ -51,18 +51,18 @@ export const DEFAULT_RESEARCH_CONFIG: ResearchConfig = {
 	maxTurnsPerGap: 20,
 };
 
-function positive(raw: string | undefined, fallback: number): number {
+function atLeast(min: number, raw: string | undefined, fallback: number): number {
 	if (raw === undefined) return fallback;
 	const n = Number(raw);
-	return Number.isFinite(n) && n > 0 ? n : fallback;
+	return Number.isFinite(n) && n >= min ? n : fallback;
 }
 
-/** LH_EXT_CYCLE_HOURS and LH_EXT_CONFIDENCE_THRESHOLD (0 to 1). The daily ceiling is the shared cost gate's (LH_EXT_DAILY_CEILING_USD); anything invalid falls back to the default. */
+/** LH_EXT_CYCLE_HOURS and LH_EXT_CONFIDENCE_THRESHOLD (in (0, 1]). The daily ceiling is the shared cost gate's (LH_EXT_DAILY_CEILING_USD); cycle hours below 0.1 and anything invalid fall back to the default. */
 export function researchConfigFromEnv(env: Record<string, string | undefined>): ResearchConfig {
-	const threshold = positive(env.LH_EXT_CONFIDENCE_THRESHOLD, DEFAULT_RESEARCH_CONFIG.confidenceThreshold);
+	const threshold = atLeast(Number.MIN_VALUE, env.LH_EXT_CONFIDENCE_THRESHOLD, DEFAULT_RESEARCH_CONFIG.confidenceThreshold);
 	return {
 		...DEFAULT_RESEARCH_CONFIG,
-		cycleHours: positive(env.LH_EXT_CYCLE_HOURS, DEFAULT_RESEARCH_CONFIG.cycleHours),
+		cycleHours: atLeast(0.1, env.LH_EXT_CYCLE_HOURS, DEFAULT_RESEARCH_CONFIG.cycleHours),
 		confidenceThreshold: threshold <= 1 ? threshold : DEFAULT_RESEARCH_CONFIG.confidenceThreshold,
 	};
 }
