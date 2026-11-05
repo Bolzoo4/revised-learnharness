@@ -37,6 +37,10 @@ export interface ResearchConfig {
 	maxGapsPerCycle: number;
 	/** Model-call bound for one gap's research loop. */
 	maxTurnsPerGap: number;
+	/** Due watch entries run per cycle (oldest-checked first); the rest wait for the next cycle. */
+	maxWatchEntriesPerCycle: number;
+	/** Sources (and, separately, cited-but-unfetched locators) processed per gap; the rest of a finding is dropped. */
+	maxSourcesPerGap: number;
 }
 
 export const DEFAULT_RESEARCH_CONFIG: ResearchConfig = {
@@ -49,6 +53,8 @@ export const DEFAULT_RESEARCH_CONFIG: ResearchConfig = {
 	saturationMinNodes: 2,
 	maxGapsPerCycle: 5,
 	maxTurnsPerGap: 20,
+	maxWatchEntriesPerCycle: 5,
+	maxSourcesPerGap: 20,
 };
 
 function atLeast(min: number, raw: string | undefined, fallback: number): number {

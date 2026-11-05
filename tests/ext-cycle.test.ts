@@ -4,11 +4,11 @@ import { describe, it } from "node:test";
 import { CycleBusyError, CycleClockError, runCycle, type CycleDeps } from "../src/core/ext/cycle.ts";
 import { deriveMarks, parseFrontierEvent, type FrontierEvent } from "../src/core/ext/frontier.ts";
 import { deriveInbox, parseInboxEvent } from "../src/core/ext/inbox.ts";
-import { parseCycleLogEntry, type CycleLogEntry } from "../src/core/ext/research-log.ts";
+import { markSpendUsd, parseCycleLogEntry, type CycleLogEntry } from "../src/core/ext/research-log.ts";
 import { parseRadarEvent } from "../src/core/ext/watch.ts";
 import { DEFAULT_RESEARCH_CONFIG } from "../src/core/ext/research-config.ts";
 import { ModelsNotConfiguredError } from "../src/core/settings.ts";
-import { fakeDeps, finding, memLog, nodes, chains } from "./helpers/research-fakes.ts";
+import { fakeDeps, finding, goal, memLog, nodes, chains } from "./helpers/research-fakes.ts";
 
 const src = (locator: string, text = "page text") => ({ locator, title: `T ${locator}`, text });
 
@@ -117,7 +117,7 @@ describe("runCycle", () => {
 			researchGap: async (_g, opts) => (assert.equal(opts.sourceHunt, true), finding({ sources: [src("https://active.org/a"), src("https://new.org/b")] })),
 		});
 		const hunt = (await runCycle({ ...deps, config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 50 } }, "manual")).gaps.find((g) => g.type === "contested-no-primary")!;
-		assert.deepEqual(hunt.sources.map((s) => s.outcome), ["skipped-seen", "inbox"]);
+		assert.deepEqual(hunt.sources.map((s) => s.outcome), ["skipped-active", "inbox"]);
 		assert.equal(calls.ingested.length, 0);
 	});
 
@@ -711,6 +711,200 @@ describe("runCycle hardening: watch", () => {
 		assert.equal(entry.watch.inbox, 1);
 		const p = deriveInbox(inbox.events)[0]!;
 		assert.deepEqual([p.locator, p.foundBy, p.gapId], ["https://arxiv.org/abs/1", "watch", "watch:w1"]);
+	});
+});
+
+describe("runCycle review fixes: bounded work", () => {
+	const wEntry = (id: string) => ({ id, kind: "arxiv-query" as const, query: "gradients", cadenceHours: 24 });
+	const checked = (entryId: string, at: string): Radar => ({ type: "checked", entryId, ok: true, items: 0, at });
+
+	it("runs at most maxWatchEntriesPerCycle due entries, oldest-checked first, ties in list order", async () => {
+		const radar = memLog<Radar>([
+			checked("w0", "2026-11-01T00:00:00.000Z"),
+			checked("w1", "2026-11-02T00:00:00.000Z"),
+			checked("w2", "2026-11-03T00:00:00.000Z"),
+			checked("w4", "2026-10-31T00:00:00.000Z"),
+			checked("w5", "2026-11-03T06:00:00.000Z"),
+			checked("w6", "2026-10-30T00:00:00.000Z"),
+			checked("w7", "2026-10-29T00:00:00.000Z"),
+		]);
+		const ran: string[] = [];
+		const ids = ["w0", "w1", "w2", "w3", "w3b", "w4", "w5", "w6", "w7"];
+		const { deps } = fakeDeps({ radar, watchlist: { read: () => ids.map(wEntry) }, fetchItems: async (e) => (ran.push(e.id), []) });
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual(ran, ["w3", "w3b", "w7", "w6", "w4"]);
+		assert.equal(entry.watch.entries, 5);
+	});
+
+	it("an invalid maxWatchEntriesPerCycle falls back to the default; 0 runs no watch entry; skipped entries do not use the cap", async () => {
+		for (const bad of [Number.NaN, Infinity, -1, 1.5]) {
+			const ran: string[] = [];
+			const { deps } = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxWatchEntriesPerCycle: bad }, watchlist: { read: () => ["a", "b", "c", "d", "e", "f", "g"].map(wEntry) }, fetchItems: async (e) => (ran.push(e.id), []) });
+			await runCycle(deps, "manual");
+			assert.equal(ran.length, 5, String(bad));
+		}
+		const none = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxWatchEntriesPerCycle: 0 }, watchlist: { read: () => [wEntry("a")] }, fetchItems: async () => { throw new Error("must not run"); } });
+		assert.equal((await runCycle(none.deps, "manual")).watch.entries, 0);
+		// an entry whose region is stopped is skipped without using the cap
+		const ran: string[] = [];
+		const entries = [{ ...wEntry("dead"), goalId: "goal_x" }, { ...wEntry("live1") }, { ...wEntry("live2") }];
+		const stop: FrontierEvent = { type: "set", markId: "sx", scope: { kind: "goal", id: "goal_x" }, mark: "stop", note: "", author: "user", at: "t" };
+		const extra = [...nodes, { id: "u", name: "name-u", statement: "u" }];
+		const one = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxWatchEntriesPerCycle: 2 }, frontier: memLog([stop]), graph: () => ({ nodes: extra, chains }), watchlist: { read: () => entries }, goals: () => [goal(), goal({ id: "goal_x", targetNodeIds: ["u"] })], fetchItems: async (e) => (ran.push(e.id), []) });
+		await runCycle(one.deps, "manual");
+		assert.deepEqual(ran, ["live1", "live2"]);
+	});
+
+	it("caps sources and unfetched locators per gap and reads the inbox once per gap (5000 sources)", async () => {
+		const inbox = memLog<Inbox>();
+		let reads = 0;
+		const counting = { append: inbox.append, readAll: () => (reads++, inbox.readAll()) };
+		let snaps = 0;
+		const sources = Array.from({ length: 5000 }, (_, i) => src(`https://s${i}.org/p`));
+		const unfetched = Array.from({ length: 5000 }, (_, i) => `https://u${i}.org/p`);
+		const { deps } = fakeDeps({
+			inbox: counting,
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 },
+			snapshots: { put: (t) => (snaps++, `h${t.length}`) },
+			researchGap: async () => finding({ sources, unfetched }),
+		});
+		const t0 = performance.now();
+		const g = (await runCycle(deps, "manual")).gaps[0]!;
+		assert.equal(performance.now() - t0 < 1000, true);
+		assert.equal(snaps <= 20, true);
+		assert.equal(g.sources.filter((s) => s.outcome === "inbox").length, 20);
+		assert.equal(g.sources.filter((s) => s.outcome === "not-fetched").length, 20);
+		assert.equal(reads <= 1, true);
+	});
+
+	it("maxSourcesPerGap is configurable; an invalid value falls back to 20", async () => {
+		const many = Array.from({ length: 30 }, (_, i) => src(`https://s${i}.org/p`));
+		const run = (maxSourcesPerGap: number) => fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1, maxSourcesPerGap }, researchGap: async () => finding({ sources: many }) }).deps;
+		assert.equal((await runCycle(run(3), "manual")).gaps[0]!.sources.length, 3);
+		assert.equal((await runCycle(run(0), "manual")).gaps[0]!.sources.length, 0);
+		assert.equal((await runCycle(run(Number.NaN), "manual")).gaps[0]!.sources.length, 20);
+	});
+
+	it("the inbox decisions made earlier in the same gap still apply with one read (a proposal is not repeated)", async () => {
+		const inbox = memLog<Inbox>();
+		const { deps } = fakeDeps({ inbox, config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, researchGap: async () => finding({ sources: [src("https://a.org/x"), src("https://a.org/x"), src("https://b.org/y")] }) });
+		const g = (await runCycle(deps, "manual")).gaps[0]!;
+		assert.deepEqual(g.sources.map((s) => s.outcome), ["inbox", "skipped-seen", "inbox"]);
+		assert.equal(inbox.events.length, 2);
+	});
+});
+
+describe("runCycle review fixes: cost of failures", () => {
+	const failing = (costUsd: unknown) => Object.assign(new Error("research failed"), { costUsd });
+
+	it("a failed research call keeps the cost its error carries, in the gap, the entry and the mark's spend", async () => {
+		const { deps } = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, researchGap: async () => { throw failing(0.3); } });
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual([entry.gaps[0]!.error, entry.gaps[0]!.costUsd, entry.costUsd], ["research failed", 0.3, 0.3]);
+		assert.equal(markSpendUsd([entry]).size, 0); // no mark in force here
+		const mark: FrontierEvent = { type: "set", markId: "mf", scope: { kind: "goal", id: "goal_1" }, mark: "expand", budgetUsd: 0.1, note: "", author: "user", at: "t" };
+		const ids: string[] = [];
+		const budget = fakeDeps({ frontier: memLog([mark]), researchGap: async (g) => (ids.push(g.id), Promise.reject(failing(0.1))) });
+		const e2 = await runCycle(budget.deps, "manual");
+		assert.deepEqual(ids, ["no-premises:p1"]);
+		assert.equal(markSpendUsd([e2]).get("mf"), 0.1);
+	});
+
+	it("the cost an error carries is sanitized: only finite numbers >= 0 count", async () => {
+		for (const bad of [Number.NaN, -1, Infinity, "3", null, undefined]) {
+			const { deps } = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, researchGap: async () => { throw failing(bad); } });
+			const entry = await runCycle(deps, "manual");
+			assert.equal(entry.costUsd, 0, String(bad));
+		}
+		const plain = fakeDeps({ config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 1 }, researchGap: async () => { throw "just a string"; } });
+		assert.equal((await runCycle(plain.deps, "manual")).costUsd, 0);
+	});
+
+	it("classify may report a cost; it is summed (sanitized) into the cycle's cost", async () => {
+		const item = (id: string) => ({ id, title: `Paper ${id}`, link: `https://arxiv.org/abs/${id}`, summary: "gradients explained" });
+		const costs: unknown[] = [0.25, Number.NaN, -1, 0.5];
+		let i = 0;
+		const { deps } = fakeDeps({
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 0 },
+			watchlist: { read: () => [{ id: "w1", kind: "arxiv-query", query: "q", cadenceHours: 24 }] },
+			fetchItems: async () => ["1", "2", "3", "4"].map(item),
+			classify: async () => ({ relation: "extends", action: "ignore", rationale: "r", nearestNodeIds: [], costUsd: costs[i++] as number }),
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.equal(entry.costUsd, 0.75);
+		assert.equal(entry.gaps.length, 0);
+	});
+});
+
+describe("runCycle review fixes: busy guard by lock key", () => {
+	it("two cycles with different log objects but the same lockKey do not both run; different keys may; released afterwards", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		const first = fakeDeps({ researchGap: async () => (await gate, finding()) });
+		first.deps.lockKey = "/data/ext";
+		const p1 = runCycle(first.deps, "manual");
+		const same = fakeDeps();
+		same.deps.lockKey = "/data/ext";
+		await assert.rejects(runCycle(same.deps, "schedule"), CycleBusyError);
+		assert.deepEqual(same.calls.research, []);
+		const other = fakeDeps();
+		other.deps.lockKey = "/data/other";
+		await runCycle(other.deps, "manual");
+		const nokey = fakeDeps();
+		await runCycle(nokey.deps, "manual");
+		release();
+		await p1;
+		await runCycle(same.deps, "manual"); // released
+	});
+
+	it("the lock key is released after a failure too", async () => {
+		const broken = fakeDeps({ now: () => new Date(Number.NaN) });
+		broken.deps.lockKey = "k";
+		await assert.rejects(runCycle(broken.deps, "manual"), CycleClockError);
+		const ok = fakeDeps();
+		ok.deps.lockKey = "k";
+		await runCycle(ok.deps, "manual");
+	});
+});
+
+describe("runCycle review fixes: minor", () => {
+	it("steers are taken only for research gaps, not for extraction or verification", async () => {
+		let drains = 0;
+		const { deps, calls } = fakeDeps({
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 50 },
+			verification: { trustOf: () => new Map(), verifyNodes: async () => {} },
+			uncovered: () => [{ chatId: "c1", title: "a", messages: 1 }],
+			takeSteers: () => (drains++, []),
+			researchGap: async (g) => (calls.research.push(g.id), finding()),
+		});
+		const entry = await runCycle(deps, "manual");
+		const types = new Set(entry.gaps.map((g) => g.type));
+		assert.equal(types.has("uncovered") && types.has("unverified"), true);
+		assert.equal(calls.research.length > 0, true);
+		assert.equal(drains, calls.research.length);
+	});
+
+	it("an active source met in a source hunt is skipped-active, not skipped-seen", async () => {
+		const { deps } = fakeDeps({
+			graph: () => ({ nodes: [...nodes, { id: "p3", name: "name-p3", statement: "p3" }], chains: [...chains, { premises: ["p3"], conclusion: "p2" }] }),
+			verification: { trustOf: () => new Map([["p2", { trust: "contested" as const, hasPrimarySupport: false }]]), verifyNodes: async () => {} },
+			config: { ...DEFAULT_RESEARCH_CONFIG, maxGapsPerCycle: 50 },
+			library: { isActive: (l) => l === "https://active.org/a", activeLocators: () => [], activate: () => {} },
+			researchGap: async (_g, o) => finding({ sources: o.sourceHunt ? [src("https://active.org/a")] : [] }),
+		});
+		const hunt = (await runCycle(deps, "manual")).gaps.find((g) => g.type === "contested-no-primary")!;
+		assert.deepEqual(hunt.sources.map((s) => s.outcome), ["skipped-active"]);
+	});
+
+	it("the watch does not run after the cycle ended with an error", async () => {
+		let fetched = 0;
+		const { deps } = fakeDeps({
+			researchGap: async () => { throw new ModelsNotConfiguredError(["cheap"]); },
+			watchlist: { read: () => [{ id: "w1", kind: "arxiv-query", query: "q", cadenceHours: 24 }] },
+			fetchItems: async () => (fetched++, []),
+		});
+		const entry = await runCycle(deps, "manual");
+		assert.deepEqual([entry.stoppedBy, fetched, entry.watch.entries], ["error", 0, 0]);
 	});
 });
 

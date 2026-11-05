@@ -69,3 +69,13 @@ export interface IngestSource {
 	title: string;
 	text: string;
 }
+
+/**
+ * What `CycleDeps.researchGap` should throw when the research failed AFTER money was
+ * spent: an Error with `costUsd` set to the spend so far. The cycle records it (sanitized:
+ * finite and >= 0, else 0) in the gap's log and in the mark's budget. The Task 10 adapter
+ * must attach it to every error it rethrows.
+ */
+export interface GapError extends Error {
+	costUsd?: number;
+}
