@@ -34,19 +34,13 @@ import { checkVerdictItems, OUTCOME_TEXT, verdictOutcome, type VerdictItem } fro
 import type { SnapshotStore } from "../../core/ext/ports.ts";
 import type { TrustLevel } from "../../core/ext/trust.ts";
 import type { SnapshotReader } from "../../core/ext/study-ports.ts";
+import { HttpError } from "./http-error.ts";
 
 export const MAX_EXERCISE_RETRIES = 2;
 export const DEFAULT_EXERCISE_COUNT = 3;
 const MAX_SOURCE_TEXT_CHARS = 200_000;
 
-export class PracticeError extends Error {
-	constructor(
-		public readonly status: number,
-		message: string,
-	) {
-		super(message);
-	}
-}
+export class PracticeError extends HttpError {}
 
 interface LedgerLike<T> {
 	append(event: T): void;

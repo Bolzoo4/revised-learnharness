@@ -23,3 +23,4 @@ export {
 export { NodeKnowledgeError } from "./node-knowledge.ts";
 export * from "./lecture-live.ts";
 export * from "./practice-live.ts";
+export { HttpError, httpErrorResponse, readJsonObject } from "./http-error.ts";

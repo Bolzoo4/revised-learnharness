@@ -1,6 +1,10 @@
-import { personalLayer } from "@/src/server";
+import { httpErrorResponse, personalLayer } from "@/src/server";
 
 /** Start a review session: creates a `kind: "review"` chat. The client then sends its first message as in any chat. */
 export async function POST() {
-	return Response.json(personalLayer.startReviewSession());
+	try {
+		return Response.json(personalLayer.startReviewSession());
+	} catch (error) {
+		return httpErrorResponse(error);
+	}
 }

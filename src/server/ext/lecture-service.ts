@@ -20,6 +20,7 @@ import { citingLectures, lectureOverlay } from "../../core/ext/lecture/lecture-g
 import type { OutlineBlock } from "../../core/ext/lecture/split.ts";
 import type { SourceLibrary } from "../../core/ext/sources.ts";
 import type { LecturesStore } from "../../core/ext/study-ports.ts";
+import { HttpError } from "./http-error.ts";
 
 export interface BookRunStatus {
 	bookId: string;
@@ -31,14 +32,7 @@ export interface BookRunStatus {
 	startedAt: string;
 }
 
-export class LectureServiceError extends Error {
-	constructor(
-		public readonly status: number,
-		message: string,
-	) {
-		super(message);
-	}
-}
+export class LectureServiceError extends HttpError {}
 
 export interface LectureServiceDeps {
 	lectures: LecturesStore;
