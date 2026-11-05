@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	MAX_FEED_BYTES,
+	MAX_FEED_CHARS,
 	dueEntries,
 	feedUrl,
 	parseFeed,
@@ -55,12 +57,11 @@ describe("feed parser", () => {
 			title: "Attention & Memory in Transformers",
 			link: "http://arxiv.org/abs/2401.00001v1",
 			summary: "We show that attention extends memory.",
-			publishedAt: "2024-01-01T00:00:00Z",
 		});
 	});
 
 	it("reads RSS items with CDATA and escaped markup", () => {
-		assert.deepEqual(parseFeed(RSS), [{ id: "g-2", title: "Release 2.0", link: "https://example.org/r2", summary: "Big change", publishedAt: "Mon, 01 Jan 2024" }]);
+		assert.deepEqual(parseFeed(RSS), [{ id: "g-2", title: "Release 2.0", link: "https://example.org/r2", summary: "Big change" }]);
 	});
 
 	it("returns [] for text that is not a feed", () => {
@@ -183,12 +184,9 @@ describe("hardening: feed parser", () => {
 		assert.equal(items[0]!.id, "i0");
 	});
 
-	it("keeps summary empty and omits publishedAt when absent; falls back to updated", () => {
+	it("keeps summary empty when absent and has no publishedAt", () => {
 		const a = parseFeed(`<feed><entry><id>1</id><title>T</title><link href="https://x.org/1"/></entry></feed>`)[0]!;
-		assert.equal(a.summary, "");
-		assert.equal("publishedAt" in a, false);
-		const b = parseFeed(`<feed><entry><id>1</id><title>T</title><link href="https://x.org/1"/><updated>U</updated></entry></feed>`)[0]!;
-		assert.equal(b.publishedAt, "U");
+		assert.deepEqual(a, { id: "1", title: "T", link: "https://x.org/1", summary: "" });
 	});
 
 	it("does not double decode and returns [] for empty input", () => {
@@ -299,5 +297,143 @@ describe("hardening: weak premises", () => {
 		const events = [rv({ nodeId: "a", channel: "fixed", rating: 3, at: "2026-11-01T00:00:00.000Z" }), rv({ weakPremises: ["a"], at: "2026-11-02T00:00:00.000Z" })];
 		assert.deepEqual(weakPremiseNodeIds(events, now), ["a"]);
 		assert.equal(WEAK_WINDOW_DAYS, 30);
+	});
+});
+
+const entryWith = (links: string, extra = "") => `<feed><entry><id>1</id><title>T</title>${links}${extra}</entry></feed>`;
+const ALT = `<link href="https://x.org/alt" rel="alternate"/>`;
+
+describe("hardening 2: feed parser limits and exclusions", () => {
+	it("exports the size caps", () => {
+		assert.equal(MAX_FEED_CHARS, 512_000);
+		assert.ok(MAX_FEED_BYTES >= MAX_FEED_CHARS);
+	});
+
+	it("parses a hostile feed of 200k unclosed <entry> in well under a second", () => {
+		const t0 = performance.now();
+		assert.deepEqual(parseFeed("<entry>".repeat(200_000)), []);
+		assert.ok(performance.now() - t0 < 1000, `took ${performance.now() - t0} ms`);
+	});
+
+	it("parses 100k unclosed <link  in one block in well under a second", () => {
+		const t0 = performance.now();
+		assert.deepEqual(parseFeed(`<entry><title>T</title>${"<link ".repeat(100_000)}</entry>`), []);
+		assert.ok(performance.now() - t0 < 1000, `took ${performance.now() - t0} ms`);
+	});
+
+	it("parses many unclosed tags inside a block under the size limit quickly", () => {
+		const t0 = performance.now();
+		parseFeed(`<entry><title>T</title>${"<link ".repeat(3000)}${"<title ".repeat(1000)}${"<".repeat(5000)}</entry>`);
+		assert.ok(performance.now() - t0 < 1000, `took ${performance.now() - t0} ms`);
+	});
+
+	it("ignores input beyond MAX_FEED_CHARS and entry blocks longer than 20000 chars", () => {
+		const one = (i: number) => `<entry><id>i${i}</id><title>T${i}</title><link href="https://x.org/${i}"/></entry>`;
+		const pad = `<!--${"x".repeat(MAX_FEED_CHARS)}-->`;
+		assert.deepEqual(parseFeed(one(1) + pad + one(2)).map((i) => i.id), ["i1"]);
+		const big = `<entry><id>big</id><title>Big</title><link href="https://x.org/big"/><summary>${"a".repeat(20_001)}</summary></entry>`;
+		assert.deepEqual(parseFeed(big + one(3)).map((i) => i.id), ["i3"]);
+		const ok = `<entry><id>ok</id><title>Ok</title><link href="https://x.org/ok"/><summary>${"a".repeat(19_000)}</summary></entry>`;
+		assert.deepEqual(parseFeed(ok).map((i) => i.id), ["ok"]);
+	});
+
+	for (const rel of ["related", "enclosure", "self"]) {
+		it(`skips a link with rel="${rel}"`, () => {
+			assert.equal(parseFeed(entryWith(`<link href="https://x.org/${rel}" rel="${rel}"/>${ALT}`))[0]!.link, "https://x.org/alt");
+			assert.deepEqual(parseFeed(entryWith(`<link href="https://x.org/${rel}" rel="${rel}"/>`)), []);
+		});
+	}
+
+	it("skips a link titled pdf", () => {
+		assert.equal(parseFeed(entryWith(`<link title="pdf" href="https://x.org/p.pdf"/>${ALT}`))[0]!.link, "https://x.org/alt");
+	});
+
+	it("decodes &quot; and &apos;, trims the link and falls back to <content>", () => {
+		const item = parseFeed(entryWith(`<link href=" https://x.org/a "/>`, `<content type="html">Body</content>`).replace("<title>T</title>", "<title>&quot;q&quot; &apos;a&apos;</title>"))[0]!;
+		assert.equal(item.title, `"q" 'a'`);
+		assert.equal(item.link, "https://x.org/a");
+		assert.equal(item.summary, "Body");
+	});
+
+	it("decodes numeric references only inside the Unicode scalar range", () => {
+		const title = (ref: string) => parseFeed(entryWith(ALT).replace("<title>T</title>", `<title>[${ref}]</title>`))[0]!.title;
+		assert.equal(title("&#xD7FF;"), "[\ud7ff]");
+		assert.equal(title("&#xD800;"), "[]");
+		assert.equal(title("&#xDFFF;"), "[]");
+		assert.equal(title("&#xE000;"), "[\ue000]");
+		assert.equal(title("&#x10FFFF;"), "[\u{10ffff}]");
+		assert.equal(title("&#x110000;"), "[]");
+		assert.equal(title("&#0;"), "[]");
+	});
+
+	it("strips tags before decoding, and never decodes entities inside CDATA", () => {
+		const title = (t: string) => parseFeed(entryWith(ALT).replace("<title>T</title>", `<title>${t}</title>`))[0]!.title;
+		assert.equal(title("x<b>y</b>"), "x y");
+		assert.equal(title("a &lt;b&gt; c"), "a <b> c");
+		assert.equal(title("<![CDATA[A &amp; B]]>"), "A &amp; B");
+		assert.equal(title("<![CDATA[A]]> &amp; <![CDATA[&lt;]]>"), "A & &lt;");
+		const summary = parseFeed(entryWith(ALT, "<summary><![CDATA[<p>Hi &amp; bye</p>]]></summary>"))[0]!.summary;
+		assert.equal(summary, "Hi &amp; bye");
+	});
+
+	it("ignores <source> metadata and commented-out entries", () => {
+		const xml = `<feed><!-- <entry><id>c</id><title>Commented</title><link href="https://x.org/c"/></entry> -->
+<entry><source><id>s</id><title>Source feed</title></source><id>e</id><title>Real</title><link href="https://x.org/e"/></entry></feed>`;
+		const items = parseFeed(xml);
+		assert.deepEqual(items.map((i) => [i.id, i.title]), [["e", "Real"]]);
+		assert.deepEqual(parseFeed(`<feed><!-- unclosed <entry><id>c</id><title>T</title><link href="https://x.org/c"/></entry>`), []);
+	});
+});
+
+describe("hardening 2: watch targets (SSRF)", () => {
+	const feed = (query: string) => validateWatchTarget({ kind: "feed", query });
+	it("accepts public http(s) feeds", () => {
+		assert.equal(feed("https://x.org/f"), null);
+		assert.equal(feed("http://example.com:8080/f.xml"), null);
+		assert.equal(feed("https://8.8.8.8/f"), null);
+		assert.equal(feed("https://172.32.0.1/f"), null);
+		assert.equal(feed("https://[2606:4700::1111]/f"), null);
+		assert.equal(feed("https://localhost.example.org/f"), null);
+	});
+	it("rejects password-only credentials", () => {
+		assert.match(feed("https://:pw@x.org/f") ?? "", /credentials/);
+	});
+	it("rejects local and internal host names", () => {
+		for (const h of ["localhost", "LOCALHOST", "localhost.", "a.localhost", "printer.local", "db.internal", "a.b.internal"]) {
+			assert.notEqual(feed(`http://${h}/f`), null, h);
+		}
+	});
+	it("rejects loopback, link-local and private IPv4, including encoded forms", () => {
+		for (const h of ["127.0.0.1", "127.255.255.254", "0.0.0.0", "0.1.2.3", "169.254.169.254", "169.254.0.1", "10.0.0.1", "10.255.255.255", "172.16.0.1", "172.31.255.255", "192.168.1.1", "2130706433", "0x7f000001", "0x7f.1", "017700000001", "127.1", "127.0.0.1.", "3232235777"]) {
+			assert.notEqual(feed(`http://${h}/f`), null, h);
+		}
+	});
+	it("rejects loopback, unique-local, link-local and IPv4-mapped IPv6", () => {
+		for (const h of ["[::1]", "[::]", "[fc00::1]", "[fd12:3456::1]", "[fe80::1]", "[febf::1]", "[::ffff:127.0.0.1]", "[::ffff:10.0.0.1]", "[::ffff:169.254.169.254]", "[::ffff:c0a8:101]", "[::127.0.0.1]", "[64:ff9b::7f00:1]", "[0:0:0:0:0:0:0:1]"]) {
+			assert.notEqual(feed(`http://${h}/f`), null, h);
+		}
+	});
+	it("rejects repo names made of dots", () => {
+		assert.notEqual(validateWatchTarget({ kind: "repo", query: "o/.." }), null);
+		assert.notEqual(validateWatchTarget({ kind: "repo", query: "../n" }), null);
+		assert.equal(validateWatchTarget({ kind: "repo", query: "o/.n" }), null);
+	});
+	it("parseWatchEntry applies the same rules", () => {
+		assert.equal(parseWatchEntry({ id: "w", kind: "feed", query: "http://169.254.169.254/latest/meta-data" }), null);
+		assert.notEqual(parseWatchEntry({ id: "w", kind: "feed", query: "https://x.org/f" }), null);
+	});
+});
+
+describe("hardening 2: weak premises and radar types", () => {
+	it("keeps the latest flag even when events arrive newest first", () => {
+		const rv = (over: Partial<Extract<ReviewEvent, { type: "review" }>>): ReviewEvent => ({ type: "review", nodeId: "n9", channel: "dialogic", rating: 2, durationSec: 30, at: "2026-11-01T10:00:00.000Z", ...over });
+		const events = [rv({ weakPremises: ["a"], at: "2026-11-03T00:00:00.000Z" }), rv({ weakPremises: ["a"], at: "2026-11-01T00:00:00.000Z" }), rv({ nodeId: "a", channel: "fixed", rating: 3, at: "2026-11-02T00:00:00.000Z" })];
+		assert.deepEqual(weakPremiseNodeIds(events, "2026-11-04T00:00:00.000Z"), ["a"]);
+	});
+	it("rejects a classified event whose title or link is not a string", () => {
+		const base = { type: "classified", entryId: "w1", itemId: "i1", title: "t", link: "l", nearestNodeIds: [], relation: "extends", action: "ingest", rationale: "r", at: "2026-11-04T10:00:00.000Z" };
+		assert.equal(parseRadarEvent({ ...base, title: 3 }), null);
+		assert.equal(parseRadarEvent({ ...base, link: 3 }), null);
+		assert.notEqual(parseRadarEvent({ ...base, title: "", link: "" }), null);
 	});
 });

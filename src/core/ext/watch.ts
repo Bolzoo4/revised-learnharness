@@ -58,7 +58,48 @@ export function parseWatchlist(raw: unknown): WatchEntry[] {
 
 const isDots = (s: string): boolean => /^\.+$/.test(s);
 
-/** null when the entry's query is usable for its kind, otherwise the reason. */
+/** True for IPv4 addresses that are not public: 0/8, 10/8, 127/8, 169.254/16, 172.16/12, 192.168/16. */
+function privateV4(a: number, b: number): boolean {
+	return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+/** `host` is the URL's canonical IPv6 text without brackets (lowercase, hex groups only, "::" allowed). */
+function privateV6(host: string): boolean {
+	const halves = host.split("::");
+	if (halves.length > 2) return true;
+	const side = (t: string): number[] => (t === "" ? [] : t.split(":").map((g) => Number.parseInt(g, 16)));
+	const head = side(halves[0]!);
+	const tail = halves.length === 2 ? side(halves[1]!) : [];
+	const fill = 8 - head.length - tail.length;
+	if (halves.length === 1 ? fill !== 0 : fill < 1) return true;
+	const g = [...head, ...new Array<number>(halves.length === 2 ? fill : 0).fill(0), ...tail];
+	if (g.length !== 8 || g.some((x) => !Number.isInteger(x) || x < 0 || x > 0xffff)) return true;
+	const first6Zero = g.slice(0, 6).every((x) => x === 0);
+	const mapped = g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff;
+	const nat64 = g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0);
+	if (first6Zero || mapped || nat64) return privateV4(g[6]! >> 8, g[6]! & 0xff);
+	return (g[0]! & 0xfe00) === 0xfc00 || (g[0]! & 0xffc0) === 0xfe80;
+}
+
+/** True for a local/internal name or non-public address; the URL parser has already normalized decimal/hex/octal IPv4 forms. */
+function privateHost(hostname: string): boolean {
+	const h = hostname.toLowerCase().replace(/\.$/, "");
+	if (h.startsWith("[")) return privateV6(h.slice(1, -1));
+	if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return true;
+	const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+	return v4 !== null && privateV4(Number(v4[1]), Number(v4[2]));
+}
+
+/**
+ * null when the entry's query is usable for its kind, otherwise the reason.
+ * A feed must be a public http(s) URL without credentials: loopback, link-local,
+ * private and unique-local addresses and local/internal names are rejected so a
+ * watchlist cannot aim the fetch at the user's own machine or network.
+ *
+ * Task 9 note: this checks the URL as written. The fetch adapter must ALSO use
+ * `redirect: "manual"` (or re-run this check on every hop) so a public URL
+ * cannot redirect into a private address, and must cap the body (MAX_FEED_BYTES).
+ */
 export function validateWatchTarget(entry: Pick<WatchEntry, "kind" | "query">): string | null {
 	if (entry.kind === "repo") {
 		const m = /^([\w.-]+)\/([\w.-]+)$/.exec(entry.query);
@@ -68,7 +109,8 @@ export function validateWatchTarget(entry: Pick<WatchEntry, "kind" | "query">): 
 		try {
 			const u = new URL(entry.query);
 			if (u.protocol !== "http:" && u.protocol !== "https:") return "a feed must be an http(s) URL";
-			return u.username !== "" || u.password !== "" ? "a feed URL must not carry credentials" : null;
+			if (u.username !== "" || u.password !== "") return "a feed URL must not carry credentials";
+			return privateHost(u.hostname) ? "a feed must not point at a local or private address" : null;
 		} catch {
 			return "a feed must be an http(s) URL";
 		}
@@ -91,8 +133,17 @@ export interface FeedItem {
 	title: string;
 	link: string;
 	summary: string;
-	publishedAt?: string;
 }
+
+/** parseFeed reads at most this many characters of the document; the rest is ignored. */
+export const MAX_FEED_CHARS = 512_000;
+/**
+ * The fetch adapter (Task 9) MUST cap the response body to this many bytes
+ * (stream and abort, do not buffer an unbounded body) before decoding it.
+ */
+export const MAX_FEED_BYTES = 1_048_576;
+/** An entry/item block longer than this is skipped, not parsed. */
+const MAX_ENTRY_CHARS = 20_000;
 
 function codePoint(n: number): string {
 	return Number.isInteger(n) && n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : "";
@@ -100,7 +151,6 @@ function codePoint(n: number): string {
 
 function decode(s: string): string {
 	return s
-		.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
 		.replace(/&#x([0-9a-f]+);/gi, (_m, h: string) => codePoint(Number.parseInt(h, 16)))
 		.replace(/&#(\d+);/g, (_m, d: string) => codePoint(Number.parseInt(d, 10)))
 		.replace(/&lt;/g, "<")
@@ -109,10 +159,26 @@ function decode(s: string): string {
 		.replace(/&apos;/g, "'")
 		.replace(/&amp;/g, "&");
 }
-const clean = (s: string): string => decode(s).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-const tag = (block: string, name: string): string | null => {
-	const m = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, "i").exec(block);
-	return m ? clean(m[1]!) : null;
+const stripTags = (s: string): string => s.replace(/<[^<>]+>/g, " ");
+/**
+ * Plain text of an element body. Markup is stripped BEFORE entities are decoded
+ * (so "&lt;b&gt;" in a title stays text); CDATA content is literal: its entities
+ * are never decoded. `html` bodies (summaries) are HTML, so markup that the
+ * decoding exposes, or that sits in CDATA, is stripped too.
+ */
+function clean(raw: string, html: boolean): string {
+	const parts = raw.split(/<!\[CDATA\[([\s\S]*?)\]\]>/);
+	let out = "";
+	for (let i = 0; i < parts.length; i++) {
+		const part = parts[i]!;
+		if (i % 2 === 1) out += html ? stripTags(part) : part;
+		else out += html ? stripTags(decode(stripTags(part))) : decode(stripTags(part));
+	}
+	return out.replace(/\s+/g, " ").trim();
+}
+const tag = (block: string, name: string, html = false): string | null => {
+	const m = new RegExp(`<${name}(?:\\s[^<>]*)?>([\\s\\S]*?)</${name}>`, "i").exec(block);
+	return m ? clean(m[1]!, html) : null;
 };
 
 function httpUrl(s: string): string | null {
@@ -124,17 +190,52 @@ function httpUrl(s: string): string | null {
 	}
 }
 
+/** Removes `<!-- ... -->` in linear time; an unclosed comment drops the rest of the document. */
+function stripComments(xml: string): string {
+	let out = "";
+	let from = 0;
+	for (;;) {
+		const open = xml.indexOf("<!--", from);
+		if (open === -1) return out + xml.slice(from);
+		out += xml.slice(from, open);
+		const close = xml.indexOf("-->", open + 4);
+		if (close === -1) return out;
+		from = close + 3;
+	}
+}
+
 /**
  * Atom `<entry>` and RSS `<item>` blocks. Items without a title, or without an
  * http(s) link, are dropped; a repeated id keeps the first; at most MAX_FEED_ITEMS.
+ * Input is cut to MAX_FEED_CHARS and blocks over 20 000 characters are skipped;
+ * scanning is linear whatever the input. Only feeds in the default namespace are
+ * supported (unprefixed `entry`, `title`, `link`; a prefixed `<atom:entry>` is ignored).
  */
 export function parseFeed(xml: string): FeedItem[] {
+	const text = stripComments(xml.slice(0, MAX_FEED_CHARS));
 	const out: FeedItem[] = [];
 	const ids = new Set<string>();
-	for (const m of xml.matchAll(/<(entry|item)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi)) {
-		const block = m[2]!;
+	const open = /<(entry|item)(?:\s[^<>]*)?>/gi;
+	const closers: Record<string, RegExp> = { entry: /<\/entry>/gi, item: /<\/item>/gi };
+	const unclosed = new Set<string>();
+	while (out.length < MAX_FEED_ITEMS) {
+		const o = open.exec(text);
+		if (o === null) break;
+		const name = o[1]!.toLowerCase();
+		if (unclosed.has(name)) continue;
+		const closer = closers[name]!;
+		closer.lastIndex = open.lastIndex;
+		const c = closer.exec(text);
+		if (c === null) {
+			unclosed.add(name); // no later opener of this kind can close either
+			continue;
+		}
+		open.lastIndex = c.index + c[0].length;
+		if (c.index - (o.index + o[0].length) > MAX_ENTRY_CHARS) continue;
+		// A <source> element carries the ORIGINAL feed's id/title/link: not this entry's.
+		const block = text.slice(o.index + o[0].length, c.index).replace(/<source(?:\s[^<>]*)?>[\s\S]*?<\/source>/gi, "");
 		const title = tag(block, "title");
-		const attrs = [...block.matchAll(/<link\b([^>]*?)\/?>/gi)].map((x) => x[1]!);
+		const attrs = [...block.matchAll(/<link\b([^<>]*?)\/?>/gi)].map((x) => x[1]!);
 		const alt = attrs.find((a) => !/rel=["'](related|enclosure|self)["']/.test(a) && !/title=["']pdf["']/.test(a) && /href=["']/.test(a));
 		const rawLink = alt !== undefined ? decode(/href=["']([^"']+)["']/.exec(alt)![1]!) : tag(block, "link");
 		const link = rawLink === null ? null : httpUrl(rawLink.trim());
@@ -142,10 +243,8 @@ export function parseFeed(xml: string): FeedItem[] {
 		const id = tag(block, "id") || tag(block, "guid") || link;
 		if (ids.has(id)) continue;
 		ids.add(id);
-		const summary = tag(block, "summary") ?? tag(block, "description") ?? tag(block, "content") ?? "";
-		const published = tag(block, "published") || tag(block, "updated") || tag(block, "pubDate");
-		out.push({ id, title, link, summary, ...(published ? { publishedAt: published } : {}) });
-		if (out.length >= MAX_FEED_ITEMS) break;
+		const summary = tag(block, "summary", true) ?? tag(block, "description", true) ?? tag(block, "content", true) ?? "";
+		out.push({ id, title, link, summary });
 	}
 	return out;
 }
@@ -225,7 +324,10 @@ export function dueEntries(entries: readonly WatchEntry[], radar: readonly Radar
 
 const words = (s: string): Set<string> => new Set(s.toLowerCase().match(/\p{L}{4,}/gu) ?? []);
 
-/** The `k` nodes sharing the most distinct words (4+ letters) with the text; nodes sharing none are never returned. */
+/**
+ * The `k` nodes sharing the most distinct words with the text; nodes sharing none are never returned.
+ * Contract: a word is a run of 4 or more Unicode letters (no digits), compared case-insensitively.
+ */
 export function rankNodesByOverlap(text: string, nodes: readonly GraphNodeLite[], k: number): GraphNodeLite[] {
 	if (!Number.isFinite(k) || k < 1) return [];
 	const target = words(text);
