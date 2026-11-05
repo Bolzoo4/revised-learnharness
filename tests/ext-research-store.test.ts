@@ -114,11 +114,25 @@ describe("research store", () => {
 			const desc = Object.getOwnPropertyDescriptor(s, member);
 			assert.ok(desc !== undefined && "value" in desc, `${member} is a data property`);
 			assert.equal(desc.value, s[member], member);
+			assert.equal(Object.isFrozen(desc.value), true, `${member} is frozen`);
 		}
-		assert.equal(s.lockKey, path.resolve(dir));
+		assert.equal(s.lockKey, fs.realpathSync.native(dir));
 		assert.equal(s.lockKey, createResearchStore(`${dir}${path.sep}..${path.sep}${path.basename(dir)}`).lockKey);
 		assert.notEqual(s.lockKey, createResearchStore(tmp()).lockKey);
 		assert.notEqual(s.log, createResearchStore(dir).log);
+	});
+
+	it("lockKey is the real path of an existing dir, so a symlink to it shares the busy-guard key", () => {
+		const real = tmp();
+		const link = path.join(tmp(), "link");
+		fs.symlinkSync(real, link);
+		assert.equal(createResearchStore(link).lockKey, fs.realpathSync.native(real));
+		assert.equal(createResearchStore(link).lockKey, createResearchStore(real).lockKey);
+	});
+
+	it("lockKey of a dir that does not exist yet is its resolved path", () => {
+		const missing = path.join(tmp(), "not-yet", "..", "ext");
+		assert.equal(createResearchStore(missing).lockKey, path.resolve(missing));
 	});
 
 	it("reads never create files, the directory or the format stamp", () => {

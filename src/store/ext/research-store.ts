@@ -5,7 +5,7 @@ import { parseFrontierEvent, type FrontierEvent } from "../../core/ext/frontier.
 import { parseInboxEvent, type InboxEvent } from "../../core/ext/inbox.ts";
 import type { EventLog } from "../../core/ext/research-ports.ts";
 import { parseCycleLogEntry, type CycleLogEntry } from "../../core/ext/research-log.ts";
-import { parseRadarEvent, parseWatchEntry, type RadarEvent, type WatchEntry } from "../../core/ext/watch.ts";
+import { parseRadarEvent, parseWatchEntry, parseWatchlist, type RadarEvent, type WatchEntry } from "../../core/ext/watch.ts";
 import { writeFileAtomicSync } from "../atomic-write.ts";
 import { assertExtFormat, ensureExtFormat } from "./format.ts";
 import { createLedger } from "./ledger.ts";
@@ -19,16 +19,21 @@ import { createSnapshotStore } from "./snapshot-store.ts";
  * identity of `deps.log`, so callers must create ONE store per data dir (the composition root does)
  * and may pass `store.lockKey` as the cycle's second guard key.
  */
+/** The busy-guard identity of a data dir: its real path when it exists (so symlinked paths agree), else the resolved path. */
+function dirKey(dir: string): string {
+	return fs.existsSync(dir) ? fs.realpathSync.native(dir) : path.resolve(dir);
+}
+
 export function createResearchStore(dir: string) {
 	const ledger = <T>(file: string, parse: (raw: unknown) => T | null, view: (all: T[]) => T[] = (all) => all): EventLog<T> => {
 		const l = createLedger(dir, file, parse);
-		return { append: (e) => l.append(e), readAll: () => view(l.readAll()) };
+		return Object.freeze({ append: (e: T) => l.append(e), readAll: () => view(l.readAll()) });
 	};
 	const watchFile = path.join(dir, "watchlist.json");
 	const snapshotStore = createSnapshotStore(dir);
 	return Object.freeze({
 		/** Stable identity of this data dir, for the cycle's busy guard. */
-		lockKey: path.resolve(dir),
+		lockKey: dirKey(dir),
 		frontier: ledger<FrontierEvent>("frontier.jsonl", parseFrontierEvent),
 		/** A repeated `cycleId` is ignored on read: the first entry wins (cost is never counted twice). */
 		log: ledger<CycleLogEntry>("research-log.jsonl", parseCycleLogEntry, (all) => {
@@ -47,17 +52,7 @@ export function createResearchStore(dir: string) {
 				} catch {
 					return [];
 				}
-				const list = typeof doc === "object" && doc !== null ? (doc as { entries?: unknown }).entries : undefined;
-				if (!Array.isArray(list)) return [];
-				const seen = new Set<string>();
-				const out: WatchEntry[] = [];
-				for (const item of list) {
-					const e = parseWatchEntry(item);
-					if (e === null || seen.has(e.id)) continue;
-					seen.add(e.id);
-					out.push(e);
-				}
-				return out;
+				return parseWatchlist(doc);
 			},
 			/** Replaces the whole list. Throws (and writes nothing) on an invalid entry or a repeated id: nothing is dropped silently. */
 			write(entries: readonly WatchEntry[]): void {
