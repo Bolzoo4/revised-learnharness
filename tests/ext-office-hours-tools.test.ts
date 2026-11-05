@@ -16,7 +16,7 @@ function ctxFor(messages: LhMessage[], source: { label: string; text: string } |
 		source: () => source,
 		submitVerdict: (items, work) => {
 			submitted.push({ items, work });
-			return { text: `checked ${items.length}` };
+			return { text: `checked ${items.length}`, outcome: items.some((i) => i.workQuote.length < 20) ? "not_verifiable" : "consistent" };
 		},
 	};
 	return { ctx, submitted };
@@ -60,11 +60,26 @@ describe("tools", () => {
 	it("verdict records only once: a second call is refused and not submitted", async () => {
 		const { ctx, submitted } = ctxFor(msgs("Let a=2k.", "/verdict"), { label: "S", text: "t" });
 		const tools = officeHoursTools(ctx);
-		const item = { stepRef: "s1", sourceQuote: "each is twice an integer", workQuote: "Let a=2k.", stance: "matches" as const };
-		await tools.verdict!.execute("t1", { items: [item] } as never);
+		const item = { stepRef: "s1", sourceQuote: "each is twice an integer", workQuote: "Let a=2k and b=2m, integers.", stance: "matches" as const };
+		const first = await tools.verdict!.execute("t1", { items: [item] } as never);
+		assert.notEqual((first as { isError?: boolean }).isError, true);
 		const second = await tools.verdict!.execute("t2", { items: [item] } as never);
 		assert.equal((second as { isError?: boolean }).isError, true);
 		assert.equal(submitted.length, 1);
+	});
+	it("a not_verifiable first attempt does not use up the call: a retry with longer quotes is accepted", async () => {
+		const { ctx, submitted } = ctxFor(msgs("Let a=2k and b=2m, integers.", "/verdict"), { label: "S", text: "t" });
+		const tools = officeHoursTools(ctx);
+		const short = { stepRef: "s1", sourceQuote: "each is twice an integer", workQuote: "Let a=2k.", stance: "matches" as const };
+		const long = { ...short, workQuote: "Let a=2k and b=2m, integers." };
+		const first = await tools.verdict!.execute("t1", { items: [short] } as never);
+		assert.notEqual((first as { isError?: boolean }).isError, true);
+		const second = await tools.verdict!.execute("t2", { items: [long] } as never);
+		assert.notEqual((second as { isError?: boolean }).isError, true);
+		assert.equal(submitted.length, 2);
+		const third = await tools.verdict!.execute("t3", { items: [long] } as never);
+		assert.equal((third as { isError?: boolean }).isError, true);
+		assert.equal(submitted.length, 2);
 	});
 	it("a service error becomes a retryable error result", async () => {
 		const { ctx } = ctxFor(msgs("/verdict"), null);
@@ -84,5 +99,6 @@ describe("agent", () => {
 		assert.equal(typeof agent.prompt, "function");
 		for (const name of ["read_source", "verdict", "ask_user_question"]) assert.match(OFFICE_HOURS_INSTRUCTIONS, new RegExp(name));
 		assert.match(OFFICE_HOURS_INSTRUCTIONS, /\/verdict/);
+		assert.match(OFFICE_HOURS_INSTRUCTIONS, /workQuote:[^\n]*at least 20 characters/);
 	});
 });

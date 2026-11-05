@@ -32,6 +32,15 @@ describe("checkVerdictItems (REQ-lec-14)", () => {
 		assert.equal(checkVerdictItems([item({ workQuote: "twice", stance: "differs" })], SOURCE, WORK).kept.length, 0);
 		assert.equal(checkVerdictItems([item({ workQuote: "", stance: "missing" })], SOURCE, WORK).kept.length, 1);
 	});
+	it("work quotation boundary: exactly 20 characters is kept, 19 is dropped", () => {
+		const work = "thereforeabcdefghijklmnopqrstuvwxyz";
+		const twenty = "abcdefghijklmnopqrst";
+		assert.equal(twenty.length, 20);
+		assert.equal(checkVerdictItems([item({ workQuote: twenty })], SOURCE, work).kept.length, 1);
+		const r = checkVerdictItems([item({ workQuote: twenty.slice(0, 19) })], SOURCE, work);
+		assert.equal(r.kept.length, 0);
+		assert.equal(r.discarded[0]!.reason, "work_quote_too_short");
+	});
 	it("discards matches/differs whose work quotation is not in the work, but not `missing`", () => {
 		assert.equal(checkVerdictItems([item({ workQuote: "this was never written by the student" })], SOURCE, WORK).discarded[0]!.reason, "work_quote_not_found");
 		assert.equal(checkVerdictItems([item({ workQuote: "", stance: "matches" })], SOURCE, WORK).discarded[0]!.reason, "work_quote_too_short");

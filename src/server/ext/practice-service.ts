@@ -136,9 +136,10 @@ export function createPracticeService(deps: PracticeServiceDeps) {
 			const where = i.stance === "differs" ? `the work says "${i.workQuote}"` : "the work has nothing for this step";
 			lines.push(`- ${i.stepRef}: the source says "${i.sourceQuote}"; ${where}.`);
 		}
-		if (discarded.length > 0) lines.push(`${discarded.length} comparison(s) were dropped because their quotations were not found in the texts.`);
+		if (discarded.length > 0) lines.push(`${discarded.length} comparison(s) were dropped because their quotations were not found or were too short.`);
 
-		if (d.exercise !== undefined) {
+		// A not_verifiable verdict grades nothing: a graded event would also overwrite an earlier, verifiable grading of the same exercise.
+		if (d.exercise !== undefined && outcome !== "not_verifiable") {
 			const set = setById(d.exercise.setId);
 			const ex = set.exercises.find((e) => e.id === d.exercise!.exerciseId);
 			if (ex !== undefined) {
@@ -157,7 +158,7 @@ export function createPracticeService(deps: PracticeServiceDeps) {
 				if (applied !== null) lines.push(applied.reached ? "Exercise set complete: the goal is reached." : "Exercise set complete: the review schedule was updated; the goal is not reached yet.");
 			}
 		}
-		return { text: lines.join("\n") };
+		return { text: lines.join("\n"), outcome };
 	}
 
 	/** When every exercise has a verifiable grading, hands the results to the personal layer, once. */

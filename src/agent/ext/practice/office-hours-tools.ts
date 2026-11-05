@@ -12,7 +12,7 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { LhMessage } from "../../../core/native-messages.ts";
-import { parseVerdictItem, type VerdictItem } from "../../../core/ext/practice/verdict.ts";
+import { parseVerdictItem, type VerdictItem, type VerdictOutcome } from "../../../core/ext/practice/verdict.ts";
 import { askUserQuestionTool } from "../../tools.ts";
 import { invalidInputResult, toToolResult } from "../../tool-execute.ts";
 import { healToolRecord } from "../../tools/heal.ts";
@@ -23,6 +23,8 @@ export const MAX_SOURCE_CHARS = 30_000;
 export interface VerdictReport {
 	/** Text relayed to the model (and so to the learner). */
 	text: string;
+	/** The code-decided outcome; "not_verifiable" leaves the tool callable again this turn. */
+	outcome: VerdictOutcome;
 }
 
 export interface OfficeHoursToolContext {
@@ -63,7 +65,7 @@ const verdictInput = Type.Object({
 		Type.Object({
 			stepRef: Type.String({ minLength: 1 }),
 			sourceQuote: Type.String({ description: "Copied exactly from the designated source." }),
-			workQuote: Type.String({ description: "Copied exactly from the learner's work; empty only for stance missing." }),
+			workQuote: Type.String({ description: "Copied exactly from the learner's work, at least 20 characters of the learner's own work; empty only for stance missing." }),
 			stance: Type.Union([Type.Literal("matches"), Type.Literal("differs"), Type.Literal("missing")]),
 		}),
 		{ maxItems: 40 },
@@ -96,7 +98,7 @@ export function officeHoursTools(ctx: OfficeHoursToolContext): Record<string, Ag
 			name: "verdict",
 			label: "verdict",
 			description:
-				"Give the verdict on the learner's work against the designated source. Pass comparison items with EXACT quotations from the source and from the work; code checks them. Call once.",
+				"Give the verdict on the learner's work against the designated source. Pass comparison items with EXACT quotations from the source and from the work; code checks them. Call once; if the result is not verifiable, retry with longer exact quotes.",
 			parameters: verdictInput,
 			executionMode: "sequential",
 			execute: async (_id, input) => {
@@ -109,7 +111,8 @@ export function officeHoursTools(ctx: OfficeHoursToolContext): Record<string, Ag
 				}
 				try {
 					const report = ctx.submitVerdict(items, learnerTexts(messages).join("\n\n"));
-					submitted = true;
+					// A not_verifiable result means every quotation was dropped: let the model retry with better quotes.
+					if (report.outcome !== "not_verifiable") submitted = true;
 					return { ...toToolResult(report.text), details: { kind: "verdict" } };
 				} catch (e) {
 					return invalidInputResult("verdict", [e instanceof Error ? e.message : String(e)]);

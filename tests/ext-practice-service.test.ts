@@ -163,6 +163,22 @@ describe("graded exercises (REQ-lec-16, 17)", () => {
 		h.svc.submitVerdict(sess.chatId, both, WORK);
 		assert.equal(h.applied.length, 1);
 	});
+	it("an unverifiable verdict is not recorded as a grading and keeps an earlier one", async () => {
+		const { h, sess } = await setup();
+		h.svc.submitVerdict(sess.chatId, [item("s1", "an entirely invented passage of the source", "Let a")], WORK);
+		assert.equal(h.ex.filter((e) => e.type === "graded").length, 0);
+		h.svc.submitVerdict(sess.chatId, both, WORK);
+		h.svc.submitVerdict(sess.chatId, [item("s1", "an entirely invented passage of the source", "Let a")], WORK);
+		const graded = h.ex.filter((e) => e.type === "graded");
+		assert.equal(graded.length, 1);
+		assert.equal(graded[0]?.type === "graded" && graded[0].outcome, "consistent");
+	});
+	it("reports the outcome and says dropped items were not found or too short", async () => {
+		const { h, sess } = await setup();
+		const r = h.svc.submitVerdict(sess.chatId, [item("s1", "an entirely invented passage of the source", "Let a")], WORK);
+		assert.equal(r.outcome, "not_verifiable");
+		assert.match(r.text, /were not found or were too short/);
+	});
 	it("does not apply an unverifiable grading", async () => {
 		const { h, sess } = await setup();
 		h.svc.submitVerdict(sess.chatId, [item("s1", "an entirely invented passage of the source", "Let a")], WORK);
