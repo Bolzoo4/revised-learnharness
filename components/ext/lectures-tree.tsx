@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { ExerciseList } from "./exercise-list.tsx";
-import type { TreeBook } from "./lectures-tree.ts";
+import { startLectureAudio } from "./lecture-audio-client.ts";
+import { audioLineText, canGenerateAudioLine, type TreeBook, type TreeLecture } from "./lectures-tree.ts";
 
 /** Book > chapter > lecture > exercise. Each exercise can open office hours on its chapter (ExerciseList). */
 export function LecturesTree({ books, onStarted }: { books: TreeBook[]; onStarted: (chatId: string) => void }) {
@@ -32,6 +34,7 @@ export function LecturesTree({ books, onStarted }: { books: TreeBook[]; onStarte
 											<a className="text-sm underline" href={`/lectures/${lecture.id}`}>
 												{lecture.order}. {lecture.title}
 											</a>
+											<LectureAudioLine lecture={lecture} />
 											<ExerciseList lectureId={lecture.id} exercises={lecture.exercises} onStarted={onStarted} />
 										</li>
 									))}
@@ -41,6 +44,31 @@ export function LecturesTree({ books, onStarted }: { books: TreeBook[]; onStarte
 					</ol>
 				</section>
 			))}
+		</div>
+	);
+}
+
+/** The lecture's narration audio: the count of ready blocks, and "Generate audio" for the missing ones (background; the page's refresh shows the count). */
+function LectureAudioLine({ lecture }: { lecture: TreeLecture }) {
+	const [pending, setPending] = useState(false);
+	const [note, setNote] = useState<string | null>(null);
+	if (lecture.audio === undefined) return null;
+	const audio = lecture.audio;
+	async function generate() {
+		setPending(true);
+		const failure = await startLectureAudio(lecture.id);
+		setPending(false);
+		setNote(failure ?? "Generating in the background; the count updates as the blocks finish.");
+	}
+	return (
+		<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+			<span>{audioLineText(audio)}</span>
+			{canGenerateAudioLine(audio) ? (
+				<button type="button" className="rounded border px-2 py-0.5" disabled={pending} onClick={() => void generate()}>
+					{pending ? "Starting…" : "Generate audio"}
+				</button>
+			) : null}
+			{note !== null ? <span role="status">{note}</span> : null}
 		</div>
 	);
 }

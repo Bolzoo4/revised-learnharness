@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { activeCue, parseNodeLinks, type Lecture, type LectureBlock, type LectureSlideElement } from "@/src/core";
+import { activeCue, charIndexAtTime, parseNodeLinks, type AudioBlock, type Lecture, type LectureBlock, type LectureSlideElement } from "@/src/core";
 import { exerciseDoneAtZero, exerciseDoneOnLeave } from "./lecture-exercise";
+import { audioUrl, canGenerate, fetchAudioState, generateBlockAudio, readyBlocks } from "./lecture-audio-client";
 
 const ROLE_LABEL: Record<LectureBlock["role"], string> = { narrate: "", note: "Note", exercise: "Exercise", reveal: "Discussion" };
 
@@ -43,14 +44,40 @@ export interface LectureProgress {
 	exercise(blockId: string): void;
 }
 
-/** Narrated lecture player (REQ-lec-09, 10). Speech: the browser's speechSynthesis; without it the lecture runs in text mode with a manual Next. */
+/**
+ * Narrated lecture player (REQ-lec-09, 10). Each block is spoken by its narration audio (Deepgram, pre-generated
+ * or generated on demand, see lecture-audio-client.ts) and highlighted through the audio clock; without audio
+ * for it, by the browser's speechSynthesis; without that too, text mode with a manual Next. The next block's audio
+ * is requested while the current one plays.
+ */
 export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: Lecture; onNodeClick?: (nodeId: string) => void; onProgress?: LectureProgress }) {
 	const [index, setIndex] = useState(0);
 	const [playing, setPlaying] = useState(false);
 	const [charIndex, setCharIndex] = useState(0);
 	const [remaining, setRemaining] = useState<number | null>(null);
 	const [hasSpeech, setHasSpeech] = useState(false);
+	const [ready, setReady] = useState<Record<string, AudioBlock>>({});
+	const [canGen, setCanGen] = useState(false);
+	const [preparing, setPreparing] = useState<string | null>(null);
 	useEffect(() => setHasSpeech(typeof window !== "undefined" && "speechSynthesis" in window), []);
+
+	// The refs are read by the playback effect, so a finished request never restarts a block that plays.
+	const readyRef = useRef(ready);
+	readyRef.current = ready;
+	const canGenRef = useRef(canGen);
+	canGenRef.current = canGen;
+
+	useEffect(() => {
+		let alive = true;
+		void fetchAudioState(lecture.id).then((state) => {
+			if (!alive || state === null) return;
+			setCanGen(canGenerate(state));
+			setReady((prev) => ({ ...readyBlocks(state.manifest), ...prev }));
+		});
+		return () => {
+			alive = false;
+		};
+	}, [lecture.id]);
 
 	const block = lecture.blocks[index];
 	const last = index >= lecture.blocks.length - 1;
@@ -62,6 +89,19 @@ export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: L
 	useEffect(() => {
 		if (slideId) onProgress?.slide(slideId);
 	}, [slideId, onProgress]);
+
+	/** The ready audio of a block: the known one, or generated on demand when a key exists. Null when there is none. */
+	const obtain = useCallback(
+		async (blockId: string): Promise<AudioBlock | null> => {
+			const known = readyRef.current[blockId];
+			if (known !== undefined) return known;
+			if (!canGenRef.current) return null;
+			const made = await generateBlockAudio(lecture.id, blockId);
+			if (made !== null) setReady((prev) => ({ ...prev, [made.blockId]: made }));
+			return made;
+		},
+		[lecture.id],
+	);
 
 	const goto = useCallback((i: number) => {
 		const target = Math.max(0, Math.min(i, lecture.blocks.length - 1));
@@ -83,27 +123,82 @@ export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: L
 	const advanceRef = useRef(advance);
 	advanceRef.current = advance;
 
-	// Speak the current block while playing; an exercise then runs its countdown.
+	// Speak the current block while playing; an exercise then runs its countdown. Cleanup stops whatever plays.
 	useEffect(() => {
 		if (!playing || !block) return;
-		const afterSpeech = () => {
+		let cancelled = false;
+		let stop: () => void = () => {};
+		// Audio always moves on when it ends; the browser voice moves on only where a speech engine exists (text mode waits for Next).
+		const finish = (advanceAfter: boolean) => {
+			if (cancelled) return;
 			if (block.role === "exercise") setRemaining(block.seconds ?? 60);
-			else if (hasSpeech) advanceRef.current();
+			else if (advanceAfter) advanceRef.current();
 		};
-		if (!hasSpeech) {
-			afterSpeech();
-			return;
-		}
-		const u = new SpeechSynthesisUtterance(block.text);
-		u.onboundary = (e) => setCharIndex(e.charIndex);
-		u.onend = afterSpeech;
-		window.speechSynthesis.cancel();
-		window.speechSynthesis.speak(u);
-		return () => {
-			u.onend = null;
+		const speak = () => {
+			if (!hasSpeech) {
+				finish(false);
+				return;
+			}
+			const u = new SpeechSynthesisUtterance(block.text);
+			u.onboundary = (e) => setCharIndex(e.charIndex);
+			u.onend = () => finish(true);
 			window.speechSynthesis.cancel();
+			window.speechSynthesis.speak(u);
+			stop = () => {
+				u.onend = null;
+				window.speechSynthesis.cancel();
+			};
 		};
-	}, [playing, block, hasSpeech]);
+		const playAudio = (entry: AudioBlock) => {
+			const el = new Audio(audioUrl(lecture.id, block.id));
+			const stopAudio = () => {
+				el.onended = null;
+				el.onerror = null;
+				el.ontimeupdate = null;
+				el.pause();
+				el.removeAttribute("src");
+				el.load();
+			};
+			const fallBack = () => {
+				if (cancelled) return;
+				stopAudio();
+				stop = () => {};
+				speak();
+			};
+			el.ontimeupdate = () => {
+				if (!cancelled) setCharIndex(charIndexAtTime(entry, el.currentTime));
+			};
+			el.onended = () => finish(true);
+			el.onerror = fallBack;
+			stop = stopAudio;
+			el.play().catch(fallBack);
+		};
+
+		const known = readyRef.current[block.id];
+		if (known !== undefined) playAudio(known);
+		else if (canGenRef.current) {
+			setPreparing(block.id);
+			void obtain(block.id).then((entry) => {
+				if (cancelled) return;
+				setPreparing(null);
+				if (entry !== null) playAudio(entry);
+				else speak();
+			});
+		} else speak();
+
+		return () => {
+			cancelled = true;
+			stop();
+			setPreparing(null);
+		};
+	}, [playing, block, hasSpeech, lecture.id, obtain]);
+
+	// While a block plays, the next one's audio is requested, so the next block starts without a wait.
+	useEffect(() => {
+		if (!playing || !canGen) return;
+		const next = lecture.blocks[index + 1];
+		if (next !== undefined && ready[next.id] === undefined) void obtain(next.id);
+	}, [playing, canGen, index, lecture.blocks, obtain, ready]);
 
 	// The exercise countdown (REQ-lec-10): at zero the exercise is recorded as done and the lecture moves on (on the last block it stops).
 	useEffect(() => {
@@ -119,6 +214,7 @@ export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: L
 	}, [remaining, playing, block, onProgress]);
 
 	if (!block || !slide) return <p>This lecture is empty.</p>;
+	const hasAudio = ready[block.id] !== undefined;
 	return (
 		<div className="grid gap-4 md:grid-cols-2">
 			<section aria-label="Slide" className="flex flex-col gap-3 rounded border p-4">
@@ -131,8 +227,9 @@ export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: L
 				<div className="text-xs text-muted-foreground">
 					Block {index + 1} of {lecture.blocks.length}
 					{ROLE_LABEL[block.role] ? ` · ${ROLE_LABEL[block.role]}` : ""}
-					{!hasSpeech ? " · text mode (no speech engine)" : ""}
+					{!hasSpeech && !hasAudio && !canGen ? " · text mode (no speech engine)" : ""}
 				</div>
+				{preparing === block.id ? <p role="status" className="text-xs text-muted-foreground">Preparing audio…</p> : null}
 				<p className={block.role === "note" ? "italic" : ""}>{block.text}</p>
 				{remaining !== null ? (
 					<div role="timer" className="font-mono text-2xl">{remaining}s</div>

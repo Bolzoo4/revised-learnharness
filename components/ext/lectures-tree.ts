@@ -27,6 +27,8 @@ export interface LectureRow {
 	chapter: { index: number; title: string };
 	order: number;
 	exercises: Array<{ blockId: string; prompt: string }>;
+	/** Narration audio: blocks ready, blocks in all, and whether a Deepgram key is configured. */
+	audio?: { ready: number; total: number; keyConfigured: boolean };
 }
 
 export type TreeLecture = LectureRow;
@@ -69,6 +71,18 @@ const BOOK_PHASES: Record<string, string> = {
 /** The plain-words state of a chapter; an unknown state reads as itself, so a new server state is still shown. */
 export function chapterStateText(state: string): string {
 	return CHAPTER_STATES[state] ?? state;
+}
+
+/** "Audio: 3 of 5 blocks ready", with the reason when no key is configured (the browser voice is used then). */
+export function audioLineText(audio: { ready: number; total: number; keyConfigured: boolean }): string {
+	const blocks = `${audio.total} block${audio.total === 1 ? "" : "s"}`;
+	const base = `Audio: ${audio.ready} of ${blocks} ready`;
+	return audio.keyConfigured ? base : `${base} (no Deepgram key: the browser voice is used)`;
+}
+
+/** The "Generate audio" button is offered only with a key and while some block is missing. */
+export function canGenerateAudioLine(audio: { ready: number; total: number; keyConfigured: boolean }): boolean {
+	return audio.keyConfigured && audio.ready < audio.total;
 }
 
 export function bookPhaseText(phase: string): string {
