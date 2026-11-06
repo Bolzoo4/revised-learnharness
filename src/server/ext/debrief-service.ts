@@ -46,6 +46,8 @@ import { HttpError } from "./http-error.ts";
 export const MAX_COMMENTARY_ATTEMPTS = 3;
 /** A sweep debriefs at most this many sessions; the rest wait for the next tick (bounds a burst of spend). */
 export const MAX_PER_SWEEP = 5;
+/** A writer call that has not answered after this long is cut off and counted as a failed attempt. */
+export const WRITER_TIMEOUT_MS = 120_000;
 /** Source label of the cost events (cost.jsonl). */
 export const COST_SOURCE = "debrief";
 
@@ -90,9 +92,27 @@ export interface DebriefDeps {
 	clock?: () => string;
 	/** Shared across module instances by the live wiring; tests get a fresh one. */
 	state?: DebriefState;
+	/** Upper bound of one writer call (default WRITER_TIMEOUT_MS). */
+	writerTimeoutMs?: number;
 }
 
 const isAbortError = (err: unknown): boolean => typeof err === "object" && err !== null && (err as { name?: unknown }).name === "AbortError";
+/** Races a writer call against a timer; on timeout the run is cancelled and the call fails. */
+async function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: () => void): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const limit = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			onTimeout();
+			reject(new Error("debrief writer call timed out"));
+		}, ms);
+	});
+	try {
+		return await Promise.race([work, limit]);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 const emptySweep = (): SweepResult => ({ created: 0, deferred: 0, errors: 0, weekly: "not_due" });
 
 export type LectureActivityInput =
@@ -170,7 +190,8 @@ export function createDebriefService(deps: DebriefDeps) {
 				},
 			};
 			try {
-				const written = await deps.writer.write(request, control);
+				const limit = deps.writerTimeoutMs ?? WRITER_TIMEOUT_MS;
+				const written = await withTimeout(deps.writer.write(request, control), limit, () => run.abort());
 				const rest = written.costUsd - reported; // what the writer did not report step by step
 				if (rest > 1e-9) recordSpend(rest);
 				commentary = renderCommentary(written.commentary);

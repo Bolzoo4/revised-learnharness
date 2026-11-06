@@ -83,7 +83,8 @@ describe("get_recent_debriefs (REQ-mcp-13)", () => {
 
 	it("oversized commentary is capped with the marker and oversized facts are replaced by a marker", () => {
 		const f = makeFixture();
-		f.ext("journal.jsonl", session("big", "review", "2026-11-01T10:00:00.000Z", { commentary: "c".repeat(20_000), facts: { kind: "review", blob: "f".repeat(20_000) } }));
+		// Within the journal parser's caps (commentary 4*2500+512, facts 16 KiB) and above the tool's own caps (3000 chars, 4 KiB).
+		f.ext("journal.jsonl", session("big", "review", "2026-11-01T10:00:00.000Z", { commentary: "c".repeat(5_000), facts: { kind: "review", blob: "f".repeat(6_000) } }));
 		const e = call(f, "get_recent_debriefs").debriefs.items[0];
 		assert.match(e.commentary, /… \[truncated: \d+ more characters\]$/);
 		assert.deepEqual(e.facts, { kind: "review", omitted: "facts exceed the size limit" });

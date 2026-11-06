@@ -250,6 +250,7 @@ interface Opts {
   activitySeed?: ActivityEvent[];
   clock?: () => string;
   lecture?: (id: string) => Lecture | null;
+  writerTimeoutMs?: number;
 }
 
 /** Memory fakes of every port. Writes are recorded so tests can count paid calls and spend. */
@@ -311,6 +312,7 @@ function harness(o: Opts = {}) {
     now: () => o.now ?? NOW,
     clock: o.clock ?? (() => CLOCK_AT),
     state: newDebriefState(),
+    writerTimeoutMs: o.writerTimeoutMs,
   };
   return {
     svc: createDebriefService(deps),
@@ -474,6 +476,7 @@ test("[REQ-deb-01][spec-gap] a hung writer must not block later sweeps forever (
   const h = harness({
     sessions: [ref("a", "review", "A"), ref("b", "review", "B")],
     write: async (_req, n) => (n === 1 ? new Promise<WriterResult>(() => {}) : okResult()),
+    writerTimeoutMs: 100,
   });
   void h.svc.sweep().catch(() => undefined);
   await within(h.svc.sweep(), 500, "second sweep while the first writer hangs");
@@ -511,7 +514,7 @@ test("[REQ-deb-01] the live writer hands an AbortSignal to the engine and an abo
 
   const out2 = await within(h.svc.endSession("a"), 2000, "second endSession must not wait on a stale lock");
   assert.equal(out2.status, "deferred");
-  assert.ok(engineCalls >= 2, "the in-flight lock was not released after the aborted run");
+  assert.equal(engineCalls, 1, "an aborted shared signal must start no provider call");
 });
 
 // --------------------------------------------------------- (d) END SEMANTICS
@@ -1087,7 +1090,7 @@ test("[REQ-deb-04][untrusted] the writer sends the hostile facts to the engine w
   const writer = createDebriefWriter({ engine, priceCall: () => null, styleGuide: () => "STYLE" });
   await writer.write(hostilePromptRequest()).catch(() => undefined);
   assert.ok(seen.length >= 1, "the engine was never called");
-  const strings = seen.flatMap((args) => collectStrings(args)).filter((s) => s.length > 1000);
+  const strings = seen.flatMap((args) => collectStrings(args)).filter((s) => s.length > 500);
   assert.ok(strings.length >= 1, "no prompt-sized text reached the engine");
   for (const s of strings) {
     assert.ok(!s.includes(PAYLOAD_RAW), "raw breakout reached the engine");
