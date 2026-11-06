@@ -116,7 +116,7 @@ describe("complete and the daily ceiling (REQ-study-13)", () => {
 		const h = studyHarness({ proposals: () => Promise.reject(new Error("boom")) });
 		const id = await registerA(h);
 		readPages(h, id, [2]);
-		await assert.rejects(h.svc.complete(id), /boom/);
+		await assert.rejects(h.svc.complete(id), (e: unknown) => e instanceof StudyError && e.status === 502 && !e.message.includes("boom"));
 		assert.equal(h.drafts.events.length, 0);
 	});
 	it("refuses a second run while one is in progress", async () => {
@@ -146,7 +146,7 @@ describe("deciding drafts (REQ-study-11, REQ-study-12)", () => {
 		const { h, d1 } = await withDrafts();
 		const r = await h.svc.decideDrafts({ approve: [{ draftId: d1.id }], reject: [] });
 		assert.equal(r.approved.length, 1);
-		assert.equal(h.imports[0]!.text, `${d1.proposition}\n`);
+		assert.equal(h.imports[0]!.text, d1.proposition);
 		assert.deepEqual(h.cards.proposed, [{ nodeId: r.approved[0]!.nodeId, question: d1.question, answer: d1.answer }]);
 		assert.deepEqual(h.cards.approved, [r.approved[0]!.cardId]);
 		assert.deepEqual(h.cards.created, []);

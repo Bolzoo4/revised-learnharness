@@ -174,7 +174,7 @@ describe("drafting a card (REQ-study-08)", () => {
 		const h = studyHarness();
 		const id = await registerA(h);
 		h.fail.draft = true;
-		await rejectsWith(h.svc.draftCard({ documentId: id, page: 2 }), 502, /could not draft a card: model unavailable/);
+		await rejectsWith(h.svc.draftCard({ documentId: id, page: 2 }), 502, /the model could not draft a card; try again/);
 	});
 });
 
@@ -186,7 +186,7 @@ describe("confirming a card (REQ-study-09, REQ-study-10, REQ-study-12)", () => {
 		const r = await h.svc.confirmCard({ documentId: id, page: 2, ...good });
 		assert.equal(h.imports.length, 1);
 		assert.match(h.imports[0]!.filePath, /^study\/a\/p0002-[0-9a-f]{8}\.md$/);
-		assert.equal(h.imports[0]!.text, `${good.proposition}\n`);
+		assert.equal(h.imports[0]!.text, good.proposition);
 		assert.deepEqual(h.links.events.map((e) => [e.nodeId, e.documentId, e.page]), [[r.nodeId, id, 2]]);
 		assert.deepEqual(h.cards.created, [{ nodeId: r.nodeId, question: good.question, answer: good.answer }]);
 		assert.deepEqual(h.cards.proposed, []);
@@ -228,7 +228,7 @@ describe("confirming a card (REQ-study-09, REQ-study-10, REQ-study-12)", () => {
 		const h = studyHarness();
 		const id = await registerA(h);
 		h.fail.pipeline = true;
-		await rejectsWith(h.svc.confirmCard({ documentId: id, page: 2, ...good }), 502, /nothing was added: no model configured/);
+		await rejectsWith(h.svc.confirmCard({ documentId: id, page: 2, ...good }), 502, /the extraction pipeline failed, so nothing was added/);
 		assert.deepEqual([h.links.events.length, h.cards.created.length, h.cards.pinned.length], [0, 0, 0]);
 	});
 	it("validates every field before any write", async () => {

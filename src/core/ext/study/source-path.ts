@@ -40,7 +40,7 @@ export function studySourcePath(title: string, page: number, proposition: string
 	return `study/${slugOf(title)}/p${String(page).padStart(4, "0")}-${digest}.md`;
 }
 
-/** The text handed to the pipeline: the proposition alone, so nothing else can be extracted from it. */
+/** The text handed to the pipeline: the proposition alone, one line and bounded, so nothing else can be extracted from it. */
 export function studySourceText(proposition: string): string {
-	return `${sourceProposition(proposition)}\n`;
+	return sourceProposition(proposition);
 }

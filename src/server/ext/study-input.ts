@@ -5,7 +5,7 @@ import { StudyError } from "./study-service.ts";
 
 export function requireString(body: Record<string, unknown>, field: string): string {
 	const v = body[field];
-	if (typeof v !== "string" || v === "") throw new StudyError(400, `${field} is required`);
+	if (typeof v !== "string" || v.trim() === "") throw new StudyError(400, `${field} is required`);
 	return v;
 }
 

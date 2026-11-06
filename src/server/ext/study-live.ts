@@ -11,7 +11,6 @@
  */
 
 import crypto from "node:crypto";
-import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import { draftCard, proposePageDrafts } from "../../agent/ext/study/draft-writer.ts";
 import { readDocumentPages } from "../../agent/ext/study/pdf-pages.ts";
@@ -42,16 +41,27 @@ const candidates = (pick: (n: ReturnType<typeof getGraph>["nodes"][number]) => b
 		.nodes.filter(pick)
 		.map((n) => ({ id: n.id, name: n.name, statement: n.statement, aliases: n.aliases }));
 
-/** A card drafted on the learner's request is not blocked by the daily ceiling (it is spend, so it is still recorded). */
+/**
+ * A card drafted on the learner's request is not blocked by the daily ceiling
+ * (plan decision 4: REQ-study-13 gates only complete runs). It is spend, so it
+ * is still recorded on the shared gate.
+ */
 const userInitiatedGate = { allowed: () => true, record: liveCostGate.record };
 
-export const studyService = createStudyService({
+/**
+ * One service per process, kept on globalThis like research-live.ts does, so a
+ * hot reload or a second module instance cannot run a second single-flight
+ * registry or a second open/complete guard.
+ */
+const studyHolder = globalThis as unknown as { __lhStudy?: ReturnType<typeof createStudyService> };
+export const studyService = (studyHolder.__lhStudy ??= createStudyService({
 	documents: extStores.documentsLedger,
 	reading: extStores.readingLedger,
 	links: extStores.studyLinksLedger,
 	drafts: extStores.studyDraftsLedger,
 	files: extStores.documentFiles,
 	readFile: async (p) => new Uint8Array(await fs.readFile(p)),
+	fileSize: async (p) => (await fs.stat(p)).size,
 	readPages: readDocumentPages,
 	library: createSourceLibrary(extStores.sourcesStore),
 	gate: liveCostGate,
@@ -85,9 +95,9 @@ export const studyService = createStudyService({
 	},
 	createGoal: ({ title, statement, originRef }) =>
 		createGoal({ title, statement, origin: "pdf", originRef }, { graphStore: stores.graphStore, goalsStore: extStores.goalsStore }),
-});
+}));
 
-/** The stored PDF of a document, for the viewer. Throws StudyError 404 for an unknown document. */
-export function readStudyPdf(documentId: string): Buffer {
-	return readFileSync(studyService.pdfFile(documentId));
+/** The absolute path of a document's stored PDF, for the viewer to stream. Throws StudyError 404 for an unknown document. */
+export function studyPdfPath(documentId: string): string {
+	return studyService.pdfFile(documentId);
 }

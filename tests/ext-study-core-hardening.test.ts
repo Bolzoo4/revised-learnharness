@@ -199,8 +199,8 @@ describe("studySourcePath identity", () => {
 describe("studySourceText bounds", () => {
 	it("a long proposition is cut to the text cap, on one line", () => {
 		const t = studySourceText("word\n".repeat(5000));
-		assert.ok(t.trimEnd().length <= MAX_TEXT_CHARS);
-		assert.equal(t.split(/\r\n|\r|\n|\u2028|\u2029/).length, 2);
+		assert.ok(t.length <= MAX_TEXT_CHARS);
+		assert.equal(t.split(/\r\n|\r|\n|\u2028|\u2029/).length, 1);
 	});
 });
 
