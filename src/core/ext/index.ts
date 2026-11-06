@@ -8,6 +8,7 @@ export * from "./explanation-check.ts";
 export * from "./neighbourhood.ts";
 export * from "./node-panel-types.ts";
 export * from "./panel-history.ts";
+export * from "./prompt-catalog.ts";
 export { isPracticeLike, sessionMatchesFilter, type SessionListFilter } from "./practice/session-kind.ts";
 export * from "./study/context.ts";
 export { activeCue } from "./lecture/cues.ts";

@@ -127,7 +127,7 @@ describe("focusedNodeReviewInstructions", () => {
 		assert.ok(text.includes("do not call next_item or record_review"));
 		assert.ok(text.includes("do not ask for a rating"));
 		assert.ok(text.includes("Explain the node first"));
-		assert.ok(text.includes("propose_card with nodeId set to the node id above"));
+		assert.ok(text.includes("propose_card with nodeId set to the node id given below"));
 		assert.notEqual(text, REVIEW_INSTRUCTIONS);
 	});
 

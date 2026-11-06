@@ -67,6 +67,7 @@ describe("ask the tutor (focused review session)", () => {
 		const { cardId } = l.createCard({ nodeId: "a", question: "What is Alpha?", answer: "Alpha holds." });
 		const { chatId } = l.startReviewSession(cardId);
 		assert.deepEqual(l.reviewToolContext(chatId, { getChat: () => null }).focus, {
+			nodeId: "a",
 			nodeName: "Alpha",
 			nodeStatement: "Alpha holds.",
 			question: "What is Alpha?",
@@ -91,7 +92,8 @@ describe("ask the tutor (focused review session)", () => {
 	});
 
 	it("the focused instructions carry the card and say this is not the daily loop", () => {
-		const text = focusedReviewInstructions({ nodeName: "Alpha", nodeStatement: "Alpha holds.", question: "What is Alpha?", answer: "Alpha holds." });
+		const text = focusedReviewInstructions({ nodeId: "a", nodeName: "Alpha", nodeStatement: "Alpha holds.", question: "What is Alpha?", answer: "Alpha holds." });
+		assert.ok(text.includes("Node id: a"), "the card tutor carries the node id, so propose_card can name it");
 		assert.ok(text.includes("Card question: What is Alpha?"));
 		assert.ok(text.includes("Card answer: Alpha holds."));
 		assert.ok(text.includes("do not call next_item or record_review"));

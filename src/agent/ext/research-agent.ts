@@ -12,7 +12,7 @@ import type { CostGate } from "../../core/ext/cost-gate.ts";
 import { PROVIDER_LIMIT_MESSAGE } from "../../core/ext/provider-limit.ts";
 import type { PiEngine } from "../models.ts";
 import { createPracticeAgent, type AgentBuildOptions } from "../teacher-agent.ts";
-import { RESEARCH_INSTRUCTIONS } from "./research-instructions.ts";
+import { researchInstructions } from "./research-instructions.ts";
 import { researchTools, type ResearchToolContext } from "./research-tools.ts";
 
 const CEILING_MESSAGE = "the daily research ceiling is reached";
@@ -90,7 +90,7 @@ export function createResearchAgent(ctx: ResearchToolContext, opts: AgentBuildOp
 			engine: gateResearchEngine(opts.engine, deps.costGate, latch),
 			onUsage: researchOnUsage(deps.costGate, latch, opts.onUsage),
 			tools: researchTools(ctx),
-			instructions: RESEARCH_INSTRUCTIONS,
+			instructions: researchInstructions(),
 		},
 	);
 }

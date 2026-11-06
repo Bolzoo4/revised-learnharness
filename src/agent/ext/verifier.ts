@@ -22,10 +22,16 @@ import { runSubagent } from "../subagents/pi-run.ts";
 import { serverExecute } from "../tool-execute.ts";
 import { createPdfReadTools } from "../tools/pdf-read.ts";
 import { createWebTools } from "../tools/web.ts";
+import { resolveExtPrompt } from "./prompt-override.ts";
 
 /** Search budget per node (open item of the spec): 6 model turns each, 10 of overhead, 40 overall. */
 export function verifierMaxTurns(nodeCount: number): number {
 	return Math.min(40, 10 + 6 * nodeCount);
+}
+
+/** The verifier's system prompt as one run uses it (the user's version when switched on). */
+export function verifierInstructions(): string {
+	return resolveExtPrompt("verifier", VERIFIER_INSTRUCTIONS);
 }
 
 export const VERIFIER_INSTRUCTIONS = `You are a verification specialist inside a learning application. You are given
@@ -146,7 +152,7 @@ export function createVerifier(deps: VerifierDeps): Verifier {
 				const { text } = await runSubagent(tools, {
 					role: "researcher",
 					engine,
-					systemPrompt: VERIFIER_INSTRUCTIONS,
+					systemPrompt: verifierInstructions(),
 					prompt: buildVerifierPrompt(input),
 					maxTurns: verifierMaxTurns(input.nodes.length),
 					abortSignal: hooks.signal,

@@ -45,6 +45,7 @@ import { invalidInputResult, toToolResult } from "../tool-execute.ts";
 import { createPdfReadTools } from "../tools/pdf-read.ts";
 import { createWebTools } from "../tools/web.ts";
 import { captureFetches, type CapturedPage } from "./fetch-capture.ts";
+import { resolveExtPrompt } from "./prompt-override.ts";
 
 export interface GapBrief {
 	type: "no-premises" | "weak-premise" | "contested-no-primary";
@@ -66,6 +67,11 @@ const MAX_RATIONALE_CHARS = 1000;
 const MAX_LOCATOR_CHARS = 2048;
 const MAX_STEER_CHARS = 2000;
 const CEILING_MESSAGE = "the daily research ceiling is reached";
+
+/** The gap researcher's system prompt as one run uses it (the user's version when switched on). */
+export function gapResearchInstructions(): string {
+	return resolveExtPrompt("gap-researcher", GAP_RESEARCH_INSTRUCTIONS);
+}
 
 export const GAP_RESEARCH_INSTRUCTIONS = `You are the research agent of a learning application. The learner's knowledge graph
 has a gap; you look for sources that fill it. You work alone and never address the learner.
@@ -346,7 +352,7 @@ export function createGapResearcher(deps: GapResearchDeps) {
 				await runSubagent([...Object.values(capture.tools), reportTool], {
 					role: "researcher",
 					engine: gatedEngine,
-					systemPrompt: GAP_RESEARCH_INSTRUCTIONS,
+					systemPrompt: gapResearchInstructions(),
 					prompt: buildGapPrompt(brief, hooks.confidenceThreshold, steers),
 					maxTurns: hooks.maxTurns,
 					abortSignal: signal,

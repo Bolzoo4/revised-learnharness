@@ -7,6 +7,7 @@
 
 import { MAX_TITLE_CHARS } from "../../../core/ext/study/bounds.ts";
 import { latestStudyContext } from "../../../core/ext/study/context.ts";
+import { resolveExtPrompt } from "../prompt-override.ts";
 import { untrustedLine, untrustedText } from "./envelope.ts";
 import type { StudyToolContext } from "./study-tools.ts";
 import { clipPage } from "./study-tools.ts";
@@ -31,9 +32,10 @@ export const STUDY_INSTRUCTIONS = [
 
 /** The full prompt for one turn. */
 export function studyPrompt(ctx: StudyToolContext): string {
+	const body = resolveExtPrompt("study-assistant", STUDY_INSTRUCTIONS);
 	const doc = ctx.document();
-	if (doc === null) return `${STUDY_INSTRUCTIONS}\n\nThe session's document is not available: tell the learner and stop.`;
-	const parts = [STUDY_INSTRUCTIONS, "", `Document: ${untrustedLine(doc.title, MAX_TITLE_CHARS)} (${doc.pageCount} pages).`];
+	if (doc === null) return `${body}\n\nThe session's document is not available: tell the learner and stop.`;
+	const parts = [body, "", `Document: ${untrustedLine(doc.title, MAX_TITLE_CHARS)} (${doc.pageCount} pages).`];
 	const messages = ctx.chatStore.getChat(ctx.chatId)?.messages ?? [];
 	const current = latestStudyContext(messages);
 	if (current !== null && current.documentId === doc.id && current.page <= doc.pageCount) {

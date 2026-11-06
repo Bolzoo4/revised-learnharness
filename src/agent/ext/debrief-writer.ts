@@ -11,15 +11,15 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Type, type Static } from "typebox";
-import { PATHS, PROMPTS_OVERRIDE_DIR } from "../../../config.ts";
+import { PATHS } from "../../../config.ts";
 import type { CallUsage } from "../../core/contracts.ts";
 import { checkCommentary, COMMENTARY_PARTS, type Commentary } from "../../core/ext/debrief/commentary.ts";
 import { WriterUnavailableError, type DebriefWriter, type WriterControl, type WriterRequest } from "../../core/ext/debrief/ports.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubmitAgent } from "../subagents/submit-agent.ts";
+import { resolveExtPrompt } from "./prompt-override.ts";
 
 const DEFAULT_STYLE_FILE = path.join(PATHS.root, "src", "agent", "ext", "prompts", "debrief-style.md");
-const OVERRIDE_STYLE_FILE = path.join(PROMPTS_OVERRIDE_DIR, "ext", "debrief-style.md");
 /** The style guide is an editable file: a huge one is cut, never sent whole. */
 export const MAX_STYLE_CHARS = 200_000;
 const STYLE_CUT = "\n[style guide truncated]";
@@ -31,18 +31,28 @@ export const MAX_FACT_STRING_CHARS = 200;
 /** Characters that could hide or spoof text in a terminal or a prompt: C0 and C1 controls, line and paragraph separators. */
 const UNSAFE_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
-/** First non-blank file wins; read fresh on every call so edits land immediately. */
-export function loadDebriefStyle(files: readonly string[] = [OVERRIDE_STYLE_FILE, DEFAULT_STYLE_FILE]): string {
+/** A style guide is cut when it is huge; the cut is marked, never silent. */
+function capStyle(text: string): string {
+	return text.length > MAX_STYLE_CHARS ? text.slice(0, MAX_STYLE_CHARS - STYLE_CUT.length - 1) + STYLE_CUT : text;
+}
+
+/** The default style guide (the source file): first non-blank file wins; read fresh on every call. */
+export function loadDebriefStyle(files: readonly string[] = [DEFAULT_STYLE_FILE]): string {
 	for (const file of files) {
 		try {
 			const text = fs.readFileSync(file, "utf-8");
 			if (text.trim() === "") continue;
-			return text.length > MAX_STYLE_CHARS ? text.slice(0, MAX_STYLE_CHARS - STYLE_CUT.length - 1) + STYLE_CUT : text;
+			return capStyle(text);
 		} catch {
 			// missing file: try the next
 		}
 	}
 	throw new WriterUnavailableError("debrief style guide is missing: expected src/agent/ext/prompts/debrief-style.md");
+}
+
+/** The style guide the debrief writer runs with: the user's version when switched on, else the default. */
+export function debriefStyle(): string {
+	return capStyle(resolveExtPrompt("debrief-style", loadDebriefStyle()));
 }
 
 /** Structure rules live in code, not in the editable file: the schema depends on them. */
@@ -107,7 +117,7 @@ export function createDebriefWriter(opts: {
 			// Refuse before any provider call when the run was already cancelled (shutdown or a closed gate).
 			const cancelled = (): DOMException => new DOMException("debrief run cancelled", "AbortError");
 			if (opts.signal?.aborted || control.signal.aborted) throw cancelled();
-			const style = (opts.styleGuide ?? (() => loadDebriefStyle()))();
+			const style = (opts.styleGuide ?? (() => debriefStyle()))();
 			const signal = AbortSignal.any([...(opts.signal ? [opts.signal] : []), control.signal, AbortSignal.timeout(CALL_TIMEOUT_MS)]);
 			// Each model step asks the gate first: a closed gate stops the run before the next provider call.
 			const engine: PiEngine = {

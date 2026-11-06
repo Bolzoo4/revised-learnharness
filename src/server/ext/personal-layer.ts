@@ -71,6 +71,7 @@ function cardFocusOf(deps: PersonalLayerDeps, cardId: string): ReviewFocus | nul
 	if (card === undefined) return null;
 	const node = deps.graphStore.readNodes().find((n) => n.id === card.nodeId);
 	return {
+		nodeId: card.nodeId,
 		nodeName: node?.name ?? card.nodeId,
 		nodeStatement: node?.statement ?? "",
 		question: card.question,

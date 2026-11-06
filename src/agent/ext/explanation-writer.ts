@@ -13,18 +13,17 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Type, type Static } from "typebox";
-import { PATHS, PROMPTS_OVERRIDE_DIR } from "../../../config.ts";
+import { PATHS } from "../../../config.ts";
 import type { CallUsage } from "../../core/contracts.ts";
 import type { ExplanationWriter, WriterRequest } from "../../core/ext/node-knowledge-ports.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubmitAgent } from "../subagents/submit-agent.ts";
+import { resolveExtPrompt } from "./prompt-override.ts";
 
 const DEFAULT_STYLE_FILE = path.join(PATHS.root, "src", "agent", "ext", "prompts", "explanation-style.md");
-/** The user's editable copy; present and non-blank means it replaces the default. */
-const OVERRIDE_STYLE_FILE = path.join(PROMPTS_OVERRIDE_DIR, "ext", "explanation-style.md");
 
-/** First non-blank file wins; read fresh on every call so edits land immediately. */
-export function loadStyleGuide(files: readonly string[] = [OVERRIDE_STYLE_FILE, DEFAULT_STYLE_FILE]): string {
+/** The default style guide (the source file); read fresh on every call so edits land immediately. */
+export function loadStyleGuide(files: readonly string[] = [DEFAULT_STYLE_FILE]): string {
 	for (const file of files) {
 		try {
 			const text = fs.readFileSync(file, "utf-8");
@@ -34,6 +33,11 @@ export function loadStyleGuide(files: readonly string[] = [OVERRIDE_STYLE_FILE, 
 		}
 	}
 	throw new Error("explanation style guide is missing: expected src/agent/ext/prompts/explanation-style.md");
+}
+
+/** The style guide the explanation writer runs with: the user's version when switched on, else the default. */
+export function explanationStyle(): string {
+	return resolveExtPrompt("explanation-style", loadStyleGuide());
 }
 
 /** Structure and link rules; code, not the editable style guide (the checks depend on them). */
@@ -97,7 +101,7 @@ export function createExplanationWriter(opts: {
 }): ExplanationWriter {
 	return {
 		async write(request) {
-			const style = (opts.styleGuide ?? (() => loadStyleGuide()))();
+			const style = (opts.styleGuide ?? (() => explanationStyle()))();
 			const wanted = new Set(request.nodes.map((n) => n.id));
 			let costUsd = 0;
 			const submitted = await runSubmitAgent<Submit>({

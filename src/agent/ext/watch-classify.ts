@@ -23,6 +23,7 @@ import type { FeedItem } from "../../core/ext/watch.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../../core/settings.ts";
 import type { PiEngine } from "../models.ts";
 import { runSubmitAgent } from "../subagents/submit-agent.ts";
+import { resolveExtPrompt } from "./prompt-override.ts";
 
 const MAX_TITLE_CHARS = 300;
 const MAX_LINK_CHARS = 2048;
@@ -34,6 +35,11 @@ const MAX_RATIONALE_CHARS = 1000;
 const MAX_CANDIDATES = 30;
 const CEILING_MESSAGE = "the daily research ceiling is reached";
 const FAILED_MESSAGE = "watch classification failed";
+
+/** The watch classifier's system prompt as one call uses it (the user's version when switched on). */
+export function watchClassifyInstructions(): string {
+	return resolveExtPrompt("watch-classifier", WATCH_CLASSIFY_INSTRUCTIONS);
+}
 
 export const WATCH_CLASSIFY_INSTRUCTIONS = `You triage new publications for a learner's knowledge graph. You get one item
 (title and abstract) and a numbered list of graph nodes from the learner's current scope.
@@ -148,7 +154,7 @@ export function createWatchClassifier(deps: { engine: () => PiEngine }) {
 						const bad = v.nearestNodeIds.filter((id) => !known.has(id));
 						return bad.length === 0 ? null : `unknown node ids: ${bad.join(", ")}; use only ids from the list`;
 					},
-					systemPrompt: WATCH_CLASSIFY_INSTRUCTIONS,
+					systemPrompt: watchClassifyInstructions(),
 					prompt: buildClassifyPrompt(item, candidates),
 					engine: gated,
 					signal,

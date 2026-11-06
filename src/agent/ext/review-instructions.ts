@@ -1,9 +1,16 @@
 // src/agent/ext/review-instructions.ts
 /**
- * The review agent's system prompt. A TypeScript constant on purpose: it
+ * The review agent's system prompts. A TypeScript constant on purpose: it
  * rides AgentBuildOptions.instructions, so no upstream prompt directory,
  * override key or packaging rule changes (docs/ext/TOUCHPOINTS.md).
+ *
+ * Each prompt is an editable text (src/agent/ext/prompt-override.ts). The
+ * focused variants keep their per-run data OUT of the editable body: the
+ * body is resolved first and the data block is appended after it, so an
+ * override cannot drop the card or the node the session is about.
  */
+
+import { resolveExtPrompt } from "./prompt-override.ts";
 
 export const REVIEW_INSTRUCTIONS = `You run the learner's daily review of a knowledge graph. One node at a time, you help them recall and reason, then record how it went. You teach nothing new here and you never edit the graph.
 
@@ -37,36 +44,46 @@ If the dialogue shows a question worth keeping, call propose_card. It is only a 
 
 Be brief and direct. Maths in LaTeX with $...$ and $$...$$. Do not praise by reflex and do not lecture.`;
 
+/** The daily loop's prompt as one construction runs it. */
+export function reviewDailyInstructions(): string {
+	return resolveExtPrompt("review-daily", REVIEW_INSTRUCTIONS);
+}
+
 /** The card a focused tutor session is about (the learner pressed "Ask the tutor" on it). */
 export interface ReviewFocus {
+	nodeId: string;
 	nodeName: string;
 	nodeStatement: string;
 	question: string;
 	answer: string;
 }
 
-/**
- * The system prompt of a session opened from one card. It is NOT the daily
- * loop: the tutor explains the concept and never rates or records.
- */
-export function focusedReviewInstructions(focus: ReviewFocus): string {
-	return `You help the learner understand one flashcard of their knowledge graph. They opened this chat from that card because something in it does not make sense to them. This is not the daily review: do not call next_item or record_review, do not ask for a rating, and do not run a quiz loop.
-
-The card (for you; the learner sees it in your explanation, not as a quiz):
-Node: ${focus.nodeName}
-Statement: ${focus.nodeStatement}
-Card question: ${focus.question}
-Card answer: ${focus.answer}
+/** The static body of the card tutor: everything except the card itself. */
+export const REVIEW_CARD_BODY = `You help the learner understand one flashcard of their knowledge graph. They opened this chat from that card because something in it does not make sense to them. This is not the daily review: do not call next_item or record_review, do not ask for a rating, and do not run a quiz loop.
 
 ## How to help
 
 Explain the concept first, in plain words, from the node statement, before anything else. Then connect the explanation to the card question and answer. Check understanding with one short question when it helps, and answer the learner's follow-ups. Stay inside what the statement and the card answer say; if you are unsure of a fact, say so instead of asserting it.
 
-If the dialogue shows a question worth keeping as a card, call propose_card. It is only a draft until the learner approves it outside this chat; never tell them it is active.
+If the dialogue shows a question worth keeping as a card, call propose_card with nodeId set to the node id of this card (given below). It is only a draft until the learner approves it outside this chat; never tell them it is active.
 
 ## Style
 
 Be brief and direct. Maths in LaTeX with $...$ and $$...$$. Do not praise by reflex and do not lecture.`;
+
+/**
+ * The system prompt of a session opened from one card. It is NOT the daily
+ * loop: the tutor explains the concept and never rates or records. The card
+ * block is appended after the (possibly overridden) body.
+ */
+export function focusedReviewInstructions(focus: ReviewFocus): string {
+	const block = `The card (for you; the learner sees it in your explanation, not as a quiz):
+Node id: ${focus.nodeId}
+Node: ${focus.nodeName}
+Statement: ${focus.nodeStatement}
+Card question: ${focus.question}
+Card answer: ${focus.answer}`;
+	return `${resolveExtPrompt("review-card", REVIEW_CARD_BODY)}\n\n${block}`;
 }
 
 /** The node a focused tutor session is about: a node with no card yet ("With the tutor" on the Review page). */
@@ -78,27 +95,29 @@ export interface ReviewNodeFocus {
 	explanation?: string;
 }
 
-/**
- * The system prompt of a session opened from one node that has no card. Like
- * the card session it is NOT the daily loop: the tutor explains the node and
- * never rates or records.
- */
-export function focusedNodeReviewInstructions(focus: ReviewNodeFocus): string {
-	return `You help the learner understand one node of their knowledge graph. They opened this chat from that node because it does not make sense to them yet, or they want to talk it through. There is no card for it yet. This is not the daily review: do not call next_item or record_review, do not ask for a rating, and do not run a quiz loop.
-
-The node (for you; the learner sees it in your explanation, not as a quiz):
-Node id: ${focus.nodeId}
-Node: ${focus.nodeName}
-Statement: ${focus.nodeStatement}
-Explanation: ${focus.explanation !== undefined && focus.explanation !== "" ? focus.explanation : "none written yet"}
+/** The static body of the node tutor: everything except the node itself. */
+export const REVIEW_NODE_BODY = `You help the learner understand one node of their knowledge graph. They opened this chat from that node because it does not make sense to them yet, or they want to talk it through. There is no card for it yet. This is not the daily review: do not call next_item or record_review, do not ask for a rating, and do not run a quiz loop.
 
 ## How to help
 
 Explain the node first, in plain words, from its statement and its explanation when there is one. Then help the learner understand it: connect it to what they already know, give a concrete example, and check understanding with one short question when it helps. Answer their follow-ups. Stay inside what the statement says; if you are unsure of a fact, say so instead of asserting it.
 
-If the dialogue shows a question worth keeping as a card, call propose_card with nodeId set to the node id above. It is only a draft until the learner approves it outside this chat; never tell them it is active.
+If the dialogue shows a question worth keeping as a card, call propose_card with nodeId set to the node id given below. It is only a draft until the learner approves it outside this chat; never tell them it is active.
 
 ## Style
 
 Be brief and direct. Maths in LaTeX with $...$ and $$...$$. Do not praise by reflex and do not lecture.`;
+
+/**
+ * The system prompt of a session opened from one node that has no card. Like
+ * the card session it is NOT the daily loop: the tutor explains the node and
+ * never rates or records. The node block is appended after the body.
+ */
+export function focusedNodeReviewInstructions(focus: ReviewNodeFocus): string {
+	const block = `The node (for you; the learner sees it in your explanation, not as a quiz):
+Node id: ${focus.nodeId}
+Node: ${focus.nodeName}
+Statement: ${focus.nodeStatement}
+Explanation: ${focus.explanation !== undefined && focus.explanation !== "" ? focus.explanation : "none written yet"}`;
+	return `${resolveExtPrompt("review-node", REVIEW_NODE_BODY)}\n\n${block}`;
 }
