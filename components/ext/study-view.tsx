@@ -6,6 +6,7 @@ import { Chat } from "@/components/chat";
 import { pageFromPoint } from "./citation-click";
 import { openNodePanel } from "./open-node";
 import { PdfViewer } from "./pdf-viewer";
+import { draftsOf, pageFromInput, postJson, REQUEST_FAILED, type DraftRowLike } from "./study-logic";
 
 type ChatProps = Pick<
 	ComponentProps<typeof Chat>,
@@ -18,19 +19,14 @@ interface CardForm {
 	question: string;
 	answer: string;
 }
-interface DraftRow {
-	id: string;
-	page: number;
-	proposition: string;
-	question: string;
-	answer: string;
+type DraftRow = DraftRowLike;
+interface Message {
+	text: string;
+	error: boolean;
 }
 
-async function post(url: string, body: unknown): Promise<{ ok: boolean; json: Record<string, unknown> }> {
-	const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-	return { ok: res.ok, json: (await res.json().catch(() => ({}))) as Record<string, unknown> };
-}
-const errorOf = (json: Record<string, unknown>): string => (typeof json.error === "string" ? json.error : "Request failed.");
+/** Every request goes through here: it never rejects, and a server error is shown as REQUEST_FAILED, never as the server's text. */
+const post = (url: string, body: unknown) => postJson((u, init) => fetch(u, init), url, body);
 
 /**
  * The study session (REQ-study-04): the PDF on the left, the document's one
@@ -45,10 +41,13 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 	const [form, setForm] = useState<CardForm | null>(null);
 	const [pin, setPin] = useState(true);
 	const [busy, setBusy] = useState(false);
-	const [message, setMessage] = useState<string | null>(null);
+	const [message, setMessage] = useState<Message | null>(null);
 	const [drafts, setDrafts] = useState<DraftRow[]>([]);
 	const [chosen, setChosen] = useState<Set<string>>(new Set());
 	const [goal, setGoal] = useState({ title: "", statement: "" });
+	const [goalBusy, setGoalBusy] = useState(false);
+	const goalInFlight = useRef(false);
+	const [pageText, setPageText] = useState(String(startPage));
 	const chatColumn = useRef<HTMLDivElement>(null);
 	const pageRef = useRef(page);
 	const selectionRef = useRef(selection);
@@ -108,13 +107,31 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 	);
 
 	const go = (p: number) => setPage(Math.min(Math.max(1, p), doc.pageCount));
+	const say = (text: string) => setMessage({ text, error: false });
+	// Stable identity: PdfViewer lists onError in its load effect, so a new function would reload the PDF on every render.
+	const showError = useCallback((text: string) => setMessage({ text, error: true }), []);
+
+	// The selection belongs to the page it was made on.
+	useEffect(() => {
+		setSelection("");
+	}, [page]);
+	// The page box mirrors the page; typing is local until Enter or blur commits it.
+	useEffect(() => {
+		setPageText(String(page));
+	}, [page]);
+	function commitPage() {
+		const target = pageFromInput(pageText, doc.pageCount);
+		if (target === null) return setPageText(String(page));
+		go(target);
+		setPageText(String(target));
+	}
 
 	async function draftCard(from: "selection" | "page") {
 		setBusy(true);
 		setMessage(null);
 		const r = await post("/api/ext/study/cards", { action: "draft", documentId: doc.id, page, ...(from === "selection" ? { selection } : {}) });
 		setBusy(false);
-		if (!r.ok) return setMessage(errorOf(r.json));
+		if (!r.ok) return showError(REQUEST_FAILED);
 		setForm({ page, proposition: String(r.json.proposition ?? ""), question: String(r.json.question ?? ""), answer: String(r.json.answer ?? "") });
 	}
 	async function confirmCard() {
@@ -123,14 +140,19 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 		setMessage(null);
 		const r = await post("/api/ext/study/cards", { action: "confirm", documentId: doc.id, ...form, pin });
 		setBusy(false);
-		if (!r.ok) return setMessage(errorOf(r.json));
+		if (!r.ok) return showError(REQUEST_FAILED);
 		setForm(null);
-		setMessage("Card added.");
+		say("Card added.");
 		if (typeof r.json.nodeId === "string") openNodePanel(r.json.nodeId);
 	}
 	async function loadDrafts() {
-		const res = await fetch(`/api/ext/study/drafts?documentId=${doc.id}`);
-		if (res.ok) setDrafts(((await res.json()) as { drafts: DraftRow[] }).drafts);
+		try {
+			const res = await fetch(`/api/ext/study/drafts?documentId=${encodeURIComponent(doc.id)}`);
+			if (!res.ok) showError(REQUEST_FAILED);
+			else setDrafts(draftsOf((await res.json().catch(() => ({}))) as Record<string, unknown>));
+		} catch {
+			showError(REQUEST_FAILED);
+		}
 		setChosen(new Set());
 	}
 	useEffect(() => void loadDrafts(), []);
@@ -139,8 +161,8 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 		setMessage(null);
 		const r = await post("/api/ext/study/drafts", { action: "complete", documentId: doc.id });
 		setBusy(false);
-		if (!r.ok) return setMessage(errorOf(r.json));
-		setMessage(`${String(r.json.proposed)} draft(s) proposed from ${(r.json.pages as number[]).length} page(s).${r.json.ceilingReached === true ? " The daily cost ceiling was reached: run it again tomorrow for the rest." : ""}`);
+		if (!r.ok) return showError(REQUEST_FAILED);
+		say(`${String(r.json.proposed)} draft(s) proposed from ${Array.isArray(r.json.pages) ? r.json.pages.length : 0} page(s).${r.json.ceilingReached === true ? " The daily cost ceiling was reached: run it again tomorrow for the rest." : ""}`);
 		await loadDrafts();
 	}
 	async function decide(kind: "approve" | "reject") {
@@ -149,17 +171,28 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 		setBusy(true);
 		const r = await post("/api/ext/study/drafts", { action: "decide", ...(kind === "approve" ? { approve: ids.map((draftId) => ({ draftId, pin })) } : { reject: ids }) });
 		setBusy(false);
-		if (!r.ok) setMessage(errorOf(r.json));
+		if (!r.ok) showError(REQUEST_FAILED);
 		else {
-			const failed = (r.json.failed as Array<{ error: string }>).length;
-			setMessage(`${kind === "approve" ? (r.json.approved as unknown[]).length : (r.json.rejected as unknown[]).length} done${failed > 0 ? `, ${failed} failed` : ""}.`);
+			const failed = Array.isArray(r.json.failed) ? r.json.failed.length : 0;
+			const done = Array.isArray(r.json.approved) && kind === "approve" ? r.json.approved.length : Array.isArray(r.json.rejected) && kind === "reject" ? r.json.rejected.length : 0;
+			say(`${done} done${failed > 0 ? `, ${failed} failed` : ""}.`);
 		}
 		await loadDrafts();
 	}
 	async function startGoal() {
-		const r = await post("/api/ext/study/goal", { documentId: doc.id, ...goal });
-		setMessage(r.ok ? "Goal created." : errorOf(r.json));
-		if (r.ok) setGoal({ title: "", statement: "" });
+		if (goalInFlight.current) return; // a second click while the first request runs must not create a second goal
+		goalInFlight.current = true;
+		setGoalBusy(true);
+		try {
+			const r = await post("/api/ext/study/goal", { documentId: doc.id, ...goal });
+			if (r.ok) {
+				say("Goal created.");
+				setGoal({ title: "", statement: "" });
+			} else showError(REQUEST_FAILED);
+		} finally {
+			goalInFlight.current = false;
+			setGoalBusy(false);
+		}
 	}
 
 	const field = "w-full rounded border px-2 py-1 text-sm";
@@ -168,13 +201,23 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 			<section className="flex min-h-0 w-1/2 flex-col border-r">
 				<header className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-sm">
 					<strong className="mr-2 truncate">{doc.title}</strong>
-					<button type="button" className="rounded border px-2" disabled={page <= 1} onClick={() => go(page - 1)}>‹</button>
-					<input aria-label="Page" className="w-14 rounded border px-1 text-center" value={page} onChange={(e) => go(Number(e.target.value) || 1)} />
+					<button type="button" aria-label="Previous page" className="rounded border px-2" disabled={page <= 1} onClick={() => go(page - 1)}>‹</button>
+					<input
+						aria-label="Page"
+						inputMode="numeric"
+						className="w-14 rounded border px-1 text-center"
+						value={pageText}
+						onChange={(e) => setPageText(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") commitPage();
+						}}
+						onBlur={commitPage}
+					/>
 					<span>/ {doc.pageCount}</span>
-					<button type="button" className="rounded border px-2" disabled={page >= doc.pageCount} onClick={() => go(page + 1)}>›</button>
+					<button type="button" aria-label="Next page" className="rounded border px-2" disabled={page >= doc.pageCount} onClick={() => go(page + 1)}>›</button>
 				</header>
 				<div className="min-h-0 flex-1 overflow-auto bg-muted/30">
-					<PdfViewer documentId={doc.id} page={page} onError={setMessage} />
+					<PdfViewer documentId={doc.id} page={page} onError={showError} />
 				</div>
 				<div className="max-h-[45%] overflow-auto border-t px-3 py-2 text-sm">
 					<div className="flex flex-wrap items-center gap-2">
@@ -189,7 +232,11 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 							Selected: “{selection.length > 120 ? `${selection.slice(0, 120)}…` : selection}” <button type="button" className="underline" onClick={() => setSelection("")}>clear</button>
 						</p>
 					) : null}
-					{message !== null ? <p className="mt-2" data-testid="study-message">{message}</p> : null}
+					{message !== null ? (
+						<p className={`mt-2 ${message.error ? "text-destructive" : ""}`} data-testid="study-message" role={message.error ? "alert" : undefined}>
+							{message.text}
+						</p>
+					) : null}
 					{form !== null ? (
 						<div className="mt-2 flex flex-col gap-1" data-testid="study-card-form">
 							<p className="text-muted-foreground">Card for page {form.page}. Edit, then confirm: the proposition is added to your graph.</p>
@@ -222,7 +269,7 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 						<div className="mt-1 flex flex-col gap-1">
 							<input className={field} placeholder="Goal title" value={goal.title} onChange={(e) => setGoal({ ...goal, title: e.target.value })} />
 							<textarea className={field} rows={2} placeholder="The proposition you want to master" value={goal.statement} onChange={(e) => setGoal({ ...goal, statement: e.target.value })} />
-							<button type="button" className="self-start rounded border px-3 py-1" disabled={goal.title.trim() === "" || goal.statement.trim() === ""} onClick={() => void startGoal()}>Create goal</button>
+							<button type="button" className="self-start rounded border px-3 py-1" disabled={goalBusy || goal.title.trim() === "" || goal.statement.trim() === ""} onClick={() => void startGoal()}>Create goal</button>
 						</div>
 					</details>
 				</div>

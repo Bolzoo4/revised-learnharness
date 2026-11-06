@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { REQUEST_FAILED } from "./study-logic";
+
+const REJECTED = "The PDF could not be added. Check that the path points to a PDF file on this computer.";
 
 interface DocumentRow {
 	id: string;
@@ -23,14 +26,19 @@ export function StudyHome({ initial }: { initial: DocumentRow[] }) {
 		setError(null);
 		try {
 			const res = await fetch("/api/ext/study/documents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: path.trim() }) });
-			const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
 			if (!res.ok) {
-				setError(typeof json.error === "string" ? json.error : "Request failed.");
+				// Fixed text only: the server's message is never shown.
+				setError(REJECTED);
 				return;
 			}
 			const list = await fetch("/api/ext/study/documents");
-			if (list.ok) setDocuments(((await list.json()) as { documents: DocumentRow[] }).documents);
+			if (list.ok) {
+				const json = (await list.json().catch(() => ({}))) as { documents?: unknown };
+				if (Array.isArray(json.documents)) setDocuments(json.documents as DocumentRow[]);
+			}
 			setPath("");
+		} catch {
+			setError(REQUEST_FAILED);
 		} finally {
 			setBusy(false);
 		}
