@@ -34,7 +34,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/ext/index.ts` | appended exports for the lecture player | Lectures |
 | `src/server/ext/panel-providers.ts` | `lecturesCiting` member (lecture back-links in a node's panel) | Lectures |
 | `src/core/source-organization.ts` | `chainSourceDirectory` hides every practice-like session (office hours, review) via `isPracticeLike` | Practice-like sessions |
-| `components/minimal-home.tsx` | home counts practice-like sessions as practice | Practice-like sessions |
+| `components/minimal-home.tsx` | home counts sessions with `sessionMatchesFilter`, as the sidebar lists them: study sessions count as teaching, review and office hours as practice, research not at all (the earlier row counted all practice-like kinds as practice) | Practice-like sessions |
 | `components/chain-table.tsx` | chain filter hides sources of practice-like sessions | Practice-like sessions |
 | `src/agent/subagents/pi-run.ts` | `SubagentRunOptions.onAgent?`, one call after the `Agent` is built, so a running research cycle can be steered (REQ-rs-16) | Research loop |
 | `src/core/contracts/chat.ts` | `ChatKind` gains `"research"` (research sessions) | Research loop |

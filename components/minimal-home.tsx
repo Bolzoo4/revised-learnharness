@@ -24,7 +24,7 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { GraphCostControl } from "@/components/graph-view.tsx";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import { Hint } from "@/components/ui/hint";
-import { isPracticeLike } from "@/src/core";
+import { sessionMatchesFilter } from "@/src/core";
 import type { ChatSummary, GraphCostSummary, GraphSnapshot } from "@/src/core";
 
 /** The quiet centered summary — a pure body (props in, markup out) so
@@ -130,8 +130,8 @@ export function MinimalHome({
 	const notesImport = useNotesImport({ onFinish: readState });
 	const { importing, onImportFiles } = notesImport;
 
-	const teachSessions = chats.filter((c) => c.kind === "teach").length;
-	const practiceSessions = chats.filter((c) => isPracticeLike(c.kind)).length;
+	const teachSessions = chats.filter((c) => sessionMatchesFilter(c.kind, "teach")).length;
+	const practiceSessions = chats.filter((c) => sessionMatchesFilter(c.kind, "practice")).length;
 
 	return (
 		<div className="relative h-full">
