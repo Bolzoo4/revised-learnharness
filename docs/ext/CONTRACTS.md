@@ -400,7 +400,7 @@ Event `cycle`: `{type:"cycle", cycleId, trigger, startedAt, endedAt, stoppedBy, 
 - `cycleId`: non-empty string.
 - `trigger`: `schedule` | `manual`.
 - `startedAt`, `endedAt`: ISO-8601 timestamps.
-- `stoppedBy`: `completed` | `no-gaps` | `ceiling` | `aborted` | `error`.
+- `stoppedBy`: `completed` | `no-gaps` | `ceiling` | `provider-limit` | `aborted` | `error` (`provider-limit`: a provider usage limit paused the cycle, see "Provider limits").
 - `gaps`: array of `GapLog` entries:
   - `gapId`: string.
   - `type`: `uncovered` | `no-premises` | `weak-premise` | `unverified` | `contested-no-primary`.
@@ -578,6 +578,26 @@ Review events carry no session id: `ownerOfEvent(at, windows)` = the window with
 ## Commentary and cost
 
 The agent submits `observations`, `stateOfLearning`, `critique`, `suggestion` (each non-blank, at most 2500 characters); the stored Markdown is `## Observations`, `## State of learning`, `## Critique`, `## Suggestion for the next session`, in that order, each followed by its text. A part that opens a heading, repeats a section header, or leaves a code fence unclosed is refused and never stored (the writer retries it as a failure). The model has no tool but the submission. Spend is recorded in `cost.jsonl` with `source` `debrief`; the commentary is attempted only while the shared daily ceiling allows (the `source` list of the `cost.jsonl` section also includes `node-knowledge` and `debrief`).
+
+## Provider limits
+
+A subscription plan, a rate limit or an overloaded provider refuses a call without spending USD, so the daily ceiling never trips. Background work therefore also pauses on the provider's own limit (process memory only; a restart retries once).
+
+- **Detection (one place per engine):** every background engine is built by `observedEngine` (`src/server/ext/provider-pause.ts`), which wraps the engine's stream function with `withProviderLimitObserver` (`src/agent/ext/limit-aware-engine.ts`). Wrapped roots: the researcher engine (research cycle and watch classifier, `research-live.ts`), the verification engine (`verification.ts`), the debrief writer (`debrief-live.ts`), the teacher engine (study, lectures and practice, `study-engine.ts`) and the explanation writer (`node-knowledge-live.ts`). Interactive chat engines are not wrapped. A call that ends in an error whose text is a limit is observed once; a completed call is a success.
+- **Classification (`isProviderLimitMessage`, `src/core/ext/provider-limit.ts`):** case-insensitive. True for usage limit reached or exceeded, rate limit (any of `rate limit`, `rate_limit`, `rate-limit`), `subscription_sharing_usage_limit_exceeded`, `429`, `quota`, `too many requests`, `overloaded`, `over capacity` / `at capacity` / `capacity exceeded`, and `limit reached` or `limit exceeded` when the text names no token, context, prompt, output, length, window or input. False for context-length, invalid-key, model-not-found and aborted texts.
+- **Pause:** the first hit pauses for 30 minutes; each consecutive hit doubles it, capped at 6 hours. A reset hint in the provider's text replaces the backoff: `retry-after: N` (seconds), `try again in N minutes|hours|seconds`, or `resets H:MM am|pm` (the next such local time); the hint is clamped to [1 minute, 24 hours]. A limit seen while a pause holds is not a new hit. A completed call resets the hit count; the pause in force is kept. The gate reopens at exactly the pause end instant.
+- **Gate:** `CostGate.allowed()` is false while the pause holds or the ceiling is spent. `CostGate.reason()` returns `provider-limit` (checked first, because it is transient) or `ceiling` or null. Every gated caller inherits the pause through `liveCostGate` and the verification gate, which are the same object.
+- **Per path:**
+  - Research cycle: the gap or classification that hit the limit is not logged as failed (its spend is kept if above zero); the cycle stops with `stoppedBy: "provider-limit"`; `tick()` starts nothing and `start()` answers `provider-limit` while paused.
+  - Verification batch: nodes of the batch and the rest stay unverified (`VerifyReport.providerLimited`); no `check_failed` event is written.
+  - Debrief: `finish` returns `deferred` with reason `provider-limit`; no attempt is counted, nothing is stored (no `nullReason`), the session stays pending. A sweep stops at the first such outcome and reports `providerLimited: true`; the weekly synthesis waits too.
+  - Study complete: the run stops before the batch; no `pages_processed` event; the result carries `providerLimited: true`. Draft approval fails with the fixed text and imports nothing.
+  - Lectures: a chapter ends `stopped_provider`; a book run whose chapters stopped that way carries the fixed text as its error.
+  - Practice exercises: refused with HTTP 429 and the fixed text.
+  - Explanations: the gate is closed, so the run reports `ceilingReached` (not distinguished in its result).
+  - Research console chat: the refusal text is the fixed provider text instead of the ceiling text.
+- **Visibility:** `GET /api/ext/research/cycle` (the research status) always carries `providerPausedUntil` (ISO or null). `GET /api/ext/debriefs` carries `providerPausedUntil` only while paused. The research page, the journal page, the study page and the trust badge show a fixed sentence. Nothing else exposes the pause.
+- **Never stored or returned:** the raw provider text. Ledgers, cycle logs, status and HTTP responses carry only the fixed texts above and the pause end time.
 
 ## MCP server (read-only, stdio)
 
