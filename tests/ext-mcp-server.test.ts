@@ -62,7 +62,7 @@ describe("calls over the protocol", () => {
 			get_neighbors: [{ id: N.c }, { id: N.c, depth: 2 }],
 			list_lectures: [{}, { chapter: 2 }],
 			get_lecture: [{ id: "lec_b0123abcd_c02_l01" }],
-			list_goals: [{}, { status: "active", limit: 10 }],
+			list_goals: [{}, { status: "active" }],
 			get_goal: [{ id: GOAL_ID }],
 			get_daily_plan: [{}, { date: "2026-11-05" }],
 			research_status: [{}],

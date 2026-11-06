@@ -620,7 +620,7 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 
 ### Knowledge group
 
-`search_nodes` input: `query` (string, required), `limit` (integer 1..50), `trust` (`unverified|sourced|contested|refuted`), `goalId` (string; needs study state). Output: `{query, items[{id, name, statement, trust}], count, truncated}`.
+`search_nodes` input: `query` (string, required; NFC-normalised before the length limit and the match, and the stored name, statement and aliases are compared in NFC too, so composed and decomposed accents give the same result), `limit` (integer 1..50), `trust` (`unverified|sourced|contested|refuted`), `goalId` (string; needs study state). Output: `{query, items[{id, name, statement, trust}], count, truncated}`.
 
 `get_node` input: `id`. Output: `{id, name, statement, aliases(page), trust{level, checkedAt, evidence(page)}, explanation{state, noSourceContext, form, version, author, body, pendingProposal}, arguments(page of {premises(page)}), conclusions(page), citingLectures(page or null), citingLecturesOmitted(boolean), citingLecturesOmittedReason(fixed text or null), studyState, cardCount, review{dueAt, recallProbability, reps, pinned, retired}|null, reviewUnavailable, goals(page)}`. Under `--knowledge-only` the last five fields are absent and `studyState` is `"disabled"`. `explanation.state` says when the text is stale; `noSourceContext` is true when it was written without source context. Evidence carries a source label, never a local path, query string or credential. `citingLectures` comes from an in-memory index of the lecture files, built on first use and kept for the life of the process: each call re-stats the lecture files, parses only new or changed ones (a file is identified by mtime, size and inode) and forgets deleted ones. It never writes to disk. When one call would parse more than the 32 MiB bound, `citingLectures` is null, `citingLecturesOmitted` is true and the reason is the fixed sentence in the server, with no error; repeated calls parse further until the index is complete, so the answer is complete again after a few calls. A lecture that is invalid, over 4 MiB, a non-file (FIFO, device, symlink to one) or stored under another id is never cited, and never fails the call.
 
@@ -628,11 +628,11 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 
 `list_lectures` input: `chapter` (integer chapter number). Output: page of `{id, title, bookTitle, chapter, order, createdAt, slideCount, exerciseCount, citedNodeCount}`.
 
-`get_lecture` input: `id`. Output: outline `{id, title, bookTitle, chapter, order, summary, createdAt, slides(page), exercises(page of {blockId, slideId, seconds, prompt, nodeIds}), citedNodes(page)}`. Narration text is never returned. Each outline array (slides, exercises, citedNodes) is fitted to 24 KiB; a page whose items were dropped says `truncated: true`, so a maximum-size lecture is answered, never refused.
+`get_lecture` input: `id`. Output: outline `{id, title, bookTitle, chapter, order, summary, createdAt, slides(page of {id, heading, blockCount, nodeIds(page)}), exercises(page of {blockId, slideId, seconds, prompt, nodeIds}), citedNodes(page)}`. A slide's `nodeIds` are the nodes cited by its blocks followed by the node links written in its own text, deduplicated and capped at 20 (`citedNodes` is the lecture-wide set of both kinds). Narration text is never returned. Each outline array (slides, exercises, citedNodes) is fitted to 24 KiB; a page whose items were dropped says `truncated: true`, so a maximum-size lecture is answered, never refused.
 
 ### Study-state group (disabled by `--knowledge-only`)
 
-`list_goals` input: `status` (`active|paused|reached`), `limit`. Output: page of `{id, title, status, priority, origin, createdAt, targetCount, scopeSize, solidNodes, solidShare, ready}`.
+`list_goals` input: `status` (`active|paused|reached`). No limit argument: the list is at most 50 goals and fitted to the 96 KiB list budget, with `truncated` set when it cuts. Output: page of `{id, title, status, priority, origin, createdAt, targetCount, scopeSize, solidNodes, solidShare, ready}`.
 
 `get_goal` input: `id`. Output: `{id, title, status, priority, origin, createdAt, updatedAt, desiredRetention, targets(page), scope{size, solid, solidShare, ready, byTrust}, due{dueNow, unseen, scheduled}, exerciseSet{state: none|in_progress|complete|applied, exercises, graded}}`. Exercise prompts and reference solutions are never returned.
 

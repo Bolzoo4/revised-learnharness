@@ -6,7 +6,7 @@
  * text is omitted); the exercise prompt is, capped.
  */
 
-import { isValidLectureId, lectureNodeRefs, type Lecture } from "../lecture/lecture.ts";
+import { isValidLectureId, lectureNodeRefs, slideNodeRefs, type Lecture } from "../lecture/lecture.ts";
 import type { Call } from "./call.ts";
 import { ToolError, invalid } from "./errors.ts";
 import { optionalInt, requireText } from "./input.ts";
@@ -41,7 +41,8 @@ function outline(l: Lecture) {
 	const slides = fitToBudget(page(
 		l.slides.map((s) => {
 			const blocks = l.blocks.filter((b) => b.slideId === s.id);
-			const ids = [...new Set(blocks.flatMap((b) => b.nodeIds))];
+			// A slide's nodes: those cited by its blocks, then those linked in its own text (deduplicated).
+			const ids = [...new Set([...blocks.flatMap((b) => b.nodeIds), ...slideNodeRefs(s)])];
 			return { id: s.id, heading: capText(s.heading, LIMITS.titleChars), blockCount: blocks.length, nodeIds: textPage(ids, LIMITS.slideNodesMax, LIMITS.idMaxChars) };
 		}),
 		LIMITS.slidesMax,

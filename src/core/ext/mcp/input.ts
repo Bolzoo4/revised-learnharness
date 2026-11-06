@@ -23,11 +23,15 @@ export function requireText(value: unknown, field: string, maxChars: number): st
 
 export const requireId = (value: unknown, field: string): string => requireText(value, field, LIMITS.idMaxChars);
 
-/** A search query: control characters count as spaces, whitespace is collapsed. */
+/**
+ * A search query: NFC-normalised first (so the length limits apply to the
+ * normalised text), control characters count as spaces, whitespace is collapsed.
+ */
 export function requireQuery(value: unknown): string {
 	if (typeof value !== "string") throw invalid("query must be a string.");
-	if (value.length > LIMITS.queryMaxChars) throw invalid(`query must be at most ${LIMITS.queryMaxChars} characters.`);
-	const query = value.replace(CONTROL_G, " ").replace(/\s+/g, " ").trim();
+	const normal = value.normalize("NFC");
+	if (normal.length > LIMITS.queryMaxChars) throw invalid(`query must be at most ${LIMITS.queryMaxChars} characters.`);
+	const query = normal.replace(CONTROL_G, " ").replace(/\s+/g, " ").trim();
 	if (query === "") throw invalid("query must not be empty.");
 	if (query.split(" ").length > LIMITS.queryMaxTokens) throw invalid(`query must have at most ${LIMITS.queryMaxTokens} words.`);
 	return query;

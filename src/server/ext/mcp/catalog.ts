@@ -54,13 +54,14 @@ export const CATALOG: Record<string, ToolSpec> = {
 	},
 	get_lecture: {
 		title: "Read one lecture outline",
-		description: "Outline, referenced nodes and timed exercises. Slide narration text is never returned. Read-only.",
+		description:
+			"Outline (each slide with the nodes its blocks cite and the nodes linked in its own text), referenced nodes and timed exercises. Slide narration text is never returned. Read-only.",
 		input: strict({ id }),
 	},
 	list_goals: {
 		title: "List study goals",
 		description: "Goals with scope size and the share of solid nodes. Study-state group (disabled by --knowledge-only). Read-only.",
-		input: strict({ status: z.enum(["active", "paused", "reached"]).optional(), limit }),
+		input: strict({ status: z.enum(["active", "paused", "reached"]).optional() }),
 	},
 	get_goal: {
 		title: "Read one study goal",

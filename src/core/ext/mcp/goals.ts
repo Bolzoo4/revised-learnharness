@@ -10,14 +10,13 @@ import type { Call } from "./call.ts";
 import { guardReplay, snapshotOf } from "./call.ts";
 import { ToolError } from "./errors.ts";
 import { instantMs, optionalEnum, requireId } from "./input.ts";
-import { capText, clampLimit, LIMITS, page, round4 } from "./limits.ts";
+import { capText, fitToBudget, LIMITS, page, round4 } from "./limits.ts";
 import { trustLevels } from "./trust-view.ts";
 
 export const GOAL_STATUSES = ["active", "paused", "reached"] as const;
 
 export function listGoals(call: Call, input: Record<string, unknown>) {
 	const status = optionalEnum(input.status, GOAL_STATUSES, "status");
-	const limit = clampLimit(input.limit, LIMITS.listDefault, LIMITS.listMax);
 	const snap = snapshotOf(call);
 	const rows = snap.goals
 		.filter((g) => status === undefined || g.status === status)
@@ -38,7 +37,8 @@ export function listGoals(call: Call, input: Record<string, unknown>) {
 				ready: r.ready,
 			};
 		});
-	return page(rows, limit);
+	// No caller limit: the list is bounded by the goal maximum and the list byte budget, and says so when it cuts.
+	return fitToBudget(page(rows, LIMITS.listMax), LIMITS.listBudgetBytes);
 }
 
 /** The newest exercise set of a goal (a tie goes to the later one in the ledger), or null. */

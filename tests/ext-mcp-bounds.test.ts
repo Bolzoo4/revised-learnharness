@@ -106,7 +106,7 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 			["search_nodes", { query: "set concept", limit: 50 }], ["search_nodes", { query: "set concept" }],
 			["get_node", { id: "n_00000000" }], ["get_node", { id: "n_00000700" }],
 			["get_neighbors", { id: "n_00000700", depth: 2 }], ["get_neighbors", { id: "n_00000000", depth: 2 }],
-			["list_lectures", {}], ["get_lecture", { id: makeLecture().id }], ["list_goals", { limit: 50 }], ["list_goals", {}], ["get_goal", { id: "goal_000000000000" }],
+			["list_lectures", {}], ["get_lecture", { id: makeLecture().id }], ["list_goals", {}], ["list_goals", { status: "active" }], ["get_goal", { id: "goal_000000000000" }],
 			["get_daily_plan", {}], ["research_status", {}], ["get_recent_debriefs", { limit: 50 }],
 			["list_documents", {}],
 		];
@@ -126,7 +126,7 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 		const full = `${LONG} statement 0`;
 		const node0 = call(f, "get_node", { id: "n_00000000" });
 		assert.equal(node0.statement, `${full.slice(0, LIMITS.statementChars)}… [truncated: ${full.length - LIMITS.statementChars} more characters]`);
-		const r = call(f, "list_goals", { limit: 50 });
+		const r = call(f, "list_goals", {}); // 80 goals: bounded internally to the goal maximum, flagged
 		assert.equal(r.count, 50);
 		assert.equal(r.items.length, 50);
 		assert.equal(r.truncated, true);

@@ -11,6 +11,8 @@ import { capText, clampLimit, LIMITS, page } from "./limits.ts";
 import type { RunOptions } from "./ports.ts";
 import { TRUST_LEVELS, trustLevels } from "./trust-view.ts";
 
+const nfc = (s: string): string => s.normalize("NFC");
+
 export function searchNodes(call: Call, input: Record<string, unknown>, opts: RunOptions) {
 	const query = requireQuery(input.query);
 	const limit = clampLimit(input.limit, LIMITS.listDefault, LIMITS.listMax);
@@ -34,7 +36,8 @@ export function searchNodes(call: Call, input: Record<string, unknown>, opts: Ru
 		if (scope !== null && !scope.has(node.id)) continue;
 		const level = levels.get(node.id)?.level ?? "unverified";
 		if (trust !== undefined && level !== trust) continue;
-		const score = fuzzyScore(query, node.name, node.statement, ...node.aliases);
+		// Stored text is compared in NFC too, so composed and decomposed accents match alike.
+		const score = fuzzyScore(query, nfc(node.name), nfc(node.statement), ...node.aliases.map(nfc));
 		if (score === null) continue;
 		hits.push({ id: node.id, name: node.name, statement: node.statement, score, level });
 	}

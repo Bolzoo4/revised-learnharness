@@ -197,6 +197,13 @@ function slideTexts(slide: Slide): string[] {
 	return slide.elements.flatMap((e) => (e.type === "list" ? (e.items ?? []) : [e.content ?? ""]));
 }
 
+/** Node ids linked inside one slide's own text, first appearance order, no repeats. */
+export function slideNodeRefs(slide: Slide): string[] {
+	const out: string[] = [];
+	for (const t of slideTexts(slide)) for (const id of textNodeRefs(t)) if (!out.includes(id)) out.push(id);
+	return out;
+}
+
 /** Every node id the lecture cites: block citations and slide links, first appearance order, no repeats. */
 export function lectureNodeRefs(lecture: Lecture): string[] {
 	const out: string[] = [];
