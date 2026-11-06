@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { activeCue, parseNodeLinks, type Lecture, type LectureBlock, type LectureSlideElement } from "@/src/core";
+import { exerciseDoneAtZero, exerciseDoneOnLeave } from "./lecture-exercise";
 
 const ROLE_LABEL: Record<LectureBlock["role"], string> = { narrate: "", note: "Note", exercise: "Exercise", reveal: "Discussion" };
 
@@ -63,17 +64,21 @@ export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: L
 	}, [slideId, onProgress]);
 
 	const goto = useCallback((i: number) => {
-		// Leaving an exercise whose countdown ran (it ended or "Done" was pressed) counts as doing it.
-		if (block?.role === "exercise" && remaining !== null && i > index) onProgress?.exercise(block.id);
+		const target = Math.max(0, Math.min(i, lecture.blocks.length - 1));
+		// "Done" (or Next) while the countdown runs counts as doing the exercise; a countdown that reached zero was recorded when it ended.
+		const done = exerciseDoneOnLeave(block, remaining, index, target);
+		if (done !== null) onProgress?.exercise(done);
 		window.speechSynthesis?.cancel();
 		setCharIndex(0);
 		setRemaining(null);
-		setIndex(Math.max(0, Math.min(i, lecture.blocks.length - 1)));
+		setIndex(target);
 	}, [lecture.blocks.length, block, remaining, index, onProgress]);
 
 	const advance = useCallback(() => {
-		if (last) setPlaying(false);
-		else goto(index + 1);
+		if (last) {
+			setPlaying(false);
+			setRemaining(null); // a finished last block must not replay its countdown when Play is pressed again
+		} else goto(index + 1);
 	}, [goto, index, last]);
 	const advanceRef = useRef(advance);
 	advanceRef.current = advance;
@@ -100,16 +105,18 @@ export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: L
 		};
 	}, [playing, block, hasSpeech]);
 
-	// The exercise countdown (REQ-lec-10): at zero the lecture moves on to the discussion.
+	// The exercise countdown (REQ-lec-10): at zero the exercise is recorded as done and the lecture moves on (on the last block it stops).
 	useEffect(() => {
 		if (remaining === null || !playing) return;
 		if (remaining <= 0) {
+			const done = exerciseDoneAtZero(block, remaining);
+			if (done !== null) onProgress?.exercise(done);
 			advanceRef.current();
 			return;
 		}
 		const t = setTimeout(() => setRemaining((r) => (r === null ? r : r - 1)), 1000);
 		return () => clearTimeout(t);
-	}, [remaining, playing]);
+	}, [remaining, playing, block, onProgress]);
 
 	if (!block || !slide) return <p>This lecture is empty.</p>;
 	return (

@@ -14,6 +14,11 @@ interface Entry {
 }
 interface OpenSession { sessionId: string; kind: string; title: string; lastActivityAt: string }
 
+/** The journal's default page size (the server's list default). A longer history is truncated and says so. */
+const LIST_LIMIT = 50;
+const REQUEST_FAILED = "Request failed.";
+const LOAD_FAILED = "The history could not be loaded. Try again.";
+
 const NO_COMMENTARY: Record<string, string> = {
 	ceiling: "No commentary: the daily cost ceiling was reached. The facts are below.",
 	error: "No commentary: it could not be produced. The facts are below.",
@@ -46,32 +51,51 @@ export function JournalView() {
 	const [fresh, setFresh] = useState<Entry | null>(null);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
+	const [loadFailed, setLoadFailed] = useState(false);
+	const [truncated, setTruncated] = useState(false);
 
+	/** A failed list is an error state, not an empty history. Never throws: the view keeps what it had. */
 	const refresh = useCallback(async () => {
-		const res = await fetch("/api/ext/debriefs");
-		if (!res.ok) return;
-		const json = (await res.json()) as { entries: Entry[]; open: OpenSession[] };
-		setEntries(json.entries);
-		setOpen(json.open);
+		try {
+			const res = await fetch("/api/ext/debriefs");
+			if (!res.ok) {
+				setLoadFailed(true);
+				return;
+			}
+			const json = (await res.json()) as { entries: Entry[]; open: OpenSession[]; truncated?: boolean };
+			setEntries(json.entries);
+			setOpen(json.open);
+			setTruncated(json.truncated === true);
+			setLoadFailed(false);
+		} catch {
+			setLoadFailed(true);
+		}
 	}, []);
 
 	// Opening the journal catches up on sessions that ended while the app was closed and on the due week.
 	useEffect(() => {
 		void refresh();
-		void fetch("/api/ext/debriefs/sweep", { method: "POST" }).finally(() => void refresh());
+		void fetch("/api/ext/debriefs/sweep", { method: "POST" })
+			.catch(() => undefined) // a failed catch-up is retried on the next opening or sweep tick
+			.finally(() => void refresh());
 	}, [refresh]);
 
 	async function end(sessionId: string) {
 		setBusy(sessionId);
 		setNotice(null);
-		const res = await fetch("/api/ext/debriefs/end", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId }) });
-		const json = (await res.json().catch(() => ({}))) as { status?: string; entry?: Entry; error?: string };
-		if (json.entry) setFresh(json.entry);
-		else if (json.status === "empty") setNotice("Nothing happened in that session, so there is nothing to comment on.");
-		else if (json.status === "deferred") setNotice("The commentary could not be produced now; it will be retried.");
-		else setNotice(json.error ?? "Request failed.");
-		setBusy(null);
-		void refresh();
+		try {
+			const res = await fetch("/api/ext/debriefs/end", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId }) });
+			const json = (await res.json().catch(() => ({}))) as { status?: string; entry?: Entry };
+			if (json.entry) setFresh(json.entry);
+			else if (json.status === "empty") setNotice("Nothing happened in that session, so there is nothing to comment on.");
+			else if (json.status === "deferred") setNotice("The commentary could not be produced now; it will be retried.");
+			else setNotice(REQUEST_FAILED); // the server's own message is never shown
+		} catch {
+			setNotice(REQUEST_FAILED);
+		} finally {
+			setBusy(null);
+			void refresh();
+		}
 	}
 
 	return (
@@ -90,7 +114,9 @@ export function JournalView() {
 			</section>
 			<section className="flex flex-col gap-2">
 				<h2 className="font-medium">History</h2>
-				{entries.length === 0 ? <p className="text-sm text-muted-foreground">No debrief yet.</p> : null}
+				{loadFailed ? <p role="alert" className="text-sm text-destructive">{LOAD_FAILED}</p> : null}
+				{!loadFailed && entries.length === 0 ? <p className="text-sm text-muted-foreground">No debrief yet.</p> : null}
+				{truncated ? <p className="text-sm text-muted-foreground">Showing newest {LIST_LIMIT}.</p> : null}
 				{entries.map((e) => (
 					<EntryCard key={e.id} entry={e} />
 				))}
