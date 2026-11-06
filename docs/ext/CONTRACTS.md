@@ -127,7 +127,7 @@ Derivation (`deriveCards`): replay in file order; the first `created` for an id 
 
 ## `review-focus.jsonl`
 
-Event `focus`: `{type:"focus", chatId, cardId, at}`. Written once per "Ask the tutor" session (a `kind: "review"` chat), never by the daily review. Derivation (`focusCardOf`): the last `focus` event for a chat names the card the tutor is focused on; a chat with no event is an ordinary session.
+Event `focus`: `{type:"focus", chatId, cardId, at}` (a card) or `{type:"focus", chatId, nodeId, at}` (a node with no card yet). Exactly one of `cardId` and `nodeId` is present, each a non-empty string; any other shape is invalid and skipped by readers. Written once per tutor session (a `kind: "review"` chat): "Ask the tutor" on a card writes the card form, "With the tutor" on a node without a card writes the node form. Never written by the daily review. Derivation (`focusTargetOf`): the last `focus` event for a chat names what the tutor is focused on; a chat with no event is an ordinary session. `focusCardOf` returns the card of a card event and null otherwise. Events written before the node form stay valid (they are card events).
 
 ## `review.jsonl`
 
