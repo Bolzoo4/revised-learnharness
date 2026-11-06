@@ -162,7 +162,7 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 		const r = await post("/api/ext/study/drafts", { action: "complete", documentId: doc.id });
 		setBusy(false);
 		if (!r.ok) return showError(REQUEST_FAILED);
-		say(`${String(r.json.proposed)} draft(s) proposed from ${Array.isArray(r.json.pages) ? r.json.pages.length : 0} page(s).${r.json.ceilingReached === true ? " The daily cost ceiling was reached: run it again tomorrow for the rest." : ""}`);
+		say(`${String(r.json.proposed)} draft(s) proposed from ${Array.isArray(r.json.pages) ? r.json.pages.length : 0} page(s).${r.json.ceilingReached === true ? " The daily cost ceiling was reached: run it again tomorrow for the rest." : ""}${r.json.providerLimited === true ? " The AI provider's usage limit is reached: run it again later for the rest." : ""}`);
 		await loadDrafts();
 	}
 	async function decide(kind: "approve" | "reject") {

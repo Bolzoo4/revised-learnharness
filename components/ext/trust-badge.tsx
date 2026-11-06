@@ -76,9 +76,10 @@ export function TrustBadge({ nodeId }: { nodeId: string }) {
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ nodeIds: [nodeId] }),
 			});
-			const body = (await res.json()) as { error?: string; failed?: string[]; skippedBudget?: string[] };
+			const body = (await res.json()) as { error?: string; failed?: string[]; skippedBudget?: string[]; providerLimited?: string[] };
 			if (!res.ok) setError(body.error ?? "Verification failed.");
 			else if ((body.failed?.length ?? 0) > 0) setError("The check failed; the trust level is unchanged.");
+			else if ((body.providerLimited?.length ?? 0) > 0) setError("The AI provider's usage limit is reached; try again later.");
 			else if ((body.skippedBudget?.length ?? 0) > 0) setError("The daily cost ceiling is reached.");
 			await load();
 		} catch {

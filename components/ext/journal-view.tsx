@@ -53,6 +53,7 @@ export function JournalView() {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [loadFailed, setLoadFailed] = useState(false);
 	const [truncated, setTruncated] = useState(false);
+	const [pausedUntil, setPausedUntil] = useState<string | null>(null);
 
 	/** A failed list is an error state, not an empty history. Never throws: the view keeps what it had. */
 	const refresh = useCallback(async () => {
@@ -62,9 +63,10 @@ export function JournalView() {
 				setLoadFailed(true);
 				return;
 			}
-			const json = (await res.json()) as { entries: Entry[]; open: OpenSession[]; truncated?: boolean };
+			const json = (await res.json()) as { entries: Entry[]; open: OpenSession[]; truncated?: boolean; providerPausedUntil?: string | null };
 			setEntries(json.entries);
 			setOpen(json.open);
+			setPausedUntil(typeof json.providerPausedUntil === "string" ? json.providerPausedUntil : null);
 			setTruncated(json.truncated === true);
 			setLoadFailed(false);
 		} catch {
@@ -100,6 +102,7 @@ export function JournalView() {
 
 	return (
 		<div className="flex flex-col gap-6">
+			{pausedUntil !== null ? <p role="status">Debriefs paused: provider usage limit reached, retrying around {new Date(pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</p> : null}
 			{notice !== null ? <p role="status">{notice}</p> : null}
 			{fresh !== null ? <EntryCard entry={fresh} highlight /> : null}
 			<section className="flex flex-col gap-2">

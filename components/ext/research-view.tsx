@@ -24,6 +24,8 @@ interface ResearchStatus {
 	startedAt?: string;
 	steers: string[];
 	lastCycle: CycleLogEntry | null;
+	/** ISO end of a provider usage-limit pause, while one is in force. */
+	providerPausedUntil?: string | null;
 }
 interface Mark {
 	id: string;
@@ -191,6 +193,7 @@ export function ResearchView() {
 			<section className="flex flex-col gap-2">
 				<h2 className="font-medium">Status</h2>
 				<p className="text-sm">{status === null ? "Loading" : status.running ? `Running (${status.trigger ?? "manual"}, started ${status.startedAt ?? "now"})` : "Idle"}</p>
+				{status?.providerPausedUntil ? <p className="text-sm" role="status">Paused: the AI provider's usage limit is reached, retrying around {new Date(status.providerPausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.</p> : null}
 				{status?.lastCycle && (
 					<p className="text-sm text-muted-foreground">
 						Last cycle ended {new Date(status.lastCycle.endedAt).toLocaleString()}: {status.lastCycle.stoppedBy}, {status.lastCycle.nodesAdded} nodes added.
