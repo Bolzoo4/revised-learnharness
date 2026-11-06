@@ -30,7 +30,7 @@ export function isExtNavActive(pathname: string | null, href: string): boolean {
 /** The list itself, driven by the pathname it is given (pure: testable without the router). */
 export function ExtNavList({ pathname }: { pathname: string | null }) {
 	return (
-		<nav aria-label="Learning pages" data-testid="ext-nav" className="mx-3 mb-2 flex flex-col gap-0.5">
+		<nav aria-label="Learning pages" data-testid="ext-nav" className="-mt-0.5 mx-3 mb-2 flex flex-col gap-1.5">
 			{EXT_NAV_ITEMS.map((item) => {
 				const active = isExtNavActive(pathname, item.href);
 				const Icon = item.icon;
@@ -41,11 +41,11 @@ export function ExtNavList({ pathname }: { pathname: string | null }) {
 						aria-current={active ? "page" : undefined}
 						data-testid={`ext-nav-${item.label.toLowerCase()}`}
 						className={cn(
-							"flex items-center gap-2 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+							"flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
 							active ? "bg-accent text-foreground" : "text-muted-foreground",
 						)}
 					>
-						<Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground/70" />
+						<Icon aria-hidden="true" className="size-3" />
 						{item.label}
 					</Link>
 				);
