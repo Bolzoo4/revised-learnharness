@@ -219,3 +219,23 @@ export function lectureNodeRefs(lecture: Lecture): string[] {
 export function lectureSlideTexts(lecture: Lecture): string[] {
 	return lecture.slides.flatMap(slideTexts);
 }
+
+/** The longest exercise prompt the lecture lists carry; the full block text stays in the lecture. */
+export const MAX_EXERCISE_PROMPT_CHARS = 1000;
+
+export interface ExerciseItem {
+	blockId: string;
+	/** The exercise block's text, clamped to MAX_EXERCISE_PROMPT_CHARS characters (with an ellipsis when cut). */
+	prompt: string;
+}
+
+/** The lecture's exercise blocks, in order: the prompt is the block text, bounded. */
+export function exercisesOf(lecture: Pick<Lecture, "blocks">): ExerciseItem[] {
+	return lecture.blocks
+		.filter((b) => b.role === "exercise")
+		.map((b) => {
+			const chars = [...b.text];
+			const prompt = chars.length > MAX_EXERCISE_PROMPT_CHARS ? `${chars.slice(0, MAX_EXERCISE_PROMPT_CHARS).join("")}…` : b.text;
+			return { blockId: b.id, prompt };
+		});
+}

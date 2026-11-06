@@ -32,6 +32,8 @@ export interface OfficeHoursToolContext {
 	chatStore: { getChat(id: string): { messages: LhMessage[] } | null };
 	/** The designated source, or null when the session has none. */
 	source(): { label: string; text: string } | null;
+	/** The exercise the session works on (a lecture's exercise), or null. Read once per turn when the agent is built. */
+	focus?(): string | null;
 	/** Checks the items against the source and the work, records the verdict (and the grading of an exercise). */
 	submitVerdict(items: VerdictItem[], work: string): VerdictReport;
 }

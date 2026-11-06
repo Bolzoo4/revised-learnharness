@@ -242,11 +242,13 @@ Derived on every call, never stored.
 A JSON object written atomically (temp file and rename), not a ledger. Readers skip a file that is not valid JSON or whose shape this schema rejects; a reader that finds `format.json` newer than it understands must refuse.
 
 - `version`: `1`. `id`: `lec_b<8 hex>_c<NN>_l<NN>` (`NN` at least 2 digits, zero padded). The id is the directory name; no other string is a valid id.
-- `bookId`: `b` plus the first 8 hex of the SHA-256 of the absolute PDF path. `bookTitle`: string. `title`: non-empty. `summary`: string (3 to 4 sentences handed to the next lecture of the chapter).
+- `bookId`: `b` plus the first 8 hex of the SHA-256 of the absolute PDF path. An uploaded PDF's path is its content-addressed copy `<data>/ext/documents/<sha256>.pdf` (the study store), so the same bytes always give the same bookId. `bookTitle`: string. `title`: non-empty. `summary`: string (3 to 4 sentences handed to the next lecture of the chapter).
 - `chapter`: `{index (1-based int), title, pageStart, pageEnd}` (pages 1-based, inclusive). `order`: int at least 1, the position inside the chapter.
 - `chapterSourceId`: the notes-source id (`src_` plus the first 12 hex of the SHA-256 of the chapter label `"<bookTitle>/<NN> <chapter title>"`, `NN` the chapter index padded to 2) under which the chapter graph was extracted. `createdAt`: ISO-8601.
 - `slides`: array of `{id, heading, elements}`; `elements`: array of `{id, type, content?, items?}` with `type` in `text` | `formula` | `list`. `text` and `formula` carry `content` (string); `list` carries `items` (strings). `text` and list items may contain node links `[[n_<id>]]` or `[[n_<id>|label]]` (`n_` followed by letters, digits, `_` or `-`; the label may be empty). A `formula` is LaTeX without delimiters.
 - `blocks`: ordered array of `{id, role, slideId, text, nodeIds, cues, seconds?}`. `role` in `narrate` (spoken discourse), `note` (editorial addition not in the source), `exercise` (timed prompt; `seconds` is required and a positive int), `reveal` (discussion following an exercise). `seconds` appears on `exercise` blocks only. `nodeIds`: graph node ids the block covers. `cues`: array of `{atChar (int >= 0), target (element id), style}` with `style` in `box` | `underline`.
+
+`GET /api/ext/lectures` lists each lecture with its `bookId` and `exercises`: `[{blockId, prompt}]`, the lecture's `exercise` blocks in order, `prompt` the block text clamped to 1000 characters (with an ellipsis when cut; the full text stays in the lecture).
 
 ### Lecture validator rules (semantic; the lecture is rejected when any applies)
 
@@ -265,7 +267,11 @@ For every lecture: one special node `{id: lectureId, title, kind: "lecture"}`; f
 
 ## `office-hours.jsonl` (ledger, keyed by chat id)
 
-Event `designated`: `{type:"designated", chatId, label, sha256, exercise?, at}`. `sha256` is 64 lowercase hex, the name of a file `snapshots/<sha256>.txt`; `exercise`, when present, is `{setId, exerciseId}`. The latest `designated` event of a chat is its designated source.
+Event `designated`: `{type:"designated", chatId, label, sha256, exercise?, focus?, at}`. `sha256` is 64 lowercase hex, the name of a file `snapshots/<sha256>.txt`; `exercise`, when present, is `{setId, exerciseId}`. The latest `designated` event of a chat is its designated source.
+
+`focus` (optional; absent on older events, which stay valid): the exercise a session works on when it was opened from a lecture (the text of the lecture's exercise block). A string that is not blank and has at most 4000 characters (`MAX_FOCUS_CHARS`); any other `focus` makes the event invalid and it is skipped by readers. The latest `designated` event's `focus` is the session's focus. The agent's instructions carry it: the standing instructions, then the focus fenced in an `<exercise>` tag (a `</exercise` inside the focus is escaped). A focused session's record opens with an assistant message showing the label and the exercise; it is not learner work and never counts toward a verdict.
+
+`POST /api/ext/lectures/[id]/office-hours` with `{blockId}` opens a session for an exercise of a lecture (201 `{chatId}`): the designated source is the text of the lecture's chapter, label `"<bookTitle> ch. <n>: <lecture title> · exercise <k>"` (`k` the exercise's position among the lecture's exercise blocks, from 1), focus the exercise block's text. The chapter text is re-read from the stored book PDF (pages `chapter.pageStart`..`pageEnd`, the same reader as the chapter run); when no stored PDF exists for the book, or it cannot be read, or reads empty, the answer is 409 with the fixed text "the chapter text is not available: its book PDF is no longer stored" and no session is created. A `blockId` that is not an exercise block of this lecture (or is unknown) is 404 "unknown exercise"; a block of this lecture that is not an exercise is 400.
 
 Event `verdict`: `{type:"verdict", chatId, outcome, items, discarded, at}`; `outcome` in `consistent` | `differs` | `not_verifiable`; `items`: the kept items `{stepRef, sourceQuote, workQuote, stance}` with `stance` in `matches` | `differs` | `missing`; `discarded`: count of dropped items.
 

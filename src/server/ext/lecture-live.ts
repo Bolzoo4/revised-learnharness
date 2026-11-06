@@ -16,7 +16,9 @@ import { extraction } from "../chat-handler.ts";
 import { sourceDirectory } from "../source-organization.ts";
 import { stores } from "../stores.ts";
 import { liveCostGate } from "./cost-live.ts";
-import { createLectureService, type BookRunStatus } from "./lecture-service.ts";
+import { bookIdFor, createLectureService, type BookRunStatus } from "./lecture-service.ts";
+import { createLectureOfficeHours } from "./lecture-office-hours.ts";
+import { practiceService } from "./practice-live.ts";
 import { keepStagedPdf } from "./pdf-upload.ts";
 import { extStores } from "./stores.ts";
 import { writerDeps } from "./study-engine.ts";
@@ -57,3 +59,14 @@ export const lectureService = createLectureService({
 export function keepUploadedBook(stagedPath: string): Promise<string> {
 	return keepStagedPdf(stagedPath, extStores.documentFiles);
 }
+
+/** Office hours from a lecture's exercise: the chapter text is the source, the exercise the focus. */
+export const lectureOfficeHours = createLectureOfficeHours({
+	lectures: extStores.lecturesStore,
+	bookPdf: (bookId) => {
+		const entry = createSourceLibrary(extStores.sourcesStore).list().find((e) => e.kind === "pdf" && bookIdFor(e.locator) === bookId);
+		return entry?.locator ?? null;
+	},
+	readChapterText,
+	startSession: (input) => practiceService.startSession(input),
+});

@@ -27,6 +27,7 @@ function harness(opts: { trust?: Record<string, TrustLevel>; generated?: Exercis
 	const prompts: Array<string | null> = [];
 	const queue = [...(opts.generated ?? [[exercise({ nodeIds: ["n_a", "n_c"], steps: [{ id: "s1", text: "Write each number as twice an integer.", nodeIds: ["n_a", "n_c"] }] })]])];
 	let chats = 0;
+	const saved: Array<{ chatId: string; messages: unknown[] }> = [];
 	const deps: PracticeServiceDeps = {
 		officeHours: { append: (e) => void oh.push(parseOfficeHoursEvent(e)!), readAll: () => [...oh] },
 		exercises: { append: (e) => void ex.push(parseExerciseEvent(e)!), readAll: () => [...ex] },
@@ -40,6 +41,7 @@ function harness(opts: { trust?: Record<string, TrustLevel>; generated?: Exercis
 		},
 		gate: { allowed: () => opts.allowed ?? true, record: () => {} },
 		createSession: () => ({ id: `chat_${++chats}` }),
+		saveMessages: (chatId, messages) => void saved.push({ chatId, messages }),
 		goalScope: (id) => (id === "goal_1" ? { title: "Even sums", targetNodeIds: ["n_c"], scope: ["n_a", "n_b", "n_c"], status: "active" } : null),
 		nodes: (ids) => ids.map((id) => ({ id, name: id, statement: `statement of ${id}` })),
 		trust: (ids) => new Map(ids.map((id) => [id, opts.trust?.[id] ?? "sourced"] as const)),
@@ -54,7 +56,7 @@ function harness(opts: { trust?: Record<string, TrustLevel>; generated?: Exercis
 		now: () => "2026-11-04T10:00:00.000Z",
 		newId: () => "abc",
 	};
-	return { svc: createPracticeService(deps), oh, ex, applied, prompts };
+	return { svc: createPracticeService(deps), oh, ex, applied, prompts, saved };
 }
 
 const item = (stepRef: string, sourceQuote: string, workQuote: string, stance: "matches" | "differs" | "missing" = "matches") => ({ stepRef, sourceQuote, workQuote, stance });
@@ -105,6 +107,48 @@ describe("free office-hours session (REQ-lec-12, 13, 14)", () => {
 		const h = harness();
 		const s = h.svc.startSession({ label: "M", sourceText: SRC });
 		assert.throws(() => h.svc.submitVerdict(s.chatId, [], "  "), /not written any work/);
+	});
+});
+
+describe("focused session (a lecture's exercise, REQ-lec-12)", () => {
+	const EXERCISE = "Show that the sum of two even numbers is even.";
+
+	it("designates the chapter text, stores the focus on the designation, and opens the record with the exercise", () => {
+		const { svc, oh, saved } = harness();
+		const view = svc.startSession({ label: "Probability 1 ch. 2: Sigma algebras · exercise 1", sourceText: SRC, focus: EXERCISE });
+		assert.equal(view.chatId, "chat_1");
+		const designated = oh.find((e) => e.type === "designated");
+		assert.equal(designated?.type === "designated" && designated.focus, EXERCISE);
+		assert.equal(svc.focusOf("chat_1"), EXERCISE);
+		assert.equal(saved.length, 1);
+		assert.equal(saved[0]!.chatId, "chat_1");
+		const opening = saved[0]!.messages[0] as { role: string; content: Array<{ text: string }> };
+		assert.equal(opening.role, "assistant");
+		assert.ok(opening.content[0]!.text.includes(EXERCISE));
+	});
+
+	it("a session without a focus has no focus and records no opening message", () => {
+		const { svc, saved, oh } = harness();
+		svc.startSession({ label: "Free", sourceText: SRC });
+		assert.equal(svc.focusOf("chat_1"), null);
+		assert.equal(saved.length, 0);
+		assert.equal(oh.find((e) => e.type === "designated" && e.focus !== undefined), undefined);
+	});
+
+	it("a focus without a source text is refused, and an oversized focus too, before any session is created", () => {
+		const { svc, saved, oh } = harness();
+		assert.throws(() => svc.startSession({ label: "L", focus: EXERCISE }), (e: unknown) => e instanceof PracticeError && e.status === 400);
+		assert.throws(() => svc.startSession({ label: "L", sourceText: SRC, focus: "x".repeat(4001) }), (e: unknown) => e instanceof PracticeError && e.status === 400);
+		assert.equal(saved.length, 0);
+		assert.equal(oh.length, 0);
+	});
+
+	it("the agent's tool context reads the focus of its own session", () => {
+		const { svc } = harness();
+		svc.startSession({ label: "L", sourceText: SRC, focus: EXERCISE });
+		const ctx = svc.toolContext("chat_1", { getChat: () => null });
+		assert.equal(ctx.focus?.(), EXERCISE);
+		assert.equal(svc.toolContext("chat_other", { getChat: () => null }).focus?.(), null);
 	});
 });
 

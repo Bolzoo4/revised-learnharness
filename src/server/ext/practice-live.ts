@@ -22,6 +22,7 @@ export const practiceService = createPracticeService({
 	snapshots: { put: (t) => extStores.snapshotStore.put(t), get: (h) => extStores.snapshotReader.get(h) },
 	gate: liveCostGate,
 	createSession: (title) => stores.chatStore.createChat(title, "office_hours"),
+	saveMessages: (chatId, messages) => stores.chatStore.saveMessages(chatId, messages),
 	goalScope: (goalId) => {
 		const goal = deriveGoals(extStores.goalsStore.readEvents()).find((x) => x.id === goalId);
 		if (goal === undefined) return null;

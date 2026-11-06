@@ -1,11 +1,23 @@
+import { exercisesOf } from "@/src/core";
 import { httpErrorResponse, isPdfUpload, keepUploadedBook, lectureService, readJsonObject, stagePdfUpload } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
-/** GET → { runs, lectures }: the per-chapter run status and the saved lectures (without their blocks). */
+/**
+ * GET → { runs, lectures }: the per-chapter run status and the saved lectures (without their blocks).
+ * Each lecture carries its bookId and its exercises: [{ blockId, prompt }] (the prompt bounded).
+ */
 export async function GET() {
 	try {
-		const lectures = lectureService.listLectures().map((l) => ({ id: l.id, title: l.title, bookTitle: l.bookTitle, chapter: l.chapter, order: l.order }));
+		const lectures = lectureService.listLectures().map((l) => ({
+			id: l.id,
+			bookId: l.bookId,
+			title: l.title,
+			bookTitle: l.bookTitle,
+			chapter: l.chapter,
+			order: l.order,
+			exercises: exercisesOf(l),
+		}));
 		return Response.json({ runs: lectureService.runStatuses(), lectures });
 	} catch (error) {
 		return httpErrorResponse(error);

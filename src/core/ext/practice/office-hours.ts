@@ -7,6 +7,9 @@
 
 import { parseVerdictItem, type VerdictItem, type VerdictOutcome } from "./verdict.ts";
 
+/** The longest focus (the exercise text a session works on) a designated event carries. */
+export const MAX_FOCUS_CHARS = 4000;
+
 export type OfficeHoursEvent =
 	| {
 			type: "designated";
@@ -17,11 +20,15 @@ export type OfficeHoursEvent =
 			sha256: string;
 			/** Set when the session grades an exercise. */
 			exercise?: { setId: string; exerciseId: string };
+			/** The exercise the session works on (a lecture's exercise): non-blank, at most MAX_FOCUS_CHARS characters. Absent on older events. */
+			focus?: string;
 			at: string;
 	  }
 	| { type: "verdict"; chatId: string; outcome: VerdictOutcome; items: VerdictItem[]; discarded: number; at: string };
 
 const isStr = (v: unknown): v is string => typeof v === "string" && v !== "";
+/** A focus is text that is not blank and not longer than MAX_FOCUS_CHARS characters. */
+export const isFocus = (v: unknown): v is string => typeof v === "string" && v.trim() !== "" && [...v].length <= MAX_FOCUS_CHARS;
 
 export function parseOfficeHoursEvent(raw: unknown): OfficeHoursEvent | null {
 	if (typeof raw !== "object" || raw === null) return null;
@@ -31,12 +38,14 @@ export function parseOfficeHoursEvent(raw: unknown): OfficeHoursEvent | null {
 		if (!isStr(r.label) || !/^[0-9a-f]{64}$/.test(String(r.sha256))) return null;
 		const ex = r.exercise as { setId?: unknown; exerciseId?: unknown } | undefined;
 		if (ex !== undefined && (!isStr(ex.setId) || !isStr(ex.exerciseId))) return null;
+		if (r.focus !== undefined && !isFocus(r.focus)) return null;
 		return {
 			type: "designated",
 			chatId: r.chatId,
 			label: r.label,
 			sha256: r.sha256 as string,
 			...(ex ? { exercise: { setId: ex.setId as string, exerciseId: ex.exerciseId as string } } : {}),
+			...(r.focus !== undefined ? { focus: r.focus as string } : {}),
 			at: r.at,
 		};
 	}

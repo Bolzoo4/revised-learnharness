@@ -11,7 +11,7 @@ export * from "./panel-history.ts";
 export { isPracticeLike, sessionMatchesFilter, type SessionListFilter } from "./practice/session-kind.ts";
 export * from "./study/context.ts";
 export { activeCue } from "./lecture/cues.ts";
-export { parseNodeLinks, stripNodeLinks, type TextPart } from "./lecture/lecture.ts";
+export { exercisesOf, MAX_EXERCISE_PROMPT_CHARS, parseNodeLinks, stripNodeLinks, type ExerciseItem, type TextPart } from "./lecture/lecture.ts";
 export type {
 	Block as LectureBlock,
 	Cue as LectureCue,

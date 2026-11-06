@@ -12,6 +12,8 @@
  */
 
 import { randomBytes } from "node:crypto";
+import type { LhMessage } from "../../core/native-messages.ts";
+import { newMessageId } from "../../core/native-messages.ts";
 import type { OfficeHoursToolContext, VerdictReport } from "../../agent/ext/practice/office-hours-tools.ts";
 import type { ExerciseNode, ExerciseWriteInput } from "../../agent/ext/practice/exercise-writer.ts";
 import type { CostGate } from "../../core/ext/cost-gate.ts";
@@ -29,7 +31,7 @@ import {
 	type ExerciseSetState,
 	type NodeOutcome,
 } from "../../core/ext/practice/exercises.ts";
-import { designationOf, type OfficeHoursEvent } from "../../core/ext/practice/office-hours.ts";
+import { designationOf, MAX_FOCUS_CHARS, type OfficeHoursEvent } from "../../core/ext/practice/office-hours.ts";
 import { checkVerdictItems, OUTCOME_TEXT, verdictOutcome, type VerdictItem } from "../../core/ext/practice/verdict.ts";
 import type { SnapshotStore } from "../../core/ext/ports.ts";
 import { PROVIDER_LIMIT_MESSAGE } from "../../core/ext/provider-limit.ts";
@@ -55,6 +57,8 @@ export interface PracticeServiceDeps {
 	gate: CostGate;
 	/** Creates an `office_hours` chat. */
 	createSession(title: string): { id: string };
+	/** Saves the messages of a session's record (the opening message of a focused session). */
+	saveMessages(chatId: string, messages: LhMessage[]): void;
 	/** The goal's targets and scope, or null for an unknown or inactive goal. */
 	goalScope(goalId: string): { title: string; targetNodeIds: string[]; scope: string[]; status: string } | null;
 	nodes(ids: readonly string[]): ExerciseNode[];
@@ -72,6 +76,25 @@ export interface SessionView {
 	exercise?: { setId: string; exerciseId: string };
 }
 
+/**
+ * The first message of a focused session: the tutor's opening, shown before anything else. It is an assistant
+ * message with no model call behind it (the stamps are placeholders, as for other synthetic records).
+ * It never counts as the learner's work: verdicts read only the learner's messages.
+ */
+function openingMessage(label: string, focus: string): LhMessage {
+	return {
+		id: newMessageId(),
+		role: "assistant",
+		content: [{ type: "text", text: `${label}\n\n${focus}\n\nWrite your attempt here and send it. Type /verdict when you want it compared with the chapter.` }],
+		timestamp: Date.now(),
+		api: "faux",
+		provider: "synthetic",
+		model: "synthetic-office-hours",
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+		stopReason: "stop",
+	} as LhMessage;
+}
+
 export function createPracticeService(deps: PracticeServiceDeps) {
 	const now = deps.now ?? (() => new Date().toISOString());
 	const newId = deps.newId ?? (() => randomBytes(5).toString("hex"));
@@ -85,20 +108,33 @@ export function createPracticeService(deps: PracticeServiceDeps) {
 		return s;
 	}
 
-	function designate(chatId: string, label: string, text: string, exercise?: { setId: string; exerciseId: string }): void {
+	function designate(chatId: string, label: string, text: string, exercise?: { setId: string; exerciseId: string }, focus?: string): void {
 		const sha256 = deps.snapshots.put(text);
-		deps.officeHours.append({ type: "designated", chatId, label, sha256, ...(exercise ? { exercise } : {}), at: now() });
+		deps.officeHours.append({ type: "designated", chatId, label, sha256, ...(exercise ? { exercise } : {}), ...(focus ? { focus } : {}), at: now() });
 	}
 
-	/** REQ-lec-12: a free office-hours session on a pasted source (solutions manual passage, textbook proof). */
-	function startSession(input: { label: string; sourceText?: string }): SessionView {
+	/**
+	 * REQ-lec-12: a free office-hours session on a pasted source (solutions manual passage, textbook proof).
+	 * With `focus` (a lecture's exercise) the session is about that exercise: the focus rides the designation
+	 * into the agent's instructions, and the record opens with the exercise so the learner sees it first.
+	 */
+	function startSession(input: { label: string; sourceText?: string; focus?: string }): SessionView {
 		const label = input.label.trim();
 		if (label === "") throw new PracticeError(400, "label is required");
 		const text = input.sourceText?.trim() ?? "";
 		if (text.length > MAX_SOURCE_TEXT_CHARS) throw new PracticeError(400, "the source text is too long");
+		const focus = input.focus?.trim() ?? "";
+		if (focus !== "" && text === "") throw new PracticeError(400, "an exercise needs the text it is compared with");
+		if (focus !== "" && [...focus].length > MAX_FOCUS_CHARS) throw new PracticeError(400, "the exercise text is too long");
 		const chat = deps.createSession(`Office hours: ${label}`);
-		if (text !== "") designate(chat.id, label, text);
+		if (text !== "") designate(chat.id, label, text, undefined, focus === "" ? undefined : focus);
+		if (focus !== "") deps.saveMessages(chat.id, [openingMessage(label, focus)]);
 		return { chatId: chat.id, label };
+	}
+
+	/** The exercise a session works on, or null. */
+	function focusOf(chatId: string): string | null {
+		return designationOf(deps.officeHours.readAll(), chatId)?.focus ?? null;
 	}
 
 	/** REQ-lec-16: a session that grades one exercise; its designated source is the exercise's reference solution. */
@@ -196,11 +232,12 @@ export function createPracticeService(deps: PracticeServiceDeps) {
 	}
 
 	function toolContext(chatId: string, chatStore: OfficeHoursToolContext["chatStore"]): OfficeHoursToolContext {
-		return { chatId, chatStore, source: () => sourceOf(chatId), submitVerdict: (items, work) => submitVerdict(chatId, items, work) };
+		return { chatId, chatStore, source: () => sourceOf(chatId), focus: () => focusOf(chatId), submitVerdict: (items, work) => submitVerdict(chatId, items, work) };
 	}
 
 	return {
 		startSession,
+		focusOf,
 		startExercise,
 		submitVerdict,
 		createExerciseSet,
