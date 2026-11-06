@@ -5,7 +5,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { after, describe, it } from "node:test";
 import { HttpError } from "../src/server/ext/http-error.ts";
-import { stagePdfUpload } from "../src/server/ext/pdf-upload.ts";
+import { keepStagedPdf, stagePdfUpload, STALE_UPLOAD_MS, sweepStaleUploads } from "../src/server/ext/pdf-upload.ts";
+import { bookIdFor } from "../src/server/ext/lecture-service.ts";
+import { createDocumentFiles } from "../src/store/ext/documents-store.ts";
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "lh-pdf-upload-"));
 after(() => fs.rmSync(ROOT, { recursive: true, force: true }));
@@ -100,5 +102,74 @@ describe("stagePdfUpload", () => {
 		const req = new Request("http://localhost/x", { method: "POST", headers: { "Content-Type": "multipart/form-data" }, body: "garbage" });
 		await rejectsWith(stagePdfUpload(req, { tempRoot: root }), 400, /could not be read/);
 		assert.deepEqual(entries(root), []);
+	});
+});
+
+describe("stale upload sweep", () => {
+	const DAY_AGO = Date.now() - STALE_UPLOAD_MS - 60_000;
+
+	it("removes upload-* directories older than 24 hours and keeps fresh ones and other entries", async () => {
+		const root = tempRoot();
+		const old = path.join(root, "upload-old");
+		const fresh = path.join(root, "upload-fresh");
+		const other = path.join(root, "keep-old");
+		for (const d of [old, fresh, other]) {
+			fs.mkdirSync(d);
+			fs.writeFileSync(path.join(d, "x.pdf"), "x");
+		}
+		fs.writeFileSync(path.join(root, "upload-old-file"), "not a dir");
+		fs.utimesSync(old, DAY_AGO / 1000, DAY_AGO / 1000);
+		fs.utimesSync(other, DAY_AGO / 1000, DAY_AGO / 1000);
+		assert.equal(await sweepStaleUploads(root, Date.now()), 1);
+		assert.deepEqual(entries(root).sort(), ["keep-old", "upload-fresh", "upload-old-file"]);
+	});
+
+	it("runs before a new staging, so a crashed request's leftovers do not stay forever", async () => {
+		const root = tempRoot();
+		const old = path.join(root, "upload-crashed");
+		fs.mkdirSync(old);
+		fs.utimesSync(old, DAY_AGO / 1000, DAY_AGO / 1000);
+		const staged = await stagePdfUpload(upload([{ name: "file", value: PDF }]), { tempRoot: root });
+		assert.equal(fs.existsSync(old), false);
+		await staged.release();
+		assert.deepEqual(entries(root), []);
+	});
+
+	it("a missing temp root is not an error", async () => {
+		assert.equal(await sweepStaleUploads(path.join(ROOT, "no-such-root"), Date.now()), 0);
+	});
+});
+
+describe("keepStagedPdf: the ingest reads a stable copy", () => {
+	it("copies the staged PDF into the documents store; the same bytes give the same path and bookId", async () => {
+		const extDir = fs.mkdtempSync(path.join(ROOT, "ext-"));
+		const files = createDocumentFiles(extDir);
+		const root = tempRoot();
+		const first = await stagePdfUpload(upload([{ name: "file", value: PDF }]), { tempRoot: root });
+		const stable = await keepStagedPdf(first.path, files);
+		await first.release();
+		assert.equal(fs.existsSync(first.path), false);
+		assert.ok(stable.startsWith(path.join(extDir, "documents")));
+		assert.deepEqual(fs.readFileSync(stable), Buffer.from(PDF));
+
+		const second = await stagePdfUpload(upload([{ name: "file", value: PDF, filename: "other name.pdf" }]), { tempRoot: root });
+		const again = await keepStagedPdf(second.path, files);
+		await second.release();
+		assert.equal(again, stable);
+		assert.equal(bookIdFor(again), bookIdFor(stable));
+		assert.equal(fs.existsSync(stable), true, "the stored copy outlives the temp directory");
+	});
+
+	it("a different PDF gets a different path and bookId", async () => {
+		const files = createDocumentFiles(fs.mkdtempSync(path.join(ROOT, "ext-")));
+		const root = tempRoot();
+		const a = await stagePdfUpload(upload([{ name: "file", value: PDF }]), { tempRoot: root });
+		const b = await stagePdfUpload(upload([{ name: "file", value: "%PDF-1.7 another book" }]), { tempRoot: root });
+		const pa = await keepStagedPdf(a.path, files);
+		const pb = await keepStagedPdf(b.path, files);
+		await a.release();
+		await b.release();
+		assert.notEqual(pa, pb);
+		assert.notEqual(bookIdFor(pa), bookIdFor(pb));
 	});
 });

@@ -8,8 +8,9 @@
  * for the %PDF- header and the size limit) and an optional `title` text field.
  * The client's file name and any path are never read, stored or echoed: the
  * staged copy gets a generated name under a private temp directory inside the
- * extension data folder. The caller registers or ingests the staged path and
- * then calls release(), which deletes the temp directory whatever happened.
+ * extension data folder. The caller keeps a stable copy (keepStagedPdf) and then
+ * calls release(), which deletes the temp directory whatever happened. Stale
+ * temp directories of crashed requests are swept before each new staging.
  *
  * Body bounding follows app/api/graph/import/route.ts (readImportForm): the
  * bytes are counted as they arrive, so a missing or false Content-Length cannot
@@ -24,6 +25,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { EXT_PATHS } from "../../store/ext/paths.ts";
+import type { DocumentFiles } from "../../core/ext/study/ports.ts";
 import { HttpError } from "./http-error.ts";
 import { MAX_PDF_BYTES } from "./study-service.ts";
 
@@ -32,6 +34,8 @@ const MULTIPART_ALLOWANCE_BYTES = 1024 * 1024;
 const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // "%PDF-"
 const MAX_TITLE_CHARS = 200;
 export const DEFAULT_UPLOAD_TITLE = "Uploaded PDF";
+/** A staged copy older than this is left behind by a crashed request and is removed before the next upload. */
+export const STALE_UPLOAD_MS = 24 * 60 * 60 * 1000;
 
 const MSG = {
 	tooLarge: "that PDF is too large (limit 500 MB)",
@@ -58,6 +62,45 @@ export interface StagedPdf {
 	readonly title: string;
 	/** Deletes the staged copy and its directory. Never rejects. */
 	release(): Promise<void>;
+}
+
+/**
+ * Removes the `upload-*` directories of the temp area that are older than maxAgeMs (by
+ * modification time). Symbolic links and other entries are never followed or removed.
+ * Failures are ignored: a sweep must never refuse an upload. Returns how many were removed.
+ */
+export async function sweepStaleUploads(tempRoot: string, nowMs: number, maxAgeMs: number = STALE_UPLOAD_MS): Promise<number> {
+	let names: string[];
+	try {
+		names = await fs.readdir(tempRoot);
+	} catch {
+		return 0;
+	}
+	let removed = 0;
+	for (const name of names) {
+		if (!name.startsWith("upload-")) continue;
+		const dir = path.join(tempRoot, name);
+		try {
+			const info = await fs.lstat(dir);
+			if (!info.isDirectory() || nowMs - info.mtimeMs <= maxAgeMs) continue;
+			await fs.rm(dir, { recursive: true, force: true });
+			removed += 1;
+		} catch {
+			// Another request may be removing it, or it vanished: leave it.
+		}
+	}
+	return removed;
+}
+
+/**
+ * Copies a staged PDF into the content-addressed documents store (the same store the study
+ * upload uses) and returns that stable path. The same bytes always yield the same path, so
+ * the book's bookId is the same however often it is uploaded. The caller may release the
+ * staged copy as soon as this resolves.
+ */
+export async function keepStagedPdf(stagedPath: string, files: Pick<DocumentFiles, "putPdf">): Promise<string> {
+	const bytes = new Uint8Array(await fs.readFile(stagedPath));
+	return files.putPdf(bytes).path;
 }
 
 /** The extension temp area: <data root>/ext/tmp, created on demand. */
@@ -137,6 +180,7 @@ export async function stagePdfUpload(request: Request, options: PdfUploadOptions
 
 	const tempRoot = options.tempRoot ?? uploadTempRoot();
 	await fs.mkdir(tempRoot, { recursive: true, mode: 0o700 });
+	await sweepStaleUploads(tempRoot, Date.now());
 	const dir = await fs.mkdtemp(path.join(tempRoot, "upload-"));
 	const release = () => fs.rm(dir, { recursive: true, force: true }).then(() => undefined, () => undefined);
 	const filePath = path.join(dir, `${randomUUID()}.pdf`);
