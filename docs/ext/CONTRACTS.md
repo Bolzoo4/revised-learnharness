@@ -125,6 +125,10 @@ Event `status`: `{type:"status", cardId, status, at}` with `status` in `draft` |
 
 Derivation (`deriveCards`): replay in file order; the first `created` for an id defines the card; later `created` for the same id are ignored; `status` for an unknown card is ignored; a `status` event sets the status. Approval of a draft is a `status: active` event. Active variants of a node, in creation order, are indexed `0..k-1`; the n-th fixed review of the node (n counted from 0) shows variant `n mod k`; no active variant means the node cannot be reviewed through the fixed channel.
 
+## `review-focus.jsonl`
+
+Event `focus`: `{type:"focus", chatId, cardId, at}`. Written once per "Ask the tutor" session (a `kind: "review"` chat), never by the daily review. Derivation (`focusCardOf`): the last `focus` event for a chat names the card the tutor is focused on; a chat with no event is an ordinary session.
+
 ## `review.jsonl`
 
 Every event has `at` (ISO-8601). Readers skip events whose shape they reject.

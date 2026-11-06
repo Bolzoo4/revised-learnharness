@@ -11,6 +11,7 @@ export {
 	withTrustTags,
 } from "./verification.ts";
 export * from "./personal-layer.ts";
+export { parseReviewAnswer, parseSessionRequest, type ReviewAnswerInput } from "./review-input.ts";
 export * from "./personal-panel.ts";
 export {
 	decideNodeProposal,

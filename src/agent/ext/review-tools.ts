@@ -19,6 +19,7 @@ import type { LhMessage } from "../../core/native-messages.ts";
 import type { NextItem } from "../../core/ext/review-queries.ts";
 import type { RecordReviewInput, RecordReviewResult } from "../../core/ext/review-service.ts";
 import { askUserQuestionTool } from "../tools.ts";
+import type { ReviewFocus } from "./review-instructions.ts";
 import { invalidInputResult, toToolResult } from "../tool-execute.ts";
 import { healToolRecord } from "../tools/heal.ts";
 
@@ -30,6 +31,8 @@ export interface ReviewToolContext {
 	nextItem(): NextItem;
 	record(input: RecordReviewInput): RecordReviewResult;
 	proposeCard(input: { nodeId: string; question: string; answer: string }): string;
+	/** Set when the chat was opened from one card ("Ask the tutor"); the review loop is then not run. */
+	focus?: ReviewFocus | null;
 	/** Epoch milliseconds; injectable for tests. */
 	nowMs?: () => number;
 }

@@ -86,6 +86,8 @@ export interface DailyPlan {
 	deferred: PlanItem[];
 	/** Nodes assigned to the fixed channel that have no active card yet. */
 	needsCard: string[];
+	/** Estimated seconds of `items` (the sum of their channel costs). */
+	plannedSec: number;
 	due: number;
 	capacity: number;
 	newQuota: number;
@@ -173,5 +175,5 @@ export function dailyPlan(input: PlanInput): DailyPlan {
 			deferred.push(item);
 		}
 	}
-	return { items, deferred, needsCard, due: due.length, capacity, newQuota, remainingSec };
+	return { items, deferred, needsCard, plannedSec: used, due: due.length, capacity, newQuota, remainingSec };
 }

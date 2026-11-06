@@ -8,12 +8,16 @@
  */
 
 import { createPracticeAgent, type AgentBuildOptions } from "../teacher-agent.ts";
-import { REVIEW_INSTRUCTIONS } from "./review-instructions.ts";
+import { focusedReviewInstructions, REVIEW_INSTRUCTIONS } from "./review-instructions.ts";
 import { reviewTools, type ReviewToolContext } from "./review-tools.ts";
 
 export function createReviewAgent(ctx: ReviewToolContext, opts: AgentBuildOptions = {}) {
 	return createPracticeAgent(
 		{ chatId: ctx.chatId, chatStore: ctx.chatStore },
-		{ ...opts, tools: reviewTools(ctx), instructions: REVIEW_INSTRUCTIONS },
+		{
+			...opts,
+			tools: reviewTools(ctx),
+			instructions: ctx.focus ? focusedReviewInstructions(ctx.focus) : REVIEW_INSTRUCTIONS,
+		},
 	);
 }

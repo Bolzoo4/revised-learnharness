@@ -16,6 +16,7 @@ import { createLecturesStore } from "../../store/ext/lectures-store.ts";
 import { createLedger } from "../../store/ext/ledger.ts";
 import { createResearchStore } from "../../store/ext/research-store.ts";
 import { createReviewStore } from "../../store/ext/review-store.ts";
+import { parseFocusEvent } from "../../core/ext/review-focus.ts";
 import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
 import { createSourcesStore } from "../../store/ext/sources-store.ts";
@@ -38,6 +39,8 @@ export const extStores = {
 	costStore: createCostStore(EXT_PATHS.dir),
 	lecturesStore: createLecturesStore(EXT_PATHS.dir),
 	snapshotReader: createSnapshotReader(EXT_PATHS.dir),
+	/** Which card a tutor chat is focused on ("Ask the tutor"). */
+	reviewFocusLedger: createLedger(EXT_PATHS.dir, "review-focus.jsonl", parseFocusEvent),
 	officeHoursLedger: createLedger(EXT_PATHS.dir, "office-hours.jsonl", parseOfficeHoursEvent),
 	exercisesLedger: createLedger(EXT_PATHS.dir, "exercises.jsonl", parseExerciseEvent),
 	explanationsStore: createExplanationsStore(EXT_PATHS.dir),

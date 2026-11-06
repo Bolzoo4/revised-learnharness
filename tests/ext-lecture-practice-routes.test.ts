@@ -158,12 +158,12 @@ describe("review routes", () => {
 		await assertInternal(await plan.GET());
 	});
 	it("POST /review/session: 200 with a chatId; a thrown error is a generic 500", async () => {
-		const res = await reviewSession.POST();
+		const res = await reviewSession.POST(post("/api/ext/review/session", {}));
 		assert.equal(res.status, 200);
 		assert.equal(typeof (await res.json()).chatId, "string");
 		quiet();
 		mock.method(personalLayer, "startReviewSession", () => { throw new Error("boom: /secret/path"); });
-		await assertInternal(await reviewSession.POST());
+		await assertInternal(await reviewSession.POST(post("/api/ext/review/session", {})));
 	});
 	it("POST /review/marks: 400 for a malformed body or an invalid mark", async () => {
 		for (const body of ["{not json", "null", {}, { nodeId: "n" }, { goalId: "g", retention: "high" }]) {
