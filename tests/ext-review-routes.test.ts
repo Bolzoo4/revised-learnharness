@@ -62,6 +62,18 @@ describe("parseSessionRequest", () => {
 			assert.throws(() => parseSessionRequest({ cardId }), (e: unknown) => e instanceof HttpError && e.status === 400 && e.message === "cardId must be a card id");
 		}
 	});
+	it("a nodeId is accepted alone; it must be a non-empty string", () => {
+		assert.deepEqual(parseSessionRequest({ nodeId: "n_a" }), { nodeId: "n_a" });
+		for (const nodeId of ["", 3, null]) {
+			assert.throws(() => parseSessionRequest({ nodeId }), (e: unknown) => e instanceof HttpError && e.status === 400 && e.message === "nodeId must be a node id");
+		}
+	});
+	it("a cardId and a nodeId together are refused with one fixed message", () => {
+		assert.throws(
+			() => parseSessionRequest({ cardId: "card_1", nodeId: "n_a" }),
+			(e: unknown) => e instanceof HttpError && e.status === 400 && e.message === "send a cardId or a nodeId, not both",
+		);
+	});
 });
 
 describe("POST /api/ext/review/answer", () => {
@@ -136,6 +148,36 @@ describe("POST /api/ext/review/session with a cardId", () => {
 		const res = await session.POST(post("/api/ext/review/session", { cardId: "card_1" }));
 		assert.deepEqual(await res.json(), { chatId: "chat_focus" });
 		assert.deepEqual(seen, ["card_1"]);
+	});
+	it("a nodeId starts a node-focused session, and nothing else is passed", async () => {
+		const seen: unknown[] = [];
+		mock.method(personalLayer, "startNodeSession", (nodeId: string) => {
+			seen.push(nodeId);
+			return { chatId: "chat_node" };
+		});
+		const daily: unknown[] = [];
+		mock.method(personalLayer, "startReviewSession", (cardId?: string) => {
+			daily.push(cardId);
+			return { chatId: "chat_daily" };
+		});
+		const res = await session.POST(post("/api/ext/review/session", { nodeId: "n_a" }));
+		assert.deepEqual(await res.json(), { chatId: "chat_node" });
+		assert.deepEqual(seen, ["n_a"]);
+		assert.deepEqual(daily, [], "the daily-review path is not taken");
+	});
+	it("a cardId and a nodeId together are a 400 and start nothing", async () => {
+		const seen: unknown[] = [];
+		mock.method(personalLayer, "startNodeSession", () => (seen.push("node"), { chatId: "x" }));
+		mock.method(personalLayer, "startReviewSession", () => (seen.push("card"), { chatId: "x" }));
+		const res = await session.POST(post("/api/ext/review/session", { cardId: "card_1", nodeId: "n_a" }));
+		assert.equal(res.status, 400);
+		assert.equal((await res.json() as { error: string }).error, "send a cardId or a nodeId, not both");
+		assert.deepEqual(seen, []);
+	});
+	it("an unknown node is a 404 with the core's fixed message", async () => {
+		const res = await session.POST(post("/api/ext/review/session", { nodeId: "n_missing" }));
+		assert.equal(res.status, 404);
+		assert.equal((await res.json() as { error: string }).error, "unknown node");
 	});
 	it("an unknown card is a 404 with the core's fixed message", async () => {
 		const res = await session.POST(post("/api/ext/review/session", { cardId: "card_missing" }));

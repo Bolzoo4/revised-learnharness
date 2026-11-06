@@ -34,12 +34,19 @@ export function parseReviewAnswer(body: Record<string, unknown>): ReviewAnswerIn
 
 /**
  * The optional body of POST /api/ext/review/session. A missing or non-object
- * body means a plain daily-review session; a `cardId` must be a non-empty string.
+ * body, or one with neither field, is a plain daily-review session. A `cardId`
+ * (a tutor session on a card) or a `nodeId` (a tutor session on a node with no
+ * card) must be a non-empty string, and at most one of them may be sent.
  */
-export function parseSessionRequest(body: unknown): { cardId?: string } {
+export function parseSessionRequest(body: unknown): { cardId?: string; nodeId?: string } {
 	if (typeof body !== "object" || body === null || Array.isArray(body)) return {};
 	const b = body as Record<string, unknown>;
-	if (b.cardId === undefined) return {};
-	if (typeof b.cardId !== "string" || b.cardId === "") throw new HttpError(400, "cardId must be a card id");
-	return { cardId: b.cardId };
+	if (b.cardId === undefined && b.nodeId === undefined) return {};
+	if (b.cardId !== undefined && b.nodeId !== undefined) throw new HttpError(400, "send a cardId or a nodeId, not both");
+	if (b.cardId !== undefined) {
+		if (typeof b.cardId !== "string" || b.cardId === "") throw new HttpError(400, "cardId must be a card id");
+		return { cardId: b.cardId };
+	}
+	if (typeof b.nodeId !== "string" || b.nodeId === "") throw new HttpError(400, "nodeId must be a node id");
+	return { nodeId: b.nodeId };
 }
