@@ -19,3 +19,23 @@ export type {
 	Slide as LectureSlide,
 	SlideElement as LectureSlideElement,
 } from "./lecture/lecture.ts";
+export {
+	audioCostUsd,
+	audioVoicesFromEnv,
+	AUDIO_CHUNK_CHARS,
+	AUDIO_CONCURRENCY,
+	BLOCK_ID_RE,
+	charIndexAtTime,
+	chunkText,
+	guessLanguage,
+	isVoiceFor,
+	languageOfBlocks,
+	parseAudioManifest,
+	speakUrl,
+	timedChunks,
+	type AudioBlock,
+	type AudioChunk,
+	type AudioLanguage,
+	type AudioManifest,
+	type CharRange,
+} from "./lecture/audio.ts";
