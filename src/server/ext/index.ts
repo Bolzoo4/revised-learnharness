@@ -23,6 +23,7 @@ export {
 } from "./node-knowledge-live.ts";
 export { NodeKnowledgeError } from "./node-knowledge.ts";
 export * from "./lecture-live.ts";
+export { audioRange, FAILED_TEXT } from "./lecture-audio.ts";
 export * from "./practice-live.ts";
 export * from "./study-live.ts";
 export { StudyError } from "./study-service.ts";

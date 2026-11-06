@@ -1,11 +1,17 @@
 import { exercisesOf } from "@/src/core";
-import { httpErrorResponse, isPdfUpload, keepUploadedBook, lectureService, readJsonObject, stagePdfUpload } from "@/src/server";
+import { httpErrorResponse, isPdfUpload, keepUploadedBook, lectureAudio, lectureService, readJsonObject, stagePdfUpload } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
+function summaryOf(lecture: Parameters<typeof lectureAudio.summary>[0]) {
+	const s = lectureAudio.summary(lecture);
+	return { ready: s.ready, total: s.total, keyConfigured: s.keyConfigured };
+}
+
 /**
  * GET → { runs, lectures }: the per-chapter run status and the saved lectures (without their blocks).
- * Each lecture carries its bookId and its exercises: [{ blockId, prompt }] (the prompt bounded).
+ * Each lecture carries its bookId, its exercises: [{ blockId, prompt }] (the prompt bounded), and its audio
+ * state: { ready, total, keyConfigured } (narration audio, see app/api/ext/lectures/[id]/audio).
  */
 export async function GET() {
 	try {
@@ -17,6 +23,7 @@ export async function GET() {
 			chapter: l.chapter,
 			order: l.order,
 			exercises: exercisesOf(l),
+			audio: summaryOf(l),
 		}));
 		return Response.json({ runs: lectureService.runStatuses(), lectures });
 	} catch (error) {

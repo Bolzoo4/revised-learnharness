@@ -7,15 +7,22 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { readBookmarks, readChapterText, readPageTexts } from "../../agent/ext/lecture/pdf-facts.ts";
 import { detectChaptersWithLlm, writeLectureDraft, writeOutline } from "../../agent/ext/lecture/writers.ts";
 import { emit } from "../../core/events.ts";
 import { getGraph } from "../../core/graph.ts";
+import { audioVoicesFromEnv } from "../../core/ext/lecture/audio.ts";
+import type { Lecture } from "../../core/ext/lecture/lecture.ts";
+import type { LecturesStore } from "../../core/ext/study-ports.ts";
 import { createSourceLibrary } from "../../core/ext/sources.ts";
+import { EXT_PATHS } from "../../store/ext/paths.ts";
+import { keyValue } from "../keys.ts";
 import { extraction } from "../chat-handler.ts";
 import { sourceDirectory } from "../source-organization.ts";
 import { stores } from "../stores.ts";
-import { liveCostGate } from "./cost-live.ts";
+import { liveAudioGate, liveCostGate } from "./cost-live.ts";
+import { createLectureAudio } from "./lecture-audio.ts";
 import { bookIdFor, createLectureService, type BookRunStatus } from "./lecture-service.ts";
 import { createLectureOfficeHours } from "./lecture-office-hours.ts";
 import { practiceService } from "./practice-live.ts";
@@ -29,8 +36,35 @@ const runs = (g.__lhExtLectureRuns ??= new Map<string, BookRunStatus>());
 
 const sourceIdOf = (filePath: string): string => `src_${crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
 
+/**
+ * Narration audio (Deepgram). Its files live under <data>/ext/lecture-audio; the key is read server-side
+ * (DEEPGRAM_API_KEY), and its spend is on the audio gate, not the model ceiling.
+ */
+export const lectureAudio = createLectureAudio({
+	dir: path.join(EXT_PATHS.dir, "lecture-audio"),
+	apiKey: () => keyValue("DEEPGRAM_API_KEY") || undefined,
+	gate: liveAudioGate,
+	voices: () => audioVoicesFromEnv(process.env),
+});
+
+/**
+ * The lecture store as the chapter run sees it: a stored lecture starts its audio in the background (the
+ * run never waits for it), and a removed lecture drops its audio. Reads and the rest pass through.
+ */
+const lecturesWithAudio: LecturesStore = {
+	...extStores.lecturesStore,
+	save(lecture: Lecture) {
+		extStores.lecturesStore.save(lecture);
+		lectureAudio.prefetch(lecture);
+	},
+	remove(id: string) {
+		extStores.lecturesStore.remove(id);
+		lectureAudio.removeLecture(id);
+	},
+};
+
 export const lectureService = createLectureService({
-	lectures: extStores.lecturesStore,
+	lectures: lecturesWithAudio,
 	library: createSourceLibrary(extStores.sourcesStore),
 	gate: liveCostGate,
 	graphNodes: () => getGraph(stores.graphStore).nodes,
