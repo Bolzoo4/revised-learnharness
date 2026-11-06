@@ -9,6 +9,8 @@
  * which is what makes the conversation unique per document.
  */
 
+import { MAX_PAGE, MAX_TITLE_CHARS, flattenText } from "./bounds.ts";
+
 export const DOCUMENT_ID_RE = /^[0-9a-f]{64}$/;
 
 export type DocumentEvent =
@@ -31,9 +33,11 @@ export function parseDocumentEvent(raw: unknown): DocumentEvent | null {
 	const r = raw as Record<string, unknown>;
 	if (typeof r.documentId !== "string" || !DOCUMENT_ID_RE.test(r.documentId) || !validAt(r.at)) return null;
 	if (r.type === "registered") {
-		if (typeof r.title !== "string" || r.title.trim() === "") return null;
-		if (typeof r.pageCount !== "number" || !Number.isInteger(r.pageCount) || r.pageCount < 1) return null;
-		return { type: "registered", documentId: r.documentId, title: r.title.trim(), pageCount: r.pageCount, at: r.at };
+		if (typeof r.title !== "string") return null;
+		const title = flattenText(r.title, MAX_TITLE_CHARS);
+		if (title === "") return null;
+		if (typeof r.pageCount !== "number" || !Number.isInteger(r.pageCount) || r.pageCount < 1 || r.pageCount > MAX_PAGE) return null;
+		return { type: "registered", documentId: r.documentId, title, pageCount: r.pageCount, at: r.at };
 	}
 	if (r.type === "chat") {
 		if (typeof r.chatId !== "string" || r.chatId === "") return null;

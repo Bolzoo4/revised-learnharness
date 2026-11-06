@@ -44,6 +44,6 @@ describe("readDocumentPages", () => {
 		assert.equal(pages[1]!.trim(), "");
 	});
 	it("throws for a file that is not a PDF", async () => {
-		await assert.rejects(readDocumentPages(write("c.pdf", new TextEncoder().encode("not a pdf"))));
+		await assert.rejects(readDocumentPages(write("c.pdf", new TextEncoder().encode("not a pdf"))), /Invalid PDF structure/);
 	});
 });

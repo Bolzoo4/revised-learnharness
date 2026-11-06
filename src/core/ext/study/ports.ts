@@ -21,4 +21,5 @@ export interface DocumentFiles {
 	getPages(id: string): string[] | null;
 }
 
-export const isDocumentId = (id: string): boolean => DOCUMENT_ID_RE.test(id);
+/** True for a string shaped like a document id. Non-strings (an array that would stringify to one, say) are refused first. */
+export const isDocumentId = (id: unknown): id is string => typeof id === "string" && DOCUMENT_ID_RE.test(id);

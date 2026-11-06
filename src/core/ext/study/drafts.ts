@@ -11,6 +11,7 @@
  */
 
 import { normalizeForMatch } from "../quote.ts";
+import { MAX_PAGE, MAX_TEXT_CHARS, flattenText } from "./bounds.ts";
 
 export type DraftEvent =
 	| {
@@ -41,7 +42,7 @@ export interface Draft {
 
 const nonBlank = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
 const validAt = (v: unknown): v is string => typeof v === "string" && !Number.isNaN(Date.parse(v));
-const isPage = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 1;
+const isPage = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= MAX_PAGE;
 
 export function parseDraftEvent(raw: unknown): DraftEvent | null {
 	if (typeof raw !== "object" || raw === null) return null;
@@ -55,9 +56,9 @@ export function parseDraftEvent(raw: unknown): DraftEvent | null {
 			draftId: r.draftId,
 			documentId: r.documentId,
 			page: r.page,
-			proposition: r.proposition.trim(),
-			question: r.question.trim(),
-			answer: r.answer.trim(),
+			proposition: flattenText(r.proposition, MAX_TEXT_CHARS),
+			question: flattenText(r.question, MAX_TEXT_CHARS),
+			answer: flattenText(r.answer, MAX_TEXT_CHARS),
 			at: r.at,
 		};
 	}
@@ -106,30 +107,43 @@ export function processedPages(events: readonly DraftEvent[], documentId: string
 	return [...pages].sort((a, b) => a - b);
 }
 
+/**
+ * The comparison key of a proposition: normalized, then without trailing full
+ * stops and spaces. Scanned from the end, so it is linear in the length.
+ */
+function propositionKey(s: string): string {
+	const t = normalizeForMatch(s, "join");
+	let end = t.length;
+	while (end > 0 && (t.charCodeAt(end - 1) === 46 || /\s/.test(t[end - 1]!))) end--;
+	return t.slice(0, end);
+}
+
 /** Two propositions are the same when they match after normalization and without a final full stop. */
 export function sameProposition(a: string, b: string): boolean {
-	const norm = (s: string) => normalizeForMatch(s, "join").replace(/[.\s]+$/, "");
-	return norm(a) === norm(b);
+	return propositionKey(a) === propositionKey(b);
 }
 
 /**
  * Drops candidates that repeat something that already exists (REQ-study-11:
- * skip what is already there) or an earlier candidate, then keeps at most
- * `perPage` per page, in the order given.
+ * skip what is already there) or an earlier kept candidate, then keeps at most
+ * `perPage` per page, in the order given. Each string is normalized once and
+ * matched through a Set, so the cost is linear in the total size.
  */
 export function dropRepeats<T extends { page: number; proposition: string }>(
 	candidates: readonly T[],
 	existing: readonly string[],
 	perPage: number,
 ): T[] {
+	const known = new Set(existing.map(propositionKey));
 	const kept: T[] = [];
 	const perPageCount = new Map<number, number>();
 	for (const c of candidates) {
-		if (existing.some((e) => sameProposition(e, c.proposition))) continue;
-		if (kept.some((k) => sameProposition(k.proposition, c.proposition))) continue;
+		const key = propositionKey(c.proposition);
+		if (known.has(key)) continue;
 		const n = perPageCount.get(c.page) ?? 0;
 		if (n >= perPage) continue;
 		perPageCount.set(c.page, n + 1);
+		known.add(key);
 		kept.push(c);
 	}
 	return kept;

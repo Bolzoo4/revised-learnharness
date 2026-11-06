@@ -8,7 +8,13 @@
  * document (a visit or a close); a page is read when some visit to it lasted
  * at least the dwell time. The newest visit has no end yet, so it counts as
  * read only once another event follows it.
+ *
+ * Dwell is "at least", so a long idle gap still counts as read: the visit was
+ * open for that time. No cap is applied to gaps (a cap below the dwell time
+ * would be the only thing that could change the result, and none is set).
  */
+
+import { MAX_PAGE } from "./bounds.ts";
 
 export const DEFAULT_DWELL_SECONDS = 5;
 
@@ -30,7 +36,7 @@ export function parseReadingEvent(raw: unknown): ReadingEvent | null {
 	if (typeof r.at !== "string" || Number.isNaN(Date.parse(r.at))) return null;
 	if (r.type === "close") return { type: "close", documentId: r.documentId, at: r.at };
 	if (r.type === "visit") {
-		if (typeof r.page !== "number" || !Number.isInteger(r.page) || r.page < 1) return null;
+		if (typeof r.page !== "number" || !Number.isInteger(r.page) || r.page < 1 || r.page > MAX_PAGE) return null;
 		return { type: "visit", documentId: r.documentId, page: r.page, at: r.at };
 	}
 	return null;

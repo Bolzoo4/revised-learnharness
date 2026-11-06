@@ -5,6 +5,8 @@
  * a node that no longer exists is filtered by the caller at read time.
  */
 
+import { MAX_PAGE } from "./bounds.ts";
+
 export interface StudyLinkEvent {
 	type: "link";
 	nodeId: string;
@@ -23,7 +25,7 @@ export function parseStudyLinkEvent(raw: unknown): StudyLinkEvent | null {
 	const r = raw as Record<string, unknown>;
 	if (r.type !== "link") return null;
 	if (typeof r.nodeId !== "string" || r.nodeId === "" || typeof r.documentId !== "string" || r.documentId === "") return null;
-	if (typeof r.page !== "number" || !Number.isInteger(r.page) || r.page < 1) return null;
+	if (typeof r.page !== "number" || !Number.isInteger(r.page) || r.page < 1 || r.page > MAX_PAGE) return null;
 	if (typeof r.at !== "string" || Number.isNaN(Date.parse(r.at))) return null;
 	return { type: "link", nodeId: r.nodeId, documentId: r.documentId, page: r.page, at: r.at };
 }

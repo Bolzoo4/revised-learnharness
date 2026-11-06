@@ -10,9 +10,13 @@
  * first line early.
  */
 
+import { MAX_PAGE } from "./bounds.ts";
+
 export const STUDY_CONTEXT_PREFIX = "[study-context] ";
-/** Longest selection a message carries; longer selections are cut. */
+/** Longest selection a message carries, in UTF-16 units; longer selections are cut before a surrogate pair. */
 export const MAX_SELECTION_CHARS = 2000;
+/** Longest context line accepted by the parser; a longer first line is refused before JSON.parse. */
+export const MAX_CONTEXT_LINE_CHARS = 64 * 1024;
 
 export interface StudyContext {
 	documentId: string;
@@ -22,9 +26,14 @@ export interface StudyContext {
 	selection: string;
 }
 
+/** The first MAX_SELECTION_CHARS UTF-16 units, stopping before a code point that would not fit. */
 function clip(selection: string): string {
-	const chars = [...selection.trim()];
-	return chars.length <= MAX_SELECTION_CHARS ? chars.join("") : chars.slice(0, MAX_SELECTION_CHARS).join("");
+	let out = "";
+	for (const ch of selection.trim()) {
+		if (out.length + ch.length > MAX_SELECTION_CHARS) break;
+		out += ch;
+	}
+	return out;
 }
 
 /** The text to send: the context line, then the learner's own text. */
@@ -38,6 +47,7 @@ export function parseStudyContext(message: string): { context: StudyContext; tex
 	if (!message.startsWith(STUDY_CONTEXT_PREFIX)) return null;
 	const newline = message.indexOf("\n");
 	const line = newline === -1 ? message : message.slice(0, newline);
+	if (line.length > MAX_CONTEXT_LINE_CHARS) return null;
 	let raw: unknown;
 	try {
 		raw = JSON.parse(line.slice(STUDY_CONTEXT_PREFIX.length));
@@ -47,7 +57,7 @@ export function parseStudyContext(message: string): { context: StudyContext; tex
 	if (typeof raw !== "object" || raw === null) return null;
 	const r = raw as Record<string, unknown>;
 	if (typeof r.documentId !== "string" || r.documentId === "") return null;
-	if (typeof r.page !== "number" || !Number.isInteger(r.page) || r.page < 1) return null;
+	if (typeof r.page !== "number" || !Number.isInteger(r.page) || r.page < 1 || r.page > MAX_PAGE) return null;
 	if (r.selection !== undefined && typeof r.selection !== "string") return null;
 	return {
 		context: { documentId: r.documentId, page: r.page, selection: clip(typeof r.selection === "string" ? r.selection : "") },

@@ -310,7 +310,7 @@ export function createStudyService(deps: StudyServiceDeps) {
 
 	/** The one path from a confirmed proposition to a node, a card and a link. */
 	async function attach(doc: StudyDocument, page: number, c: CardContent, author: "user" | "agent", pin: boolean): Promise<ConfirmResult> {
-		const filePath = studySourcePath(doc.title, page, c.proposition);
+		const filePath = studySourcePath(doc.title, page, c.proposition, doc.id);
 		try {
 			await deps.importProposition({ filePath, text: studySourceText(c.proposition) });
 		} catch (e) {

@@ -5,6 +5,9 @@
  * premises it spelled out), or link it to an existing equivalent node. The
  * card goes to the node whose statement is closest to the proposition by word
  * overlap (Jaccard); a tie goes to the first node in the order given.
+ *
+ * Words are case-folded (normalizeForMatch lowercases), and a one-character
+ * word counts like any other, so "A" and "B" are different words.
  */
 
 import { normalizeForMatch } from "../quote.ts";
@@ -17,7 +20,7 @@ export interface CandidateNode {
 }
 
 function words(text: string): Set<string> {
-	return new Set(normalizeForMatch(text, "join").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2));
+	return new Set(normalizeForMatch(text, "join").split(/[^\p{L}\p{N}]+/u).filter((w) => w !== ""));
 }
 
 function jaccard(a: Set<string>, b: Set<string>): number {
