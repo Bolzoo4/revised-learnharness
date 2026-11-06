@@ -39,7 +39,7 @@ export const CATALOG: Record<string, ToolSpec> = {
 	get_node: {
 		title: "Read one knowledge node",
 		description:
-			"Statement, aliases, trust level with evidence, the current explanation (flagged stale or without source context), premises, conclusions, alternative arguments, citing lectures, card count, review state and goals. Read-only.",
+			"Statement, aliases, trust level with evidence, the current explanation (flagged stale or without source context), premises, conclusions, alternative arguments, citing lectures (null with citingLecturesOmitted true while the lecture index is still being built), card count, review state and goals. Read-only.",
 		input: strict({ id }),
 	},
 	get_neighbors: {

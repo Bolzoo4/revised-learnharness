@@ -593,7 +593,7 @@ Failure: `isError` is true and `structuredContent` is `{"error": {"code": <code>
 | `not_found` | unknown id (or unknown tool) |
 | `disabled` | tool or filter disabled by `--knowledge-only` |
 | `data_newer_than_build` | a stamp is newer than this build understands |
-| `data_too_large` | a ledger file exceeds the 128 MiB read ceiling, or the lecture files together exceed 32 MiB |
+| `data_too_large` | a ledger file exceeds the 128 MiB read ceiling, or `list_lectures` finds the lecture files together above 32 MiB (`get_node` never returns this: see below) |
 | `data_inconsistent` | the review history cannot be replayed |
 | `response_too_large` | the result would exceed 128 KiB; narrow the request |
 | `internal` | anything else (details only on stderr) |
@@ -610,7 +610,8 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 | statement / explanation / quote | 2000 / 6000 / 400 characters |
 | neighbourhood | 60 nodes, 120 edges |
 | lectures / documents | 100 each |
-| lecture files read by one `list_lectures` or `get_node` | 32 MiB together |
+| lecture files read by one `list_lectures` | 32 MiB together |
+| lecture files parsed by one `get_node` (index build) | 32 MiB together; when reached, `citingLectures` is null and `citingLecturesOmitted` is true; the next call resumes |
 | each array of a lecture outline (slides, exercises, cited nodes) | 24 KiB, then truncated |
 | response | 128 KiB |
 | future day for `get_daily_plan` | 30 days |
@@ -619,7 +620,7 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 
 `search_nodes` input: `query` (string, required), `limit` (integer 1..50), `trust` (`unverified|sourced|contested|refuted`), `goalId` (string; needs study state). Output: `{query, items[{id, name, statement, trust}], count, truncated}`.
 
-`get_node` input: `id`. Output: `{id, name, statement, aliases(page), trust{level, checkedAt, evidence(page)}, explanation{state, noSourceContext, form, version, author, body, pendingProposal}, arguments(page of {premises(page)}), conclusions(page), citingLectures(page), studyState, cardCount, review{dueAt, recallProbability, reps, pinned, retired}|null, reviewUnavailable, goals(page)}`. Under `--knowledge-only` the last five fields are absent and `studyState` is `"disabled"`. `explanation.state` says when the text is stale; `noSourceContext` is true when it was written without source context. Evidence carries a source label, never a local path, query string or credential.
+`get_node` input: `id`. Output: `{id, name, statement, aliases(page), trust{level, checkedAt, evidence(page)}, explanation{state, noSourceContext, form, version, author, body, pendingProposal}, arguments(page of {premises(page)}), conclusions(page), citingLectures(page or null), citingLecturesOmitted(boolean), citingLecturesOmittedReason(fixed text or null), studyState, cardCount, review{dueAt, recallProbability, reps, pinned, retired}|null, reviewUnavailable, goals(page)}`. Under `--knowledge-only` the last five fields are absent and `studyState` is `"disabled"`. `explanation.state` says when the text is stale; `noSourceContext` is true when it was written without source context. Evidence carries a source label, never a local path, query string or credential. `citingLectures` comes from an in-memory index of the lecture files, built on first use and kept for the life of the process: each call re-stats the lecture files, parses only new or changed ones (a file is identified by mtime, size and inode) and forgets deleted ones. It never writes to disk. When one call would parse more than the 32 MiB bound, `citingLectures` is null, `citingLecturesOmitted` is true and the reason is the fixed sentence in the server, with no error; repeated calls parse further until the index is complete, so the answer is complete again after a few calls. A lecture that is invalid, over 4 MiB, a non-file (FIFO, device, symlink to one) or stored under another id is never cited, and never fails the call.
 
 `get_neighbors` input: `id`, `depth` (1 or 2). Output: `{center, depth, nodes(page of {id, name, depth, trust}), edges(page of {from, to})}`.
 

@@ -12,6 +12,7 @@ import type { ExplanationEvent } from "../explanations.ts";
 import type { FrontierEvent } from "../frontier.ts";
 import type { InboxEvent } from "../inbox.ts";
 import type { JournalEvent } from "../debrief/journal.ts";
+import type { CitingLecture } from "../lecture/lecture-graph.ts";
 import type { Lecture } from "../lecture/lecture.ts";
 import type { ExerciseEvent } from "../practice/exercises.ts";
 import type { ReadingEvent } from "../study/reading.ts";
@@ -27,6 +28,11 @@ export interface ReadLog<T> {
 export interface LectureReader {
 	get(id: string): Lecture | null;
 	list(): Lecture[];
+	/**
+	 * The lectures citing a node, sorted by id. Null when the lecture index could
+	 * not be completed within this call's read budget: a later call resumes it.
+	 */
+	citing(nodeId: string): CitingLecture[] | null;
 }
 
 export interface McpDeps {

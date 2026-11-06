@@ -68,7 +68,8 @@ describe("the MCP contract document (REQ-mcp-12)", () => {
 		assert.ok(row("lectures / documents").includes(`${LIMITS.lecturesMax} each`));
 		assert.ok(row("response").includes(`${LIMITS.responseMaxBytes / 1024} KiB`));
 		assert.ok(row("future day for `get_daily_plan`").includes(`${LIMITS.futureDaysMax} days`));
-		assert.ok(row("lecture files read by one `list_lectures` or `get_node`").includes(`${LECTURE_TOTAL_BYTES_MAX / 1024 / 1024} MiB`));
+		assert.ok(row("lecture files read by one `list_lectures`").includes(`${LECTURE_TOTAL_BYTES_MAX / 1024 / 1024} MiB`));
+		assert.ok(row("lecture files parsed by one `get_node` (index build)").includes(`${LECTURE_TOTAL_BYTES_MAX / 1024 / 1024} MiB`));
 		assert.ok(row("each array of a lecture outline (slides, exercises, cited nodes)").includes(`${LIMITS.lectureSectionBudgetBytes / 1024} KiB`));
 		assert.ok(section.includes(`${LIMITS.requestMaxBytes / 1024} KiB ends the session`), "the request ceiling and its effect");
 		assert.ok(!/npm run mcp|scripts\/mcp-ext/.test(doc), "the launch command is the script itself, with no npm script");

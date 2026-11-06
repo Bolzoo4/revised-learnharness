@@ -18,7 +18,8 @@ import type { GraphChain, GraphNode } from "../../core/contracts.ts";
 import { NEWER_FORMAT_MESSAGE, ToolError } from "../../core/ext/mcp/errors.ts";
 import { LIMITS } from "../../core/ext/mcp/limits.ts";
 import type { LectureReader, ReadLog } from "../../core/ext/mcp/ports.ts";
-import { isValidLectureId, parseLecture, type Lecture } from "../../core/ext/lecture/lecture.ts";
+import type { CitingLecture } from "../../core/ext/lecture/lecture-graph.ts";
+import { isValidLectureId, lectureNodeRefs, parseLecture, type Lecture } from "../../core/ext/lecture/lecture.ts";
 import type { GraphStore } from "../../core/ports.ts";
 
 /** Same value as store/ext/format.ts CURRENT_EXT_FORMAT_VERSION (a test pins the equality). */
@@ -158,12 +159,40 @@ export function createGraphReader(graphDir: string, maxBytes: number = LIMITS.le
 
 // ── lectures (data/ext/lectures/<id>/lecture.json) ───────────────────────────
 
-/** Total bytes of lecture.json files one list() may read (a sum over files, so many small lectures are bounded too). */
+/** Total bytes of lecture.json files one list() may read, and the bytes one citing-index refresh may parse (a sum over files). */
 export const LECTURE_TOTAL_BYTES_MAX = 32 * 1024 * 1024;
 
-export function createLectureReader(extDir: string, options: { totalBytesMax?: number } = {}): LectureReader {
+/** The file-system calls of the lecture reader; a test injects counters here. Read-only by type. */
+export interface LectureFs {
+	statSync(file: string): { isFile(): boolean; size: number; mtimeMs: number; ino: number };
+	readFileSync(file: string, encoding: "utf-8"): string;
+	readdirSync(dir: string): string[];
+}
+
+const nodeFs: LectureFs = {
+	statSync: (file) => fs.statSync(file),
+	readFileSync: (file, encoding) => fs.readFileSync(file, encoding),
+	readdirSync: (dir) => fs.readdirSync(dir),
+};
+
+/** What the citing index keeps per lecture file: the back-link record and the cited node ids, nothing else. */
+interface IndexedLecture {
+	/** mtime, size and inode when the file was read: a changed file gets another stamp and is parsed again. */
+	stamp: string;
+	/** Null when the file is invalid, over the per-file ceiling, or carries another id: it is never cited. */
+	citing: CitingLecture | null;
+	refs: ReadonlySet<string>;
+}
+
+const NO_REFS: ReadonlySet<string> = new Set();
+
+export function createLectureReader(extDir: string, options: { totalBytesMax?: number; io?: LectureFs } = {}): LectureReader {
 	const root = path.join(extDir, "lectures");
 	const totalBytesMax = options.totalBytesMax ?? LECTURE_TOTAL_BYTES_MAX;
+	const io = options.io ?? nodeFs;
+	// In memory only, per process: the server stays read-only, nothing is cached on disk.
+	const index = new Map<string, IndexedLecture>();
+
 	function get(id: string): Lecture | null {
 		if (!isValidLectureId(id)) return null;
 		const file = path.join(root, id, "lecture.json");
@@ -176,6 +205,67 @@ export function createLectureReader(extDir: string, options: { totalBytesMax?: n
 			return null;
 		}
 	}
+
+	/** A regular file's stat, or null: missing, a FIFO, a device, a directory, or a symlink to one of those. */
+	function statRegular(file: string): { size: number; stamp: string } | null {
+		try {
+			const st = io.statSync(file);
+			return st.isFile() ? { size: st.size, stamp: `${st.mtimeMs}:${st.size}:${st.ino}` } : null;
+		} catch {
+			return null;
+		}
+	}
+
+	function readEntry(id: string, file: string, stamp: string): IndexedLecture {
+		const none: IndexedLecture = { stamp, citing: null, refs: NO_REFS };
+		try {
+			const lecture = parseLecture(JSON.parse(io.readFileSync(file, "utf-8")));
+			if (lecture === null || lecture.id !== id) return none;
+			const citing = { id: lecture.id, title: lecture.title, bookTitle: lecture.bookTitle, chapterTitle: lecture.chapter.title };
+			return { stamp, citing, refs: new Set(lectureNodeRefs(lecture)) };
+		} catch {
+			return none; // invalid JSON, a wrong shape, or a read failure: this file is skipped, the others are not affected
+		}
+	}
+
+	/**
+	 * Brings the index in line with the directory: re-stats every lecture file,
+	 * parses only the new or changed ones, forgets the deleted ones. A file is
+	 * parsed in a call only while the bytes parsed in that call stay within the
+	 * budget (the first file of a call is always admitted, so progress is
+	 * guaranteed). Returns false when the budget ran out: the rest waits for the
+	 * next call, and files parsed so far stay indexed.
+	 */
+	function refresh(): boolean {
+		let names: string[];
+		try {
+			names = io.readdirSync(root);
+		} catch {
+			index.clear();
+			return true;
+		}
+		const present = new Map<string, { file: string; stamp: string; size: number }>();
+		for (const id of names.filter(isValidLectureId).sort().slice(0, LIMITS.lectureFilesMax)) {
+			const file = path.join(root, id, "lecture.json");
+			const st = statRegular(file);
+			if (st !== null) present.set(id, { file, stamp: st.stamp, size: st.size });
+		}
+		for (const id of [...index.keys()]) if (!present.has(id)) index.delete(id);
+		let work = 0;
+		for (const [id, p] of present) {
+			const known = index.get(id);
+			if (known !== undefined && known.stamp === p.stamp) continue;
+			if (p.size > LIMITS.lectureFileMaxBytes) {
+				index.set(id, { stamp: p.stamp, citing: null, refs: NO_REFS }); // over the ceiling: never read, so no budget spent
+				continue;
+			}
+			if (work > 0 && work + p.size > totalBytesMax) return false;
+			work += p.size;
+			index.set(id, readEntry(id, p.file, p.stamp));
+		}
+		return true;
+	}
+
 	return {
 		get,
 		list() {
@@ -196,6 +286,12 @@ export function createLectureReader(extDir: string, options: { totalBytesMax?: n
 				if (lecture !== null) out.push(lecture);
 			}
 			return out;
+		},
+		citing(nodeId) {
+			if (!refresh()) return null;
+			const hits: CitingLecture[] = [];
+			for (const entry of index.values()) if (entry.citing !== null && entry.refs.has(nodeId)) hits.push(entry.citing);
+			return hits.sort((a, b) => a.id.localeCompare(b.id));
 		},
 	};
 }

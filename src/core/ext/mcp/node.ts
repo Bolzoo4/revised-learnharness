@@ -7,7 +7,6 @@
 
 import { getGraph } from "../../graph.ts";
 import { deriveCards } from "../cards.ts";
-import { citingLectures } from "../lecture/lecture-graph.ts";
 import { neighbourhood } from "../neighbourhood.ts";
 import { buildNodePanel } from "../node-panel.ts";
 import { snapshot } from "../review-service.ts";
@@ -20,11 +19,14 @@ import { evidencePage, trustLevels } from "./trust-view.ts";
 
 const notFoundNode = (id: string): ToolError => new ToolError("not_found", `No node with id "${capText(id, 60)}".`);
 
+/** Said in place of the citing lectures while the lecture index is still being built (a fixed text, no path or count). */
+export const CITING_OMITTED_REASON = "The lecture index is still being built within this server's read budget; call get_node again to continue.";
+
 export function getNode(call: Call, input: Record<string, unknown>, opts: RunOptions) {
 	const id = requireId(input.id, "id");
 	const levels = trustLevels(call.deps.verification.readAll());
 	const trust = levels.get(id);
-	const lectures = call.deps.lectures.list();
+	const citing = call.deps.lectures.citing(id);
 
 	const panel = guardReplay(() =>
 		buildNodePanel(id, {
@@ -64,10 +66,12 @@ export function getNode(call: Call, input: Record<string, unknown>, opts: RunOpt
 			return { ...p, items: p.items.map((c) => ({ premises: page(c.premises.map(ref), LIMITS.premisesPerArgumentMax) })) };
 		})(),
 		conclusions: page([...conclusions.values()].map(ref), LIMITS.conclusionsMax),
-		citingLectures: (() => {
-			const p = page(citingLectures(id, lectures), LIMITS.citingLecturesMax);
+		citingLectures: citing === null ? null : (() => {
+			const p = page(citing, LIMITS.citingLecturesMax);
 			return { ...p, items: p.items.map((l) => ({ lectureId: l.id, title: capText(l.title, LIMITS.titleChars) })) };
 		})(),
+		citingLecturesOmitted: citing === null,
+		citingLecturesOmittedReason: citing === null ? CITING_OMITTED_REASON : null,
 	};
 	if (opts.knowledgeOnly) return { ...base, studyState: "disabled" as const };
 
