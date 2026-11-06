@@ -7,7 +7,7 @@ import { DEFAULT_RETENTION } from "../fsrs.ts";
 import { deriveGoals, goalScope, type Goal } from "../goals.ts";
 import { deriveExerciseSets, setComplete, type ExerciseSetState } from "../practice/exercises.ts";
 import type { Call } from "./call.ts";
-import { snapshotOf } from "./call.ts";
+import { guardReplay, snapshotOf } from "./call.ts";
 import { ToolError } from "./errors.ts";
 import { instantMs, optionalEnum, requireId } from "./input.ts";
 import { capText, clampLimit, LIMITS, page, round4 } from "./limits.ts";
@@ -44,7 +44,7 @@ export function listGoals(call: Call, input: Record<string, unknown>) {
 /** The newest exercise set of a goal (a tie goes to the later one in the ledger), or null. */
 export function latestExerciseSet(call: Call, goalId: string): ExerciseSetState | null {
 	let latest: ExerciseSetState | null = null;
-	for (const s of deriveExerciseSets(call.deps.exercises.readAll())) {
+	for (const s of guardReplay(() => deriveExerciseSets(call.deps.exercises.readAll()))) {
 		if (s.goalId === goalId && (latest === null || instantMs(s.createdAt) >= instantMs(latest.createdAt))) latest = s;
 	}
 	return latest;

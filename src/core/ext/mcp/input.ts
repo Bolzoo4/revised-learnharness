@@ -75,9 +75,10 @@ export function parseLocalDate(value: unknown, field: string): LocalDate {
 
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-/** An ISO-8601 instant WITH an explicit zone; returned normalised to UTC. */
+/** An ISO-8601 instant WITH an explicit zone; returned normalised to UTC. The date part must be a real calendar date. */
 export function parseInstant(value: unknown, field: string): string {
 	if (typeof value !== "string" || !INSTANT.test(value)) throw invalid(`${field} must be an ISO-8601 instant with a zone, e.g. 2026-11-04T10:00:00Z.`);
+	parseLocalDate(value.slice(0, 10), field); // Date.parse rolls 2026-02-30 over to March: refuse it first
 	const ms = Date.parse(value);
 	if (!Number.isFinite(ms)) throw invalid(`${field} is not a valid instant.`);
 	return new Date(ms).toISOString();

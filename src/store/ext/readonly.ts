@@ -24,10 +24,22 @@ import type { GraphStore } from "../../core/ports.ts";
 /** Same value as store/ext/format.ts CURRENT_EXT_FORMAT_VERSION (a test pins the equality). */
 export const EXT_FORMAT_VERSION = 1;
 
+/** The size of a regular file, or null when the path is missing or is not one (FIFO, device, socket, directory). */
+function regularFileSize(file: string): number | null {
+	try {
+		const st = fs.statSync(file);
+		return st.isFile() ? st.size : null;
+	} catch {
+		return null;
+	}
+}
+
 function stampedVersion(dir: string): number | null {
+	const file = path.join(dir, "format.json");
+	if (regularFileSize(file) === null) return null; // a FIFO or device would block the read: such a stamp is not read
 	let raw: string;
 	try {
-		raw = fs.readFileSync(path.join(dir, "format.json"), "utf-8");
+		raw = fs.readFileSync(file, "utf-8");
 	} catch {
 		return null;
 	}
@@ -64,12 +76,9 @@ export function validateDataRoot(dataRoot: string): void {
 }
 
 function readJsonl<T>(file: string, label: string, parse: (raw: unknown) => T | null, maxBytes: number): T[] {
-	let size: number;
-	try {
-		size = fs.statSync(file).size;
-	} catch {
-		return [];
-	}
+	// A FIFO or a symlink to a device (/dev/zero) would block or never end: only a regular file is a ledger.
+	const size = regularFileSize(file);
+	if (size === null) return [];
 	if (size > maxBytes) throw new ToolError("data_too_large", `${label} is larger than this server's read limit.`);
 	let raw: string;
 	try {
@@ -115,9 +124,12 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 const isString = (v: unknown): v is string => typeof v === "string";
 const isPoint = (v: unknown): boolean => isRecord(v) && isString(v.chatId) && isString(v.messageId);
 
+/** An id as the server would echo it: a string within the id bound. Longer ids are skipped, never echoed. */
+const isId = (v: unknown): v is string => isString(v) && v.length <= LIMITS.idMaxChars;
+
 const isGraphNode = (v: unknown): v is GraphNode =>
 	isRecord(v) &&
-	isString(v.id) &&
+	isId(v.id) &&
 	isString(v.name) &&
 	isString(v.statement) &&
 	Array.isArray(v.aliases) &&
@@ -128,11 +140,11 @@ const isGraphNode = (v: unknown): v is GraphNode =>
 
 const isGraphChain = (v: unknown): v is GraphChain =>
 	isRecord(v) &&
-	isString(v.id) &&
+	isId(v.id) &&
 	Array.isArray(v.premises) &&
 	v.premises.length > 0 &&
-	v.premises.every(isString) &&
-	isString(v.conclusion) &&
+	v.premises.every(isId) &&
+	isId(v.conclusion) &&
 	Array.isArray(v.provenance) &&
 	v.provenance.every(isPoint) &&
 	isString(v.createdAt);
@@ -146,8 +158,12 @@ export function createGraphReader(graphDir: string, maxBytes: number = LIMITS.le
 
 // ── lectures (data/ext/lectures/<id>/lecture.json) ───────────────────────────
 
-export function createLectureReader(extDir: string): LectureReader {
+/** Total bytes of lecture.json files one list() may read (a sum over files, so many small lectures are bounded too). */
+export const LECTURE_TOTAL_BYTES_MAX = 32 * 1024 * 1024;
+
+export function createLectureReader(extDir: string, options: { totalBytesMax?: number } = {}): LectureReader {
 	const root = path.join(extDir, "lectures");
+	const totalBytesMax = options.totalBytesMax ?? LECTURE_TOTAL_BYTES_MAX;
 	function get(id: string): Lecture | null {
 		if (!isValidLectureId(id)) return null;
 		const file = path.join(root, id, "lecture.json");
@@ -169,12 +185,17 @@ export function createLectureReader(extDir: string): LectureReader {
 			} catch {
 				return [];
 			}
-			return names
-				.filter(isValidLectureId)
-				.sort()
-				.slice(0, LIMITS.lectureFilesMax)
-				.map(get)
-				.filter((l): l is Lecture => l !== null);
+			const out: Lecture[] = [];
+			let total = 0;
+			for (const id of names.filter(isValidLectureId).sort().slice(0, LIMITS.lectureFilesMax)) {
+				const size = regularFileSize(path.join(root, id, "lecture.json"));
+				if (size === null) continue;
+				total += size;
+				if (total > totalBytesMax) throw new ToolError("data_too_large", "The lecture files together are larger than this server's read limit.");
+				const lecture = get(id);
+				if (lecture !== null) out.push(lecture);
+			}
+			return out;
 		},
 	};
 }

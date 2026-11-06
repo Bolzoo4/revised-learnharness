@@ -10,7 +10,7 @@ import { isValidLectureId, lectureNodeRefs, type Lecture } from "../lecture/lect
 import type { Call } from "./call.ts";
 import { ToolError, invalid } from "./errors.ts";
 import { optionalInt, requireText } from "./input.ts";
-import { capText, LIMITS, page, textPage } from "./limits.ts";
+import { capText, fitToBudget, LIMITS, page, textPage } from "./limits.ts";
 
 export function listLectures(call: Call, input: Record<string, unknown>) {
 	const chapter = optionalInt(input.chapter, "chapter", 1, 100_000);
@@ -35,16 +35,18 @@ export function listLectures(call: Call, input: Record<string, unknown>) {
 	};
 }
 
+/** Each outline array is fitted to its own byte budget, so a maximum-size lecture is truncated (flagged), never refused. */
 function outline(l: Lecture) {
-	const slides = page(
+	const budget = LIMITS.lectureSectionBudgetBytes;
+	const slides = fitToBudget(page(
 		l.slides.map((s) => {
 			const blocks = l.blocks.filter((b) => b.slideId === s.id);
 			const ids = [...new Set(blocks.flatMap((b) => b.nodeIds))];
 			return { id: s.id, heading: capText(s.heading, LIMITS.titleChars), blockCount: blocks.length, nodeIds: textPage(ids, LIMITS.slideNodesMax, LIMITS.idMaxChars) };
 		}),
 		LIMITS.slidesMax,
-	);
-	const exercises = page(
+	), budget);
+	const exercises = fitToBudget(page(
 		l.blocks
 			.filter((b) => b.role === "exercise")
 			.map((b) => ({
@@ -55,7 +57,8 @@ function outline(l: Lecture) {
 				nodeIds: textPage(b.nodeIds, LIMITS.slideNodesMax, LIMITS.idMaxChars),
 			})),
 		LIMITS.exercisesMax,
-	);
+	), budget);
+	const citedNodes = fitToBudget(textPage(lectureNodeRefs(l), LIMITS.citedNodesMax, LIMITS.idMaxChars), budget);
 	return {
 		id: l.id,
 		title: capText(l.title, LIMITS.titleChars),
@@ -66,7 +69,7 @@ function outline(l: Lecture) {
 		createdAt: l.createdAt,
 		slides,
 		exercises,
-		citedNodes: textPage(lectureNodeRefs(l), LIMITS.citedNodesMax, LIMITS.idMaxChars),
+		citedNodes,
 	};
 }
 

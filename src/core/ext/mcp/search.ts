@@ -4,7 +4,7 @@
 import { fuzzyScore } from "../../fuzzy.ts";
 import { getGraph } from "../../graph.ts";
 import { deriveGoals, goalScope } from "../goals.ts";
-import type { Call } from "./call.ts";
+import { guardReplay, type Call } from "./call.ts";
 import { ToolError } from "./errors.ts";
 import { compareCodeUnits, optionalEnum, requireId, requireQuery } from "./input.ts";
 import { capText, clampLimit, LIMITS, page } from "./limits.ts";
@@ -23,7 +23,7 @@ export function searchNodes(call: Call, input: Record<string, unknown>, opts: Ru
 	const { nodes, chains } = getGraph(call.graph);
 	let scope: Set<string> | null = null;
 	if (goalId !== undefined) {
-		const goal = deriveGoals(call.review.goalsStore.readEvents()).find((g) => g.id === goalId);
+		const goal = guardReplay(() => deriveGoals(call.review.goalsStore.readEvents())).find((g) => g.id === goalId);
 		if (goal === undefined) throw new ToolError("not_found", `No goal with id "${capText(goalId, 60)}".`);
 		scope = new Set(goalScope(goal.targetNodeIds, chains));
 	}

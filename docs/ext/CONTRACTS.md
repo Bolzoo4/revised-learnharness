@@ -578,7 +578,7 @@ The agent submits `observations`, `stateOfLearning`, `critique`, `suggestion` (e
 
 ## MCP server (read-only, stdio)
 
-Process: `LH_DATA_DIR=<data directory> npx tsx scripts/ext-mcp.ts [--knowledge-only]`, started by the client, speaking MCP (JSON-RPC 2.0, newline-delimited) over stdin/stdout. Stdout carries only protocol; diagnostics go to stderr. The server reads `ext/*.jsonl`, `ext/lectures/*/lecture.json` and `graph/*.jsonl`; it never writes, creates, locks or stamps anything; it opens no socket and calls no model. Corrupt or torn ledger lines are skipped. A `format.json` stamp newer than the build makes every tool fail with `data_newer_than_build`. A request line above 256 KiB ends the session (the client restarts the process).
+Process: `LH_DATA_DIR=<data directory> npx tsx scripts/ext-mcp.ts [--knowledge-only]`, started by the client, speaking MCP (JSON-RPC 2.0, newline-delimited) over stdin/stdout. Stdout carries only protocol; diagnostics go to stderr. The server reads `ext/*.jsonl`, `ext/lectures/*/lecture.json` and `graph/*.jsonl`; it never writes, creates, locks or stamps anything; it opens no socket and calls no model. Corrupt or torn ledger lines are skipped. A `format.json` stamp newer than the build makes every tool fail with `data_newer_than_build`. A request line above 256 KiB ends the session: the process exits with code 0 and the client restarts it. A closed stdout (the client went away) also ends the process quietly, with nothing on stderr.
 
 Every tool is annotated `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`. Every input object is strict: an unknown field is an error, never ignored. Arguments are validated twice (JSON Schema at the protocol edge, the same rules in the core).
 
@@ -593,7 +593,7 @@ Failure: `isError` is true and `structuredContent` is `{"error": {"code": <code>
 | `not_found` | unknown id (or unknown tool) |
 | `disabled` | tool or filter disabled by `--knowledge-only` |
 | `data_newer_than_build` | a stamp is newer than this build understands |
-| `data_too_large` | a ledger file exceeds the 128 MiB read ceiling |
+| `data_too_large` | a ledger file exceeds the 128 MiB read ceiling, or the lecture files together exceed 32 MiB |
 | `data_inconsistent` | the review history cannot be replayed |
 | `response_too_large` | the result would exceed 128 KiB; narrow the request |
 | `internal` | anything else (details only on stderr) |
@@ -610,6 +610,8 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 | statement / explanation / quote | 2000 / 6000 / 400 characters |
 | neighbourhood | 60 nodes, 120 edges |
 | lectures / documents | 100 each |
+| lecture files read by one `list_lectures` or `get_node` | 32 MiB together |
+| each array of a lecture outline (slides, exercises, cited nodes) | 24 KiB, then truncated |
 | response | 128 KiB |
 | future day for `get_daily_plan` | 30 days |
 
@@ -623,7 +625,7 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 
 `list_lectures` input: `chapter` (integer chapter number). Output: page of `{id, title, bookTitle, chapter, order, createdAt, slideCount, exerciseCount, citedNodeCount}`.
 
-`get_lecture` input: `id`. Output: outline `{id, title, bookTitle, chapter, order, summary, createdAt, slides(page), exercises(page of {blockId, slideId, seconds, prompt, nodeIds}), citedNodes(page)}`. Narration text is never returned.
+`get_lecture` input: `id`. Output: outline `{id, title, bookTitle, chapter, order, summary, createdAt, slides(page), exercises(page of {blockId, slideId, seconds, prompt, nodeIds}), citedNodes(page)}`. Narration text is never returned. Each outline array (slides, exercises, citedNodes) is fitted to 24 KiB; a page whose items were dropped says `truncated: true`, so a maximum-size lecture is answered, never refused.
 
 ### Study-state group (disabled by `--knowledge-only`)
 
@@ -633,8 +635,8 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 
 `get_daily_plan` input: `date` (`YYYY-MM-DD`, server local zone; today or up to 30 days ahead). Output: `{date, asOf, timezone, budgetMinutes, spentMinutes, remainingMinutes, due{fixed, dialogic, total}, newItems{fixed, dialogic, total}, planned{total, estimatedMinutes}, newCardQuota, capacity, deferred, needsCard, exerciseSetPending, pendingGoals(page)}`. The numbers come from the app's own plan function over the same data, time and default parameters. A future date is planned as of its last millisecond with nothing spent.
 
-`research_status` input: none. Output: `{frontier(page of {id, scope, mark, maxDepth, budgetUsd, note, author, at}), inbox{pending, approved, rejected, activated, total}, lastCycle{cycleId, trigger, startedAt, endedAt, stoppedBy, gaps, nodesAdded, costUsd, watch}|null}`. Source locators, rationales, error texts and steering messages are never returned.
+`research_status` input: none. Output: `{frontier(page of {id, scope, mark, maxDepth, note, author, at}), inbox{pending, approved, rejected, activated, total}, lastCycle{cycleId, trigger, startedAt, endedAt, stoppedBy, gaps, nodesAdded, watch}|null}`. Source locators, rationales, error texts, steering messages and cost figures are never returned.
 
-`get_recent_debriefs` input: `limit`, `since` (ISO-8601 instant with a time zone), `kind` (`review|lecture|office_hours|study|exercises|weekly`). Output: `{debriefs(page of {id, kind, sessionKind, weekOf, at, facts, commentary, nullReason}), latestWeekly}`. Facts above 4 KiB are replaced by `{kind, omitted}`.
+`get_recent_debriefs` input: `limit`, `since` (ISO-8601 instant with a time zone), `kind` (`review|lecture|office_hours|study|exercises|weekly`). Output: `{debriefs(page of {id, kind, sessionKind, weekOf, at, facts, commentary, nullReason}), latestWeekly}`. Facts are returned when small; facts above 4 KiB are replaced by `{kind, omitted}`.
 
 `list_documents` input: none. Output: page of `{id, title, pageCount, registeredAt, lastPage, readPages, readShare}`. No file path and no chat id.

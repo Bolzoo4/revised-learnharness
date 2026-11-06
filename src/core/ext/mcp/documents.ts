@@ -3,17 +3,17 @@
 
 import { deriveDocuments } from "../study/documents.ts";
 import { deriveReading } from "../study/reading.ts";
-import type { Call } from "./call.ts";
+import { guardReplay, type Call } from "./call.ts";
 import { capText, LIMITS, page, round4 } from "./limits.ts";
 
 export function listDocuments(call: Call) {
 	const events = call.deps.reading.readAll();
-	const docs = deriveDocuments(call.deps.documents.readAll()).sort((a, b) => (a.registeredAt < b.registeredAt ? 1 : a.registeredAt > b.registeredAt ? -1 : a.id < b.id ? -1 : 1));
+	const docs = guardReplay(() => deriveDocuments(call.deps.documents.readAll())).sort((a, b) => (a.registeredAt < b.registeredAt ? 1 : a.registeredAt > b.registeredAt ? -1 : a.id < b.id ? -1 : 1));
 	const p = page(docs, LIMITS.documentsMax);
 	return {
 		...p,
 		items: p.items.map((d) => {
-			const reading = deriveReading(events, d.id, { pageCount: d.pageCount });
+			const reading = guardReplay(() => deriveReading(events, d.id, { pageCount: d.pageCount }));
 			return {
 				id: d.id,
 				title: capText(d.title, LIMITS.titleChars),

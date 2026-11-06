@@ -75,13 +75,13 @@ export const CATALOG: Record<string, ToolSpec> = {
 	},
 	research_status: {
 		title: "Read research status",
-		description: "Frontier marks, inbox size and a summary of the last research cycle. Study-state group. Read-only.",
+		description: "Frontier marks, inbox size and a summary of the last research cycle. No cost figures are reported. Study-state group. Read-only.",
 		input: strict({}),
 	},
 	get_recent_debriefs: {
 		title: "Read recent session debriefs",
 		description:
-			"Newest-first session debriefs and the latest weekly synthesis with their computed facts and commentary. since is an ISO-8601 instant with a time zone. Study-state group. Read-only.",
+			"Newest-first session debriefs and the latest weekly synthesis, with their facts when small (facts over 4 KiB are replaced by a marker) and their commentary. since is an ISO-8601 instant with a time zone. Study-state group. Read-only.",
 		input: strict({
 			limit: z.number().int().min(1).max(LIMITS.debriefsMax).optional(),
 			since: z.string().min(10).max(40).optional(),

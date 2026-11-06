@@ -25,6 +25,8 @@ export interface ServerOptions {
 	knowledgeOnly: boolean;
 	/** Where unexpected errors are logged. Must NEVER be stdout. */
 	log?: (message: string) => void;
+	/** The response ceiling; the default is LIMITS.responseMaxBytes (a test lowers it to reach the refusal). */
+	responseMaxBytes?: number;
 }
 
 const INSTRUCTIONS =
@@ -38,7 +40,7 @@ export function safeCall(name: string, deps: McpDeps, input: unknown, opts: Serv
 	try {
 		const result = runTool(name, deps, input, { knowledgeOnly: opts.knowledgeOnly }) as object;
 		const bytes = Buffer.byteLength(JSON.stringify(result), "utf-8");
-		if (bytes > LIMITS.responseMaxBytes) {
+		if (bytes > (opts.responseMaxBytes ?? LIMITS.responseMaxBytes)) {
 			throw new ToolError("response_too_large", "The result is larger than this server's response limit. Narrow the request.");
 		}
 		return asResult(result, false);

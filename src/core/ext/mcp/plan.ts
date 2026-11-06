@@ -43,7 +43,7 @@ export function getDailyPlan(call: Call, input: Record<string, unknown>) {
 	}
 
 	const { plan, snap } = guardReplay(() => computePlan({ ...call.review, now: () => asOf }, dayStart));
-	const stats = computeReviewStats(call.review.reviewStore.readEvents(), dayStart);
+	const stats = guardReplay(() => computeReviewStats(call.review.reviewStore.readEvents(), dayStart));
 	const params = DEFAULT_PLAN_PARAMS;
 	const cost = (channel: "fixed" | "dialogic"): number => stats.medianSec[channel] ?? params.defaultDurationSec[channel];
 	const count = (reason: "due" | "new", channel: "fixed" | "dialogic"): number =>
@@ -55,7 +55,7 @@ export function getDailyPlan(call: Call, input: Record<string, unknown>) {
 		.filter((g) => g.status === "active")
 		.filter((g) => goalReadiness(goalScope(g.targetNodeIds, snap.chains), snap.recall).ready)
 		.filter((g) => {
-			const set = latestExerciseSet(call, g.id);
+			const set = guardReplay(() => latestExerciseSet(call, g.id));
 			return set === null || set.applied === null;
 		});
 	const pendingPage = page(pending, LIMITS.pendingGoalsMax);

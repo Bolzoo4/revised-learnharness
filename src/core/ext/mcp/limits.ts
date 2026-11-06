@@ -54,6 +54,8 @@ export const LIMITS = Object.freeze({
 	ledgerMaxBytes: 128 * 1024 * 1024,
 	lectureFileMaxBytes: 4 * 1024 * 1024,
 	lectureFilesMax: 1000,
+	/** Each array of a lecture outline (slides, exercises, cited nodes) is fitted to this many bytes. */
+	lectureSectionBudgetBytes: 24 * 1024,
 });
 
 export interface Page<T> {

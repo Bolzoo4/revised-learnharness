@@ -7,7 +7,7 @@
  */
 
 import { recentDebriefs, SESSION_KINDS, type JournalEvent } from "../debrief/journal.ts";
-import type { Call } from "./call.ts";
+import { guardReplay, type Call } from "./call.ts";
 import { optionalEnum, parseInstant } from "./input.ts";
 import { capText, clampLimit, fitToBudget, LIMITS, page } from "./limits.ts";
 
@@ -32,11 +32,10 @@ export function getRecentDebriefs(call: Call, input: Record<string, unknown>) {
 	const limit = clampLimit(input.limit, LIMITS.debriefsDefault, LIMITS.debriefsMax);
 	const kind = optionalEnum(input.kind, KINDS, "kind");
 	const since = input.since === undefined ? undefined : parseInstant(input.since, "since");
-	const journal = call.deps.journal.readAll();
 	// The reader reports truncation against its own limit; ask for one more to know whether more exist.
-	const found = recentDebriefs(journal, { limit: Math.min(limit + 1, LIMITS.debriefsMax + 1), kind, since });
+	const found = guardReplay(() => recentDebriefs(call.deps.journal.readAll(), { limit: Math.min(limit + 1, LIMITS.debriefsMax + 1), kind, since }));
 	const debriefs = page(found.entries, limit);
-	const weekly = recentDebriefs(journal, { limit: 1, kind: "weekly" }).entries[0];
+	const weekly = guardReplay(() => recentDebriefs(call.deps.journal.readAll(), { limit: 1, kind: "weekly" })).entries[0];
 	const items = fitToBudget({ ...debriefs, items: debriefs.items.map(entry) }, LIMITS.listBudgetBytes);
 	return { debriefs: items, latestWeekly: weekly === undefined ? null : entry(weekly) };
 }

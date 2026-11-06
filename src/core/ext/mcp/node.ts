@@ -11,7 +11,7 @@ import { citingLectures } from "../lecture/lecture-graph.ts";
 import { neighbourhood } from "../neighbourhood.ts";
 import { buildNodePanel } from "../node-panel.ts";
 import { snapshot } from "../review-service.ts";
-import type { Call } from "./call.ts";
+import { guardReplay, type Call } from "./call.ts";
 import { ToolError } from "./errors.ts";
 import { parseDepth, requireId } from "./input.ts";
 import { capText, LIMITS, page, round4, textPage } from "./limits.ts";
@@ -26,14 +26,16 @@ export function getNode(call: Call, input: Record<string, unknown>, opts: RunOpt
 	const trust = levels.get(id);
 	const lectures = call.deps.lectures.list();
 
-	const panel = buildNodePanel(id, {
-		graph: call.graph,
-		explanationEvents: call.deps.explanations.readAll(),
-		goalEvents: call.review.goalsStore.readEvents(),
-		sources: {},
-		costAllowed: true,
-		availableActions: [],
-	});
+	const panel = guardReplay(() =>
+		buildNodePanel(id, {
+			graph: call.graph,
+			explanationEvents: call.deps.explanations.readAll(),
+			goalEvents: call.review.goalsStore.readEvents(),
+			sources: {},
+			costAllowed: true,
+			availableActions: [],
+		}),
+	);
 	if (panel === null) throw notFoundNode(id);
 
 	const ref = (r: { id: string; name: string }) => ({ id: r.id, name: capText(r.name, LIMITS.nameChars) });
@@ -69,7 +71,7 @@ export function getNode(call: Call, input: Record<string, unknown>, opts: RunOpt
 	};
 	if (opts.knowledgeOnly) return { ...base, studyState: "disabled" as const };
 
-	const cards = deriveCards(call.review.cardsStore.readEvents()).filter((c) => c.nodeId === id && c.status === "active");
+	const cards = guardReplay(() => deriveCards(call.review.cardsStore.readEvents())).filter((c) => c.nodeId === id && c.status === "active");
 	let review: {
 		dueAt: string | null;
 		recallProbability: number | null;
