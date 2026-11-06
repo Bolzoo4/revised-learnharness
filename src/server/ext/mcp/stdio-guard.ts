@@ -4,7 +4,8 @@
  * warning or debug print on stdout would corrupt the JSON-RPC stream, so:
  *   - process.stdout.write and console.log/info/debug are redirected to stderr;
  *   - the transport gets a dedicated Writable that writes to the REAL stdout.
- * A closed stdout (EPIPE) ends the process quietly instead of crashing.
+ * A closed stdout (EPIPE, or any other stdout error) ends the process quietly
+ * through onClosed: no unhandled 'error' event and no stack on stderr.
  */
 
 import { Writable } from "node:stream";
@@ -33,13 +34,16 @@ export function installStdioGuard(proc: NodeJS.Process = process, onClosed: () =
 	console.info = redirect("");
 	console.debug = redirect("");
 
-	proc.stdout.on("error", (error: NodeJS.ErrnoException) => {
-		if (error.code === "EPIPE") onClosed();
-	});
+	// Any stdout failure means the client can no longer receive replies: end quietly.
+	proc.stdout.on("error", () => onClosed());
 
+	// The transport's writes never surface an error event: a failed write ends the process (via onClosed).
 	const protocolOut = new Writable({
 		write(chunk: Buffer, _encoding, callback) {
-			realWrite(chunk, (err) => callback(err ?? undefined));
+			realWrite(chunk, (err) => {
+				if (err) onClosed();
+				callback();
+			});
 		},
 	});
 
