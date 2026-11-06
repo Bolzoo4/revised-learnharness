@@ -37,6 +37,8 @@ export const extStores = {
 	snapshotStore: createSnapshotStore(EXT_PATHS.dir),
 	verificationStore: createVerificationStore(EXT_PATHS.dir),
 	costStore: createCostStore(EXT_PATHS.dir),
+	/** Spend on narration audio: its own ledger and its own ceiling (cost-live.ts), never mixed with the model spend. */
+	audioCostStore: createCostStore(EXT_PATHS.dir, "audio-cost.jsonl"),
 	lecturesStore: createLecturesStore(EXT_PATHS.dir),
 	snapshotReader: createSnapshotReader(EXT_PATHS.dir),
 	/** Which card a tutor chat is focused on ("Ask the tutor"). */

@@ -3,7 +3,7 @@
  * The shared daily ceiling (REQ-cost-01) and the step pricer for the study
  * stage's background model work. Same ceiling and env override as the
  * verification stage; the gate is built fresh per call so an environment
- * change lands without a restart.
+ * change lands without a restart. Also the separate ceiling of narration audio.
  */
 
 import type { StepPricer } from "../../agent/ext/lecture/structured.ts";
@@ -27,6 +27,27 @@ export const liveCostGate: CostGate = {
 
 function gate(): CostGate {
 	return createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd(), providerPause: providerPauseView });
+}
+
+const DEFAULT_AUDIO_CEILING_USD = 3;
+function audioCeilingUsd(): number {
+	const raw = Number(process.env.LH_EXT_AUDIO_CEILING_USD);
+	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AUDIO_CEILING_USD;
+}
+
+/**
+ * The narration audio's own daily ceiling (LH_EXT_AUDIO_CEILING_USD, default 3 USD), on its own ledger
+ * (audio-cost.jsonl). It does not share the model ceiling, and a model provider's usage pause does not
+ * close it: Deepgram is not a model provider. Built fresh per call, like the model gate.
+ */
+export const liveAudioGate: CostGate = {
+	allowed: () => audioGate().allowed(),
+	reason: () => audioGate().reason?.() ?? null,
+	record: (usd, source) => audioGate().record(usd, source),
+};
+
+function audioGate(): CostGate {
+	return createCostGate({ store: extStores.audioCostStore, ceilingUsd: audioCeilingUsd() });
 }
 
 /** USD of one billed step; an unpriced model counts as 0 (the same rule as the verification stage). */
