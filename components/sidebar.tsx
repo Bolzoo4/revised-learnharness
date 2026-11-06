@@ -22,6 +22,7 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { ExtNav } from "@/components/ext/ext-nav";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -720,6 +721,8 @@ function SessionsSidebar() {
 						<span className="sr-only">create a new practice session</span>
 					</button>
 				</div>
+
+				<ExtNav />
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
 					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
