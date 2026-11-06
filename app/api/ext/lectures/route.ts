@@ -1,4 +1,4 @@
-import { httpErrorResponse, isPdfUpload, lectureService, readJsonObject, stagePdfUpload } from "@/src/server";
+import { httpErrorResponse, isPdfUpload, keepUploadedBook, lectureService, readJsonObject, stagePdfUpload } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -14,22 +14,22 @@ export async function GET() {
 
 /**
  * POST { pdfPath, title? } → 202 { bookId }; the run continues in the background.
- * POST multipart/form-data (file, title?) → 202 { bookId }. The ingest reads the PDF while it runs,
- * so the staged copy is deleted when the run settles, not when this response is sent.
+ * POST multipart/form-data (file, title?) → 202 { bookId }. The upload is copied into the documents
+ * store first and the ingest reads that stable copy, so the bookId and the stored source locator
+ * stay valid after the temp directory is released (released as soon as the copy is made).
  */
 export async function POST(req: Request) {
 	try {
 		if (isPdfUpload(req)) {
 			const staged = await stagePdfUpload(req);
-			let started: ReturnType<typeof lectureService.startBookIngest>;
 			try {
-				started = lectureService.startBookIngest({ pdfPath: staged.path, title: staged.title });
-			} catch (error) {
+				const pdfPath = await keepUploadedBook(staged.path);
+				const started = lectureService.startBookIngest({ pdfPath, title: staged.title });
+				void started.finished.catch((err) => console.error("[ext] lecture ingest failed:", err));
+				return Response.json({ bookId: started.bookId }, { status: 202 });
+			} finally {
 				await staged.release();
-				throw error;
 			}
-			void started.finished.catch((err) => console.error("[ext] lecture ingest failed:", err)).finally(() => staged.release());
-			return Response.json({ bookId: started.bookId }, { status: 202 });
 		}
 		const body = await readJsonObject(req);
 		const { bookId, finished } = lectureService.startBookIngest({

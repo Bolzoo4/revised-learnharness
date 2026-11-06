@@ -17,6 +17,7 @@ import { sourceDirectory } from "../source-organization.ts";
 import { stores } from "../stores.ts";
 import { liveCostGate } from "./cost-live.ts";
 import { createLectureService, type BookRunStatus } from "./lecture-service.ts";
+import { keepStagedPdf } from "./pdf-upload.ts";
 import { extStores } from "./stores.ts";
 import { writerDeps } from "./study-engine.ts";
 
@@ -51,3 +52,8 @@ export const lectureService = createLectureService({
 	},
 	runs,
 });
+
+/** An uploaded book's staged copy, kept in the documents store: the stable path the ingest reads (same bytes, same path). */
+export function keepUploadedBook(stagedPath: string): Promise<string> {
+	return keepStagedPdf(stagedPath, extStores.documentFiles);
+}

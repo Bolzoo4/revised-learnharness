@@ -19,6 +19,7 @@ const marks = await import("../app/api/ext/review/marks/route.ts");
 const plan = await import("../app/api/ext/review/plan/route.ts");
 const reviewSession = await import("../app/api/ext/review/session/route.ts");
 const { lectureService, practiceService, personalLayer, HttpError, httpErrorResponse } = await import("../src/server/index.ts");
+const { bookIdFor } = await import("../src/server/ext/lecture-service.ts");
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
 afterEach(() => mock.restoreAll());
@@ -75,6 +76,31 @@ describe("lectures routes", () => {
 		quiet();
 		mock.method(lectureService, "startBookIngest", () => { throw new Error("boom: /secret/path"); });
 		await assertInternal(await lectures.POST(post("/api/ext/lectures", { pdfPath: "/a.pdf" })));
+	});
+	it("POST /lectures multipart: the ingest reads the stored copy, never the temp file, and the temp directory is gone", async () => {
+		const seen: string[] = [];
+		mock.method(lectureService, "startBookIngest", (input: { pdfPath: string }) => {
+			seen.push(input.pdfPath);
+			return { bookId: bookIdFor(input.pdfPath), finished: Promise.resolve() };
+		});
+		const form = () => {
+			const f = new FormData();
+			f.append("file", new File([new TextEncoder().encode("%PDF-1.4 the same book")], "book.pdf", { type: "application/pdf" }));
+			return f;
+		};
+		const first = await lectures.POST(new Request("http://localhost/api/ext/lectures", { method: "POST", body: form() }));
+		const second = await lectures.POST(new Request("http://localhost/api/ext/lectures", { method: "POST", body: form() }));
+		assert.equal(first.status, 202);
+		assert.equal(second.status, 202);
+		assert.equal(seen.length, 2);
+		assert.equal(seen[0], seen[1], "the same bytes ingest the same stored path");
+		assert.equal((await first.json()).bookId, bookIdFor(seen[0]!));
+		assert.equal((await second.json()).bookId, bookIdFor(seen[0]!));
+		assert.ok(seen[0]!.startsWith(path.join(TMP_DATA, "ext", "documents")), seen[0]);
+		assert.equal(fs.existsSync(seen[0]!), true);
+		const tempRoot = path.join(TMP_DATA, "ext", "tmp");
+		const leftovers = fs.existsSync(tempRoot) ? fs.readdirSync(tempRoot).filter((n) => n.startsWith("upload-")) : [];
+		assert.deepEqual(leftovers, []);
 	});
 	it("GET /lectures/[id]: 404 for an unknown lecture", async () => {
 		const res = await lectureById.GET(new Request("http://localhost/x"), { params: Promise.resolve({ id: "nope" }) });
