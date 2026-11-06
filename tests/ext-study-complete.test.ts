@@ -15,7 +15,7 @@ describe("complete (REQ-study-11, REQ-study-12)", () => {
 		readPages(h, id, [2, 4]);
 		h.svc.recordReading({ documentId: id, kind: "visit", page: 5 }); // visited but not read (no dwell)
 		const r = await h.svc.complete(id);
-		assert.deepEqual(r, { proposed: 2, pages: [2, 4], remaining: 0, ceilingReached: false });
+		assert.deepEqual(r, { proposed: 2, pages: [2, 4], remaining: 0, ceilingReached: false, providerLimited: false });
 		assert.deepEqual(h.pageCalls[0]!.pages.map((p) => p.page), [2, 4]);
 		assert.deepEqual(h.svc.listDrafts(id).map((d) => [d.page, d.status]), [[2, "pending"], [4, "pending"]]);
 		assert.deepEqual([h.imports.length, h.links.events.length, h.cards.created.length, h.cards.proposed.length, h.cards.pinned.length], [0, 0, 0, 0, 0]);
@@ -26,7 +26,7 @@ describe("complete (REQ-study-11, REQ-study-12)", () => {
 		readPages(h, id, [2]);
 		await h.svc.complete(id);
 		const again = await h.svc.complete(id);
-		assert.deepEqual(again, { proposed: 0, pages: [], remaining: 0, ceilingReached: false });
+		assert.deepEqual(again, { proposed: 0, pages: [], remaining: 0, ceilingReached: false, providerLimited: false });
 		assert.equal(h.pageCalls.length, 1);
 	});
 	it("a page read later is offered by the next run", async () => {
@@ -63,7 +63,7 @@ describe("complete (REQ-study-11, REQ-study-12)", () => {
 		const id = await registerA(h);
 		readPages(h, id, [3]); // page 3 is empty in the fixture
 		const r = await h.svc.complete(id);
-		assert.deepEqual(r, { proposed: 0, pages: [3], remaining: 0, ceilingReached: false });
+		assert.deepEqual(r, { proposed: 0, pages: [3], remaining: 0, ceilingReached: false, providerLimited: false });
 		assert.equal(h.pageCalls.length, 0);
 	});
 	it("sends pages in batches", async () => {
@@ -78,7 +78,7 @@ describe("complete (REQ-study-11, REQ-study-12)", () => {
 	it("nothing read means nothing to do", async () => {
 		const h = studyHarness();
 		const id = await registerA(h);
-		assert.deepEqual(await h.svc.complete(id), { proposed: 0, pages: [], remaining: 0, ceilingReached: false });
+		assert.deepEqual(await h.svc.complete(id), { proposed: 0, pages: [], remaining: 0, ceilingReached: false, providerLimited: false });
 	});
 });
 
@@ -89,7 +89,7 @@ describe("complete and the daily ceiling (REQ-study-13)", () => {
 		readPages(h, id, [2]);
 		h.gate.open = false;
 		const r = await h.svc.complete(id);
-		assert.deepEqual(r, { proposed: 0, pages: [], remaining: 1, ceilingReached: true });
+		assert.deepEqual(r, { proposed: 0, pages: [], remaining: 1, ceilingReached: true, providerLimited: false });
 		assert.equal(h.pageCalls.length, 0);
 		h.gate.open = true;
 		assert.equal((await h.svc.complete(id)).proposed, 1);
@@ -109,7 +109,7 @@ describe("complete and the daily ceiling (REQ-study-13)", () => {
 		const id = await registerA(h);
 		readPages(h, id, [2]);
 		const r = await h.svc.complete(id);
-		assert.deepEqual(r, { proposed: 0, pages: [], remaining: 1, ceilingReached: true });
+		assert.deepEqual(r, { proposed: 0, pages: [], remaining: 1, ceilingReached: true, providerLimited: false });
 		assert.equal(h.drafts.events.length, 0);
 	});
 	it("any other writer failure propagates and marks nothing", async () => {

@@ -7,6 +7,7 @@
 import type { TSchema } from "typebox";
 import type { ModelRole } from "../../../../config.ts";
 import type { CostGate } from "../../../core/ext/cost-gate.ts";
+import { PROVIDER_LIMIT_MESSAGE } from "../../../core/ext/provider-limit.ts";
 import type { PiEngine } from "../../models.ts";
 import { runSubmitAgent } from "../../subagents/submit-agent.ts";
 
@@ -18,11 +19,21 @@ export class CostCeilingError extends Error {
 	}
 }
 
+/** Thrown when a provider usage limit (not the ceiling) closes the gate; callers stop and the work stays retryable. */
+export class ProviderLimitedError extends Error {
+	constructor() {
+		super(PROVIDER_LIMIT_MESSAGE);
+		this.name = "ProviderLimitedError";
+	}
+}
+
 /** USD of one billed model step; injected by the server (upstream's pricing lives there). */
 export type StepPricer = (model: string, usage: { input: number; output: number; cacheRead: number; cacheWrite: number }) => number;
 
 export function assertWithinCeiling(gate: CostGate): void {
-	if (!gate.allowed()) throw new CostCeilingError("the daily ceiling for background model work is spent");
+	if (gate.allowed()) return;
+	if (gate.reason?.() === "provider-limit") throw new ProviderLimitedError();
+	throw new CostCeilingError("the daily ceiling for background model work is spent");
 }
 
 export async function runStructured<T>(opts: {

@@ -18,6 +18,7 @@ import { registerBookAsPrimary } from "../../core/ext/lecture/book-source.ts";
 import type { Chapter, ChapterStart } from "../../core/ext/lecture/chapters.ts";
 import { citingLectures, lectureOverlay } from "../../core/ext/lecture/lecture-graph.ts";
 import type { OutlineBlock } from "../../core/ext/lecture/split.ts";
+import { PROVIDER_LIMIT_MESSAGE } from "../../core/ext/provider-limit.ts";
 import type { SourceLibrary } from "../../core/ext/sources.ts";
 import type { LecturesStore } from "../../core/ext/study-ports.ts";
 import { HttpError } from "./http-error.ts";
@@ -74,7 +75,9 @@ export function createLectureService(deps: LectureServiceDeps) {
 		if (running !== undefined && (running.phase === "detecting" || running.phase === "running")) {
 			return { bookId, finished: Promise.resolve() };
 		}
-		if (!deps.gate.allowed()) throw new LectureServiceError(429, "the daily ceiling for background model work is spent");
+		if (!deps.gate.allowed()) {
+			throw new LectureServiceError(429, deps.gate.reason?.() === "provider-limit" ? PROVIDER_LIMIT_MESSAGE : "the daily ceiling for background model work is spent");
+		}
 		const title = (input.title?.trim() || path.basename(pdfPath, path.extname(pdfPath))).trim();
 		const status: BookRunStatus = { bookId, title, pdfPath, phase: "detecting", chapters: [], startedAt: now() };
 		deps.runs.set(bookId, status);
@@ -107,7 +110,9 @@ export function createLectureService(deps: LectureServiceDeps) {
 		}).then(
 			() => {
 				status.phase = status.chapters.every((c) => c.state === "done") ? "done" : "failed";
-				if (status.phase === "failed") status.error = "some chapters did not finish; see the per-chapter errors";
+				// A provider limit is retryable: the book ends with the fixed text, not the generic failure.
+				if (status.chapters.some((c) => c.state === "stopped_provider")) status.error = PROVIDER_LIMIT_MESSAGE;
+				else if (status.phase === "failed") status.error = "some chapters did not finish; see the per-chapter errors";
 			},
 			(err: unknown) => {
 				status.phase = "failed";

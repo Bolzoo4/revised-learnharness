@@ -19,12 +19,13 @@ import { generateWithFeedback } from "../../../core/ext/lecture/retry.ts";
 import { splitOutline, type OutlineBlock } from "../../../core/ext/lecture/split.ts";
 import { feedbackFromErrors, uncoveredChapterNodes, validateLecture } from "../../../core/ext/lecture/validate.ts";
 import type { LecturesStore } from "../../../core/ext/study-ports.ts";
-import { CostCeilingError, assertWithinCeiling } from "./structured.ts";
+import { PROVIDER_LIMIT_MESSAGE } from "../../../core/ext/provider-limit.ts";
+import { CostCeilingError, ProviderLimitedError, assertWithinCeiling } from "./structured.ts";
 import type { LectureWriteInput } from "./writers.ts";
 
 export const MAX_LECTURE_RETRIES = 2;
 
-export type ChapterState = "queued" | "graph" | "outline" | "writing" | "done" | "failed" | "stopped_cost";
+export type ChapterState = "queued" | "graph" | "outline" | "writing" | "done" | "failed" | "stopped_cost" | "stopped_provider";
 
 export interface ChapterProgress {
 	chapter: Chapter;
@@ -35,7 +36,7 @@ export interface ChapterProgress {
 }
 
 export interface ChapterResult {
-	state: "done" | "failed" | "stopped_cost";
+	state: "done" | "failed" | "stopped_cost" | "stopped_provider";
 	lectureIds: string[];
 	/** Chapter node ids no saved lecture cites (REQ-lec-07). */
 	uncoveredNodeIds: string[];
@@ -153,6 +154,8 @@ export async function runChapter(book: BookRef, chapter: Chapter, deps: ChapterR
 
 		return result("done");
 	} catch (err) {
+		// A provider usage limit is retryable: the chapter is stopped with the fixed text, never the provider's own.
+		if (err instanceof ProviderLimitedError || deps.gate.reason?.() === "provider-limit") return result("stopped_provider", PROVIDER_LIMIT_MESSAGE);
 		if (err instanceof CostCeilingError) return result("stopped_cost", err.message);
 		return result("failed", err instanceof Error ? err.message : String(err));
 	}

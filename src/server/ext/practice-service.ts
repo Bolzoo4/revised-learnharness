@@ -32,6 +32,7 @@ import {
 import { designationOf, type OfficeHoursEvent } from "../../core/ext/practice/office-hours.ts";
 import { checkVerdictItems, OUTCOME_TEXT, verdictOutcome, type VerdictItem } from "../../core/ext/practice/verdict.ts";
 import type { SnapshotStore } from "../../core/ext/ports.ts";
+import { PROVIDER_LIMIT_MESSAGE } from "../../core/ext/provider-limit.ts";
 import type { TrustLevel } from "../../core/ext/trust.ts";
 import type { SnapshotReader } from "../../core/ext/study-ports.ts";
 import { HttpError } from "./http-error.ts";
@@ -176,7 +177,9 @@ export function createPracticeService(deps: PracticeServiceDeps) {
 	async function createExerciseSet(input: { goalId: string; count?: number }): Promise<{ setId: string }> {
 		const goal = deps.goalScope(input.goalId);
 		if (goal === null || goal.status !== "active") throw new PracticeError(404, "unknown or inactive goal");
-		if (!deps.gate.allowed()) throw new PracticeError(429, "the daily ceiling for background model work is spent");
+		if (!deps.gate.allowed()) {
+			throw new PracticeError(429, deps.gate.reason?.() === "provider-limit" ? PROVIDER_LIMIT_MESSAGE : "the daily ceiling for background model work is spent");
+		}
 		const nodes = deps.nodes(goal.scope);
 		const ctx = { scope: new Set(goal.scope), targetNodeIds: goal.targetNodeIds, statements: new Map(nodes.map((n) => [n.id, n.statement] as const)) };
 		const count = Math.max(1, Math.min(input.count ?? DEFAULT_EXERCISE_COUNT, 8));

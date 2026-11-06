@@ -57,13 +57,16 @@ export type DebriefOutcome =
 	/** The session or week had nothing to comment on: no entry. */
 	| { status: "empty" }
 	/** Not stored now: no model is configured, the commentary failed and will be retried, or the append failed and will be retried. */
-	| { status: "deferred"; reason: "unavailable" | "retry" };
+	/** "provider-limit": a provider usage limit paused the work; nothing is stored, no attempt is used, the session stays pending. */
+	| { status: "deferred"; reason: "unavailable" | "retry" | "provider-limit" };
 
 export interface SweepResult {
 	created: number;
 	deferred: number;
 	errors: number;
 	weekly: DebriefOutcome["status"] | "error" | "not_due";
+	/** True when a provider usage limit stopped the sweep before it finished. */
+	providerLimited: boolean;
 }
 
 export interface DebriefState {
@@ -113,7 +116,7 @@ async function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: () => voi
 	}
 }
 
-const emptySweep = (): SweepResult => ({ created: 0, deferred: 0, errors: 0, weekly: "not_due" });
+const emptySweep = (): SweepResult => ({ created: 0, deferred: 0, errors: 0, weekly: "not_due", providerLimited: false });
 
 export type LectureActivityInput =
 	| { type: "lecture_view"; sessionId: string; lectureId: string; slideId: string }
@@ -125,6 +128,14 @@ export function createDebriefService(deps: DebriefDeps) {
 	const clock = deps.clock ?? (() => new Date().toISOString());
 	const state = deps.state ?? newDebriefState();
 	const journal = (): JournalEvent[] => deriveJournal(deps.journal.readAll());
+	/** True while a provider usage limit (not the ceiling) closes the gate. */
+	const providerLimited = (): boolean => {
+		try {
+			return deps.gate.reason?.() === "provider-limit";
+		} catch {
+			return false;
+		}
+	};
 
 	/**
 	 * Concurrent calls for one key share one run. The run is registered BEFORE it starts
@@ -164,6 +175,8 @@ export function createDebriefService(deps: DebriefDeps) {
 		let commentary: string | null = null;
 		let nullReason: JournalEvent["nullReason"] = null;
 		let styleVersion: string | undefined;
+		// A provider limit stores nothing and uses no attempt: the session stays pending for a later sweep.
+		if (providerLimited()) return { status: "deferred", reason: "provider-limit" };
 		if (!deps.gate.allowed()) {
 			nullReason = "ceiling"; // REQ-deb-06: facts are stored, the commentary is not attempted
 		} else {
@@ -199,6 +212,7 @@ export function createDebriefService(deps: DebriefDeps) {
 			} catch (err) {
 				if (err instanceof WriterUnavailableError) return { status: "deferred", reason: "unavailable" };
 				if (spendFailed) nullReason = "error"; // paid, but unrecorded: never a second paid call
+				else if (providerLimited()) return { status: "deferred", reason: "provider-limit" };
 				else if (!deps.gate.allowed()) nullReason = "ceiling";
 				else if (isAbortError(err)) return { status: "deferred", reason: "retry" }; // cancelled by shutdown: not a failure of the session
 				else {
@@ -270,6 +284,11 @@ export function createDebriefService(deps: DebriefDeps) {
 			for (const [key, entry] of [...state.pending]) {
 				if (persist(key, entry).status === "created") result.created += 1; // paid appends first, no model call
 			}
+			if (providerLimited()) {
+				// Nothing is started while the provider is paused; the sessions and the week stay pending.
+				result.providerLimited = true;
+				return result;
+			}
 			const pending = pendingSessions({
 				refs: deps.sources.sessions(),
 				journal: journal(),
@@ -283,6 +302,10 @@ export function createDebriefService(deps: DebriefDeps) {
 					const out = await debriefSession(p.ref, p.endedAt);
 					if (out.status === "created") result.created += 1;
 					else if (out.status === "deferred") result.deferred += 1;
+					if (out.status === "deferred" && out.reason === "provider-limit") {
+						result.providerLimited = true;
+						return result; // the rest wait for the pause to end
+					}
 				} catch {
 					result.errors += 1; // one broken session never blocks the others
 					console.error("[ext] debrief of one session failed");
@@ -291,6 +314,7 @@ export function createDebriefService(deps: DebriefDeps) {
 			try {
 				const out = await debriefWeek(at);
 				result.weekly = out === "not_due" ? out : out.status;
+				if (out !== "not_due" && out.status === "deferred" && out.reason === "provider-limit") result.providerLimited = true;
 				if (out !== "not_due" && out.status === "created") result.created += 1;
 				if (out !== "not_due" && out.status === "deferred") result.deferred += 1;
 			} catch {

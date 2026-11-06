@@ -19,10 +19,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { MAX_PROPOSITION_CHARS, type CardDraft, type PageDraft } from "../../agent/ext/study/draft-writer.ts";
-import { CostCeilingError } from "../../agent/ext/lecture/structured.ts";
+import { CostCeilingError, ProviderLimitedError } from "../../agent/ext/lecture/structured.ts";
 import type { StudyToolContext } from "../../agent/ext/study/study-tools.ts";
 import { pickCardNode, type CandidateNode } from "../../core/ext/study/card-node.ts";
 import type { CostGate } from "../../core/ext/cost-gate.ts";
+import { PROVIDER_LIMIT_MESSAGE } from "../../core/ext/provider-limit.ts";
 import { registerBookAsPrimary } from "../../core/ext/lecture/book-source.ts";
 import type { SourceLibrary } from "../../core/ext/sources.ts";
 import { MAX_PAGE, MAX_TEXT_CHARS, MAX_TITLE_CHARS, flattenText } from "../../core/ext/study/bounds.ts";
@@ -125,9 +126,11 @@ export interface CompleteResult {
 	proposed: number;
 	/** Pages handled by this run. */
 	pages: number[];
-	/** Read pages still waiting (because the ceiling was reached). */
+	/** Read pages still waiting (because the ceiling was reached or a provider limit paused the run). */
 	remaining: number;
 	ceilingReached: boolean;
+	/** True when a provider usage limit stopped the run; the pages it did not finish stay unprocessed. */
+	providerLimited: boolean;
 }
 
 export interface DecideResult {
@@ -160,6 +163,14 @@ const MSG = {
 } as const;
 const NOT_PENDING = "not a pending draft";
 const CEILING = "the daily cost ceiling is reached, so this draft stays pending";
+/** The gate is closed by a provider usage limit (not the ceiling). */
+function providerLimitedGate(gate: CostGate): boolean {
+	try {
+		return gate.reason?.() === "provider-limit";
+	} catch {
+		return false;
+	}
+}
 const APPROVE_FAILED = "this draft could not be approved; it stays pending and nothing was added";
 const RECORD_RETRY = "the card was added but its decision could not be recorded: approve it again to finish";
 const REJECT_FAILED = "this draft could not be rejected; try again";
@@ -556,10 +567,13 @@ export function createStudyService(deps: StudyServiceDeps) {
 			const handled: number[] = [];
 			let proposed = 0;
 			let ceilingReached = false;
+			let providerLimited = false;
 			for (let i = 0; i < todo.length; i += COMPLETE_BATCH_PAGES) {
 				const batch = todo.slice(i, i + COMPLETE_BATCH_PAGES);
+				// Refused before any call; the pages of a refused batch are not marked processed.
 				if (!deps.gate.allowed()) {
-					ceilingReached = true;
+					if (providerLimitedGate(deps.gate)) providerLimited = true;
+					else ceilingReached = true;
 					break;
 				}
 				const withText = batch
@@ -573,6 +587,10 @@ export function createStudyService(deps: StudyServiceDeps) {
 					} catch (e) {
 						if (e instanceof CostCeilingError) {
 							ceilingReached = true;
+							break;
+						}
+						if (e instanceof ProviderLimitedError || providerLimitedGate(deps.gate)) {
+							providerLimited = true;
 							break;
 						}
 						throw asStudyError("complete", e, 502, MSG.complete);
@@ -594,7 +612,7 @@ export function createStudyService(deps: StudyServiceDeps) {
 				proposed += drafts.length;
 				handled.push(...batch);
 			}
-			return { proposed, pages: handled, remaining: todo.length - handled.length, ceilingReached };
+			return { proposed, pages: handled, remaining: todo.length - handled.length, ceilingReached, providerLimited };
 		} finally {
 			running.delete(doc.id);
 		}
@@ -663,7 +681,7 @@ export function createStudyService(deps: StudyServiceDeps) {
 					answer: editOf(item.answer, "answer", MAX_TEXT_CHARS) ?? draft.answer,
 				});
 				const pin = pinOf(item.pin);
-				if (!deps.gate.allowed()) return { draftId, error: CEILING };
+				if (!deps.gate.allowed()) return { draftId, error: providerLimitedGate(deps.gate) ? PROVIDER_LIMIT_MESSAGE : CEILING };
 				const doc = documentById(draft.documentId);
 				const edited = content.proposition !== draft.proposition || content.question !== draft.question || content.answer !== draft.answer;
 				done = await attach(doc, draft.page, content, edited ? "user" : "agent", pin);
