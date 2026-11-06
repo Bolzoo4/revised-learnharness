@@ -8,7 +8,7 @@
  */
 
 import { createPracticeAgent, type AgentBuildOptions } from "../teacher-agent.ts";
-import { focusedReviewInstructions, REVIEW_INSTRUCTIONS } from "./review-instructions.ts";
+import { focusedNodeReviewInstructions, focusedReviewInstructions, REVIEW_INSTRUCTIONS } from "./review-instructions.ts";
 import { reviewTools, type ReviewToolContext } from "./review-tools.ts";
 
 export function createReviewAgent(ctx: ReviewToolContext, opts: AgentBuildOptions = {}) {
@@ -17,7 +17,11 @@ export function createReviewAgent(ctx: ReviewToolContext, opts: AgentBuildOption
 		{
 			...opts,
 			tools: reviewTools(ctx),
-			instructions: ctx.focus ? focusedReviewInstructions(ctx.focus) : REVIEW_INSTRUCTIONS,
+			instructions: ctx.nodeFocus
+				? focusedNodeReviewInstructions(ctx.nodeFocus)
+				: ctx.focus
+					? focusedReviewInstructions(ctx.focus)
+					: REVIEW_INSTRUCTIONS,
 		},
 	);
 }
