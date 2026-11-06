@@ -60,7 +60,15 @@ Session debriefs edit no file of the closed list; src/server/ext/stores.ts and s
 
 Completed: All five child specs (Source Verification, Personal Layer, Node Knowledge, Lectures & Office Hours, and Autonomous Research Loop) are implemented.
 
-Planned (not yet touched): the MCP dependency in `package.json`.
+Planned (not yet touched): the PDF viewer.
+
+MCP server: no touchpoint. The entry is `scripts/ext-mcp.ts` (inside the `scripts/ext-*`
+exclusion above) and its code lives under `src/**/ext/**`. `@modelcontextprotocol/sdk` 1.32.1 is
+already an upstream dependency, so `package.json` is unchanged; there is deliberately no `npm run`
+script for the server (it would edit `package.json`): launch it with
+`LH_DATA_DIR=<data directory> npx tsx scripts/ext-mcp.ts [--knowledge-only]`.
+`src/server/ext/personal-layer.ts` re-exports `startOfLocalDay` from `src/core/ext/local-day.ts`
+(both under the exclusion).
 
 Not touched on purpose: `config.ts` (paths are derived in `src/store/ext/paths.ts`) and
 `src/server/stores.ts` (the extension has its own root, `src/server/ext/stores.ts`).

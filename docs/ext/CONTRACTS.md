@@ -575,3 +575,66 @@ Review events carry no session id: `ownerOfEvent(at, windows)` = the window with
 ## Commentary and cost
 
 The agent submits `observations`, `stateOfLearning`, `critique`, `suggestion` (each non-blank, at most 2500 characters); the stored Markdown is `## Observations`, `## State of learning`, `## Critique`, `## Suggestion for the next session`, in that order, each followed by its text with any leading `#` heading marks removed. The model has no tool but the submission. Spend is recorded in `cost.jsonl` with `source` `debrief`; the commentary is attempted only while the shared daily ceiling allows (the `source` list of the `cost.jsonl` section also includes `node-knowledge` and `debrief`).
+
+## MCP server (read-only, stdio)
+
+Process: `LH_DATA_DIR=<data directory> npx tsx scripts/ext-mcp.ts [--knowledge-only]`, started by the client, speaking MCP (JSON-RPC 2.0, newline-delimited) over stdin/stdout. Stdout carries only protocol; diagnostics go to stderr. The server reads `ext/*.jsonl`, `ext/lectures/*/lecture.json` and `graph/*.jsonl`; it never writes, creates, locks or stamps anything; it opens no socket and calls no model. Corrupt or torn ledger lines are skipped. A `format.json` stamp newer than the build makes every tool fail with `data_newer_than_build`. A request line above 256 KiB ends the session (the client restarts the process).
+
+Every tool is annotated `readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`. Every input object is strict: an unknown field is an error, never ignored. Arguments are validated twice (JSON Schema at the protocol edge, the same rules in the core).
+
+### Result envelope
+
+Success: `structuredContent` is the tool's result object and `content[0].text` is the same object as JSON; `isError` is false.
+Failure: `isError` is true and `structuredContent` is `{"error": {"code": <code>, "message": <fixed text>}}`. Messages never contain a path, a stack trace or a raw exception text.
+
+| Error code | Meaning |
+|---|---|
+| `invalid_input` | argument missing, mistyped, out of range or unknown |
+| `not_found` | unknown id (or unknown tool) |
+| `disabled` | tool or filter disabled by `--knowledge-only` |
+| `data_newer_than_build` | a stamp is newer than this build understands |
+| `data_too_large` | a ledger file exceeds the 128 MiB read ceiling |
+| `data_inconsistent` | the review history cannot be replayed |
+| `response_too_large` | the result would exceed 128 KiB; narrow the request |
+| `internal` | anything else (details only on stderr) |
+
+### Bounds
+
+Every list is a page `{items, count, truncated}` (`count` is the number of items returned). Long text ends with `… [truncated: N more characters]`. Numbers are finite or `null`.
+
+| Bound | Value |
+|---|---|
+| default / maximum `limit` | 20 / 50 (debriefs 10 / 50, and at most 96 KiB of entries) |
+| query | 200 characters, 8 words |
+| id | 200 characters |
+| statement / explanation / quote | 2000 / 6000 / 400 characters |
+| neighbourhood | 60 nodes, 120 edges |
+| lectures / documents | 100 each |
+| response | 128 KiB |
+| future day for `get_daily_plan` | 30 days |
+
+### Knowledge group
+
+`search_nodes` input: `query` (string, required), `limit` (integer 1..50), `trust` (`unverified|sourced|contested|refuted`), `goalId` (string; needs study state). Output: `{query, items[{id, name, statement, trust}], count, truncated}`.
+
+`get_node` input: `id`. Output: `{id, name, statement, aliases(page), trust{level, checkedAt, evidence(page)}, explanation{state, noSourceContext, form, version, author, body, pendingProposal}, arguments(page of {premises(page)}), conclusions(page), citingLectures(page), studyState, cardCount, review{dueAt, recallProbability, reps, pinned, retired}|null, reviewUnavailable, goals(page)}`. Under `--knowledge-only` the last five fields are absent and `studyState` is `"disabled"`. `explanation.state` says when the text is stale; `noSourceContext` is true when it was written without source context. Evidence carries a source label, never a local path, query string or credential.
+
+`get_neighbors` input: `id`, `depth` (1 or 2). Output: `{center, depth, nodes(page of {id, name, depth, trust}), edges(page of {from, to})}`.
+
+`list_lectures` input: `chapter` (integer chapter number). Output: page of `{id, title, bookTitle, chapter, order, createdAt, slideCount, exerciseCount, citedNodeCount}`.
+
+`get_lecture` input: `id`. Output: outline `{id, title, bookTitle, chapter, order, summary, createdAt, slides(page), exercises(page of {blockId, slideId, seconds, prompt, nodeIds}), citedNodes(page)}`. Narration text is never returned.
+
+### Study-state group (disabled by `--knowledge-only`)
+
+`list_goals` input: `status` (`active|paused|reached`), `limit`. Output: page of `{id, title, status, priority, origin, createdAt, targetCount, scopeSize, solidNodes, solidShare, ready}`.
+
+`get_goal` input: `id`. Output: `{id, title, status, priority, origin, createdAt, updatedAt, desiredRetention, targets(page), scope{size, solid, solidShare, ready, byTrust}, due{dueNow, unseen, scheduled}, exerciseSet{state: none|in_progress|complete|applied, exercises, graded}}`. Exercise prompts and reference solutions are never returned.
+
+`get_daily_plan` input: `date` (`YYYY-MM-DD`, server local zone; today or up to 30 days ahead). Output: `{date, asOf, timezone, budgetMinutes, spentMinutes, remainingMinutes, due{fixed, dialogic, total}, newItems{fixed, dialogic, total}, planned{total, estimatedMinutes}, newCardQuota, capacity, deferred, needsCard, exerciseSetPending, pendingGoals(page)}`. The numbers come from the app's own plan function over the same data, time and default parameters. A future date is planned as of its last millisecond with nothing spent.
+
+`research_status` input: none. Output: `{frontier(page of {id, scope, mark, maxDepth, budgetUsd, note, author, at}), inbox{pending, approved, rejected, activated, total}, lastCycle{cycleId, trigger, startedAt, endedAt, stoppedBy, gaps, nodesAdded, costUsd, watch}|null}`. Source locators, rationales, error texts and steering messages are never returned.
+
+`get_recent_debriefs` input: `limit`, `since` (ISO-8601 instant with a time zone), `kind` (`review|lecture|office_hours|study|exercises|weekly`). Output: `{debriefs(page of {id, kind, sessionKind, weekOf, at, facts, commentary, nullReason}), latestWeekly}`. Facts above 4 KiB are replaced by `{kind, omitted}`.
+
+`list_documents` input: none. Output: page of `{id, title, pageCount, registeredAt, lastPage, readPages, readShare}`. No file path and no chat id.
