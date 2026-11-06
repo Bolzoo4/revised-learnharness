@@ -530,9 +530,10 @@ A study conversation is compacted by upstream's context compaction like a teach 
 
 ## `journal.jsonl` (ledger)
 
-Event (one per debrief): `{id, kind, sessionId, sessionKind, weekOf, at, facts, commentary, nullReason, author}`
+Event (one per debrief): `{id, kind, sessionId, sessionKind, weekOf, at, facts, commentary, nullReason, styleVersion?, author}`
 - `kind`: `session` | `weekly`. `author`: `agent`. `at`: ISO-8601, when the entry was written.
-- Key of an entry: `sessionId` for `session`, `weekly:<weekOf>` for `weekly`. `id` = `deb_` plus the first 12 hex digits of the SHA-256 of the key.
+- Key of an entry: `sessionId` for `session` (namespaced as `session:<id>` only when the id contains a colon), `weekly:<weekOf>` for `weekly`. `id` = `deb_` plus the first 12 hex digits of the SHA-256 of the key, and a parsed event must carry exactly that id.
+- `sessionId` matches `^[A-Za-z0-9_-]{1,100}$`. `weekOf` is a real calendar date. `at` is an ISO-8601 date-time. `styleVersion`, when present, is `^[A-Za-z0-9._-]{1,32}$`. A commentary is at most 4 x 2500 characters plus headings; the facts JSON is at most 16 KiB. Lines over these bounds are skipped by readers.
 - `session`: `sessionId` non-empty, `sessionKind` in `review` | `lecture` | `office_hours` | `study` | `exercises`, `weekOf` null, `facts.kind` equal to `sessionKind`.
 - `weekly`: `weekOf` = local date `YYYY-MM-DD` of the window start, `sessionId` and `sessionKind` null, `facts.kind` = `weekly`.
 - `commentary`: non-empty Markdown, or null. `nullReason`: `ceiling` (the daily cost ceiling was reached) or `error` (three commentary attempts failed), non-null exactly when `commentary` is null.
@@ -576,7 +577,7 @@ Review events carry no session id: `ownerOfEvent(at, windows)` = the window with
 
 ## Commentary and cost
 
-The agent submits `observations`, `stateOfLearning`, `critique`, `suggestion` (each non-blank, at most 2500 characters); the stored Markdown is `## Observations`, `## State of learning`, `## Critique`, `## Suggestion for the next session`, in that order, each followed by its text with any leading `#` heading marks removed. The model has no tool but the submission. Spend is recorded in `cost.jsonl` with `source` `debrief`; the commentary is attempted only while the shared daily ceiling allows (the `source` list of the `cost.jsonl` section also includes `node-knowledge` and `debrief`).
+The agent submits `observations`, `stateOfLearning`, `critique`, `suggestion` (each non-blank, at most 2500 characters); the stored Markdown is `## Observations`, `## State of learning`, `## Critique`, `## Suggestion for the next session`, in that order, each followed by its text. A part that opens a heading, repeats a section header, or leaves a code fence unclosed is refused and never stored (the writer retries it as a failure). The model has no tool but the submission. Spend is recorded in `cost.jsonl` with `source` `debrief`; the commentary is attempted only while the shared daily ceiling allows (the `source` list of the `cost.jsonl` section also includes `node-knowledge` and `debrief`).
 
 ## MCP server (read-only, stdio)
 
