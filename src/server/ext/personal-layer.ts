@@ -30,13 +30,9 @@ import {
 import { stores } from "../stores.ts";
 import { trustOfNode } from "./personal-trust.ts";
 import { extStores } from "./stores.ts";
+import { startOfLocalDay } from "../../core/ext/local-day.ts";
 
-/** Local midnight as an ISO instant: "today" for the daily budget and the dialogic cap. */
-export function startOfLocalDay(now: Date = new Date()): string {
-	const d = new Date(now);
-	d.setHours(0, 0, 0, 0);
-	return d.toISOString();
-}
+export { startOfLocalDay };
 
 export interface PersonalLayerDeps extends QueryDeps {
 	/** Creates a `kind: "review"` chat record. */
