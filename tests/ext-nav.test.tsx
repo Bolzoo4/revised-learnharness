@@ -19,7 +19,7 @@ it("renders the five learning pages as real links with the right hrefs", () => {
 	const doc = render("/");
 	assert.deepEqual(
 		anchors(doc).map((a) => [a.textContent, a.getAttribute("href")]),
-		[["Review", "/practice"], ["Lectures", "/lectures"], ["Study", "/study"], ["Research", "/research"], ["Journal", "/journal"]],
+		[["Review", "/review"], ["Lectures", "/lectures"], ["Study", "/study"], ["Research", "/research"], ["Journal", "/journal"]],
 	);
 });
 
@@ -58,6 +58,12 @@ it("a sub-page keeps its parent entry active (/lectures/[id], /study/[documentId
 	assert.equal(link(doc, "Lectures")?.getAttribute("aria-current"), "page");
 	assert.equal(isExtNavActive("/study/doc-1", "/study"), true);
 	assert.equal(isExtNavActive("/studyguide", "/study"), false, "a prefix of a word is not the page");
+});
+
+it("the Review entry points at the flashcard page and is active there", () => {
+	assert.equal(EXT_NAV_ITEMS.find((i) => i.label === "Review")?.href, "/review");
+	assert.equal(link(render("/review"), "Review")?.getAttribute("aria-current"), "page");
+	assert.equal(link(render("/practice"), "Review")?.hasAttribute("aria-current"), false, "office hours is not the Review page");
 });
 
 it("no entry is active on the home page or on an unknown pathname", () => {

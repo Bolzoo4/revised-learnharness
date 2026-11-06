@@ -36,10 +36,6 @@ export function PracticePanel({ goals }: { goals: Array<{ id: string; title: str
 		const json = await post("/api/ext/office-hours", body);
 		if (json && typeof json.chatId === "string") router.push(`/chat/${json.chatId}`);
 	}
-	async function startReview() {
-		const json = await post("/api/ext/review/session", {});
-		if (json && typeof json.chatId === "string") router.push(`/chat/${json.chatId}`);
-	}
 	async function generate() {
 		setBusy(true);
 		await post("/api/ext/exercises", { goalId });
@@ -50,10 +46,6 @@ export function PracticePanel({ goals }: { goals: Array<{ id: string; title: str
 	return (
 		<div className="flex flex-col gap-8">
 			{error !== null ? <p className="text-destructive">{error}</p> : null}
-			<section className="flex flex-col gap-2">
-				<h2 className="font-medium">Daily review</h2>
-				<button type="button" className="self-start rounded border px-3 py-1" onClick={() => void startReview()}>Start a review session</button>
-			</section>
 			<section className="flex flex-col gap-2">
 				<h2 className="font-medium">Office hours</h2>
 				<p className="text-sm text-muted-foreground">Paste the text your work will be compared with (a solutions manual passage, a textbook proof). Without it you get questions but no verdict.</p>

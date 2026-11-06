@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default function PracticePage() {
 	const goals = listActiveGoals();
 	return (
-		<ExtPageShell title="Practice" description="Start a daily review session, or open office hours on a text you paste.">
+		<ExtPageShell title="Practice" description="Office hours on a text you paste, and graded exercises for your goals.">
 			<PracticePanel goals={goals} />
 		</ExtPageShell>
 	);

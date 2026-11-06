@@ -7,14 +7,14 @@ import { cn } from "@/lib/utils";
 
 /**
  * The learning pages of the extension, as sidebar entries (one list, one place).
- * Labels are plain English and match the sidebar's other rows. "Review" points at
- * the practice page (office hours and graded exercises) and is named after the
- * learner's activity; the upstream "Practice" row creates a practice chat instead.
+ * Labels are plain English and match the sidebar's other rows. "Review" is the
+ * flashcard page (no agent: the tutor opens from a card); office hours and exercises
+ * are on /practice, linked from the Review page. The upstream "Practice" row creates a practice chat instead.
  * Each row carries a decorative icon in the same treatment as the Practice row
  * (sidebar.tsx): the label stays the accessible name.
  */
 export const EXT_NAV_ITEMS: ReadonlyArray<{ href: string; label: string; icon: LucideIcon }> = [
-	{ href: "/practice", label: "Review", icon: LayersIcon },
+	{ href: "/review", label: "Review", icon: LayersIcon },
 	{ href: "/lectures", label: "Lectures", icon: PresentationIcon },
 	{ href: "/study", label: "Study", icon: BookOpenIcon },
 	{ href: "/research", label: "Research", icon: TelescopeIcon },
