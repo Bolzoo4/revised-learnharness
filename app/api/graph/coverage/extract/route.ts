@@ -9,8 +9,10 @@
  * trigger fires, just user-initiated. 409 while a run is already in
  * flight (the dock is the source of truth for that); failures are logged
  * by the pipeline and leave coverage untouched — the button stays honest.
+ * A practice-like session (research included) is never extracted: 400.
  */
-import { extraction, extractionStatuses } from "@/src/server";
+import { extraction, extractionStatuses, getChat, HttpError, httpErrorResponse } from "@/src/server";
+import { isPracticeLike } from "@/src/core";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,11 @@ export async function POST(request: Request) {
 	const chatId = (body as { chatId?: unknown }).chatId;
 	if (typeof chatId !== "string" || chatId === "") {
 		return Response.json({ error: 'Body must be {chatId: string}' }, { status: 400 });
+	}
+	try {
+		if (isPracticeLike(getChat(chatId)?.kind)) throw new HttpError(400, "this session is not extracted");
+	} catch (error) {
+		return httpErrorResponse(error);
 	}
 	if (extractionStatuses().some((run) => run.kind === "chat" && run.chatId === chatId)) {
 		return Response.json({ error: "An extraction run is already in flight for this session" }, { status: 409 });

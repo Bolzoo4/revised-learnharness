@@ -20,6 +20,8 @@ import type { FeedItem } from "../src/core/ext/watch.ts";
 import type { GraphNodeLite } from "../src/core/ext/research-ports.ts";
 import type { WatchClassifyHooks, WatchClassifyResult } from "../src/agent/ext/watch-classify.ts";
 import type { CostGate } from "../src/core/ext/cost-gate.ts";
+import type { CycleLogEntry } from "../src/core/ext/research-log.ts";
+import { researchTools } from "../src/agent/ext/research-tools.ts";
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
 
@@ -118,7 +120,29 @@ describe("the gap adapter (REQ-rs-04, REQ-cost-01, REQ-rs-16)", () => {
 		assert.deepEqual(calls[0]!.hooks.takeSteers?.(), ["queued between gaps"]);
 	});
 
-	it("attaches the live agent while the gap runs and detaches it when the gap settles", async () => {
+	it("a steer during the gap reaches the live agent; after the gap settles it waits in the queue instead", async () => {
+		const control = createCycleControl();
+		const { gate } = recordingGate();
+		const delivered: string[] = [];
+		const agent = { steer: (m: { content: string }) => void delivered.push(m.content) };
+		let duringGap: "delivered" | "queued" | "closed" | null = null;
+		const researcher = {
+			run: async (_b: GapBrief, _s: string[], hooks: GapResearchHooks) => {
+				hooks.onAgent?.(agent as never);
+				duringGap = control.steer("during the gap");
+				return { ...finding, costUsd: 0 };
+			},
+		};
+		const adapter = live.makeResearchGap({ researcher, briefFor: () => brief, costGate: gate, control, config });
+		await adapter(gap, { steers: [], sourceHunt: false, ref: "c:g", maxTurns: 3 });
+		assert.equal(duringGap, "delivered");
+		assert.deepEqual(delivered, ["during the gap"]);
+		assert.equal(control.steer("after the gap"), "queued", "the agent is detached once the gap settles");
+		assert.deepEqual(delivered, ["during the gap"], "nothing reaches the finished agent");
+		assert.deepEqual(control.takeSteers(), ["after the gap"]);
+	});
+
+	it("a gap that throws still detaches its live agent", async () => {
 		const control = createCycleControl();
 		const { gate } = recordingGate();
 		const delivered: string[] = [];
@@ -126,12 +150,12 @@ describe("the gap adapter (REQ-rs-04, REQ-cost-01, REQ-rs-16)", () => {
 		const researcher = {
 			run: async (_b: GapBrief, _s: string[], hooks: GapResearchHooks) => {
 				hooks.onAgent?.(agent as never);
-				return { ...finding, costUsd: 0 };
+				throw Object.assign(new Error("gap research failed"), { costUsd: 0 });
 			},
 		};
 		const adapter = live.makeResearchGap({ researcher, briefFor: () => brief, costGate: gate, control, config });
-		await adapter(gap, { steers: [], sourceHunt: false, ref: "c:g", maxTurns: 3 });
-		assert.equal(control.steer("after the gap"), "queued", "after the gap no live agent is attached");
+		await assert.rejects(adapter(gap, { steers: [], sourceHunt: false, ref: "c:g", maxTurns: 3 }));
+		assert.equal(control.steer("after the failed gap"), "queued");
 		assert.deepEqual(delivered, []);
 	});
 
@@ -184,6 +208,7 @@ describe("the notes ingest (REQ-rs-07, REQ-res-03)", () => {
 		let imported: { filePath: string; text: string } | null = null;
 		let changed = 0;
 		const ingest = live.makeIngest({
+			costGate: { allowed: () => true },
 			registerImport: (p: string) => void registered.push(p),
 			importNotes: async (input: { filePath: string; text: string }) => {
 				imported = input;
@@ -200,9 +225,39 @@ describe("the notes ingest (REQ-rs-07, REQ-res-03)", () => {
 		assert.equal(changed, 1);
 	});
 
+	it("a closed daily ceiling refuses the ingest before any write, with a fixed phrase (REQ-cost-01)", async () => {
+		const calls: string[] = [];
+		let changed = 0;
+		const ingest = live.makeIngest({
+			costGate: { allowed: () => false },
+			registerImport: (p: string) => void calls.push(`register:${p}`),
+			importNotes: async ({ filePath }: { filePath: string }) => (calls.push(`import:${filePath}`), { nodes: 1 }),
+			emitChanged: () => void (changed += 1),
+		});
+		await assert.rejects(ingest({ locator: "https://a.org/x", title: "T", text: "body" }), (e: unknown) => e instanceof Error && e.message === live.INGEST_CEILING_REFUSAL);
+		assert.equal(live.INGEST_CEILING_REFUSAL, "the daily spending ceiling is reached");
+		assert.deepEqual(calls, []);
+		assert.equal(changed, 0);
+	});
+
+	it("registers the import before importing, through one shared call log, and announces the change last", async () => {
+		const { sourceFilePath } = await import("../src/core/ext/inbox.ts");
+		const calls: string[] = [];
+		const ingest = live.makeIngest({
+			costGate: { allowed: () => true },
+			registerImport: (p: string) => void calls.push(`register:${p}`),
+			importNotes: async ({ filePath }: { filePath: string }) => (calls.push(`import:${filePath}`), { nodes: 1 }),
+			emitChanged: () => void calls.push("changed"),
+		});
+		const expected = sourceFilePath("https://a.org/order");
+		await ingest({ locator: "https://a.org/order", title: "T", text: "body" });
+		assert.deepEqual(calls, [`register:${expected}`, `import:${expected}`, "changed"]);
+	});
+
 	it("still announces the change when the import fails, and the failure propagates", async () => {
 		let changed = 0;
 		const ingest = live.makeIngest({
+			costGate: { allowed: () => true },
 			registerImport: () => undefined,
 			importNotes: async () => {
 				throw new Error("pipeline down");
@@ -215,6 +270,12 @@ describe("the notes ingest (REQ-rs-07, REQ-res-03)", () => {
 });
 
 describe("scheduler and session wiring", () => {
+	it("the scheduler's flag and timer live on globalThis, so a dev reload cannot add a second interval (HMR)", () => {
+		server.startResearchScheduler();
+		const holder = (globalThis as unknown as { __lhResearchScheduler?: { running: boolean } }).__lhResearchScheduler;
+		assert.equal(holder?.running, true);
+	});
+
 	it("the research session's chat is not a teach chat and the scheduler hook is idempotent", () => {
 		const { chatId } = server.startResearchSession();
 		assert.notEqual(chatStore.getChat(chatId)?.kind, "teach");
@@ -224,3 +285,36 @@ describe("scheduler and session wiring", () => {
 		});
 	});
 });
+
+describe("one research store and the learner-named approval", () => {
+	it("the service, the admin and the tool context read ONE research store", () => {
+		const entry: CycleLogEntry = {
+			type: "cycle", cycleId: "cyc_identity", trigger: "manual", startedAt: "2026-11-06T10:00:00.000Z", endedAt: "2026-11-06T10:01:00.000Z",
+			stoppedBy: "completed", gaps: [], watch: { entries: 0, items: 0, ingested: 0, inbox: 0 }, nodesAdded: 0, costUsd: 0, steers: [],
+		};
+		live.researchStore.log.append(entry);
+		const { chatId } = server.startResearchSession();
+		assert.equal(server.researchService.status().lastCycle?.cycleId, "cyc_identity");
+		assert.equal(server.researchAdmin.readLog(1)[0]?.cycleId, "cyc_identity");
+		assert.equal(live.researchToolContext(chatId).readLog(1)[0]?.cycleId, "cyc_identity");
+	});
+
+	it("decide_inbox through the tool context reaches the inbox only for a locator the learner named in a learner message", async () => {
+		const locator = "https://learner-named.example/paper";
+		const snapshot = live.researchStore.snapshots.put("source text");
+		live.researchStore.inbox.append({ type: "proposed", locator, title: "Paper", gapId: "g1", foundBy: "cycle", cycleId: "cyc_x", snapshot, at: "2026-11-06T10:00:00.000Z" });
+		const { chatId } = server.startResearchSession();
+		const tools = researchTools(live.researchToolContext(chatId));
+		const pending = () => server.researchAdmin.listInbox("pending").some((i) => i.locator === locator);
+
+		chatStore.saveMessages(chatId, [{ id: "a1", role: "assistant", content: [{ type: "text", text: `I found ${locator}` }], timestamp: Date.now() } as never]);
+		const refused = await tools.decide_inbox!.execute!("t1", { locator, decision: "rejected" } as never);
+		assert.equal(refused.content[0]!.type === "text" ? refused.content[0]!.text : "", "decide_inbox refused: the learner has not named this source.");
+		assert.equal(pending(), true, "an assistant-only mention decides nothing");
+
+		chatStore.saveMessages(chatId, [{ id: "u1", role: "user", content: `reject ${locator} please`, timestamp: Date.now() } as never]);
+		await tools.decide_inbox!.execute!("t2", { locator, decision: "rejected" } as never);
+		assert.equal(pending(), false, "the learner's own words let the decision through");
+	});
+});
+

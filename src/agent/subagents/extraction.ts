@@ -28,6 +28,7 @@ import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
+import { isPracticeLike } from "../../core/ext/practice/session-kind.ts";
 import { failedOutputCallIds, type LhMessage } from "../../core/native-messages.ts";
 import { prepareAuditorReview } from "../tools/graph.ts";
 import { runSubmitAgent, healStringifiedArrays } from "./submit-agent.ts";
@@ -1124,6 +1125,10 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		try {
 			const record = chatStore.getChat(chatId);
 			if (!record) throw new Error(`Chat not found: ${chatId}`);
+			// PRACTICE-LIKE SESSIONS ARE NEVER EXTRACTED (review of 88cdf75 + dbe0234): a research
+			// session's chat is the learner's conversation with the research agent, not a source;
+			// the guard lands before any stage gate, so no model is needed to refuse it.
+			if (isPracticeLike(record.kind)) return { nodes: 0, chains: 0 };
 			// BYOK per-need gate (owner, 2026-09-22) + key presence
 			// (2026-09-25): the write channel needs extractor + auditor
 			// engines AND their providers' keys; a refusal lands BEFORE any

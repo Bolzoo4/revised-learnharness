@@ -40,15 +40,9 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/contracts/chat.ts` | `ChatKind` gains `"research"` (research sessions) | Research loop |
 | `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"research"` | Research loop |
 | `src/store/chats.ts` | `createChat` type widened to the same kinds | Research loop |
-| `src/server/chat-handler.ts` | the research agent branch (after review), the `research-live` import, the research turn is kept out of compaction (its summary spend is not on the daily gate, REQ-cost-01: two guards, the call and the kick factory) | Research loop |
-| `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `research` session | Research loop |
+| `src/server/chat-handler.ts` | the research agent branch (after review) and its `researchToolContext` / `createResearchAgent` imports; the research turn is kept out of compaction (its summary spend is not on the daily gate, REQ-cost-01: two guards, the call and the kick factory) | Research loop |
+| `app/chat/[id]/page.tsx` | passes `"research"` to `Chat` for a `research` session (the coverage ring hides for it) | Research loop |
 | `src/core/ext/practice/session-kind.ts` | `isPracticeLike` also covers `research`: the research session is never extracted into the graph (REQ-res-03), shared with the home counts and chain filters (side effect: research sessions count as practice there, see the report) | Research loop |
-| `src/core/contracts/chat.ts` | `ChatKind` gains `"research"` | Research loop |
-| `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"research"` | Research loop |
-| `src/store/chats.ts` | `createChat` stamps kind `"research"` | Research loop |
-| `src/core/ext/practice/session-kind.ts` | `isPracticeLike` accepts `"research"` | Research loop |
-| `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `research` session | Research loop |
-| `src/server/chat-handler.ts` | imports `researchToolContext` and `createResearchAgent`, branches for kind `"research"` | Research loop |
 | `src/core/contracts/chat.ts` | `ChatKind` gains `"study"` | Assisted study |
 | `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"study"` | Assisted study |
 | `src/store/chats.ts` | `createChat` type widened to the same kinds | Assisted study |
@@ -56,6 +50,10 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `app/chat/[id]/page.tsx` | pass `"teach"` to `Chat` for a `study` session | Assisted study |
 | `components/chat.tsx` | optional `transformOutgoing` prop, applied on send and on steer (the study view prepends the page and selection) | Assisted study |
 | `components/ext/node-panel-view.tsx` | "Source in your documents" section | Assisted study |
+| `src/agent/subagents/extraction.ts` | `runExtraction` returns an empty run for a practice-like chat (research is never extracted, REQ-res-03) | Research review fixes |
+| `app/api/graph/coverage/extract/route.ts` | answers 400 (`HttpError`, fixed message) for a practice-like session | Research review fixes |
+| `components/chat.tsx` | `kind` prop gains `"research"`; the coverage ring hides for a research session, as for practice | Research review fixes |
+| `src/server/chat-handler.ts` | research turn refused with a fixed 409 when the session is over the compaction threshold (research is never compacted, REQ-cost-01) | Research review fixes |
 
 Completed: All five child specs (Source Verification, Personal Layer, Node Knowledge, Lectures & Office Hours, and Autonomous Research Loop) are implemented.
 

@@ -60,7 +60,7 @@ import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-ser
 import { verifyAfterMerge, withPostMerge } from "./ext/index.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
-import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
+import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens } from "./compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
 import { settledTurnResponse } from "./turn-runs.ts";
@@ -177,6 +177,9 @@ setJobRespawn((jobId) => void jobRunner.runJob(jobId));
 // built in this composition root, so the seam is installed here — the
 // tools read it fresh per call (allowed folders + the app's private paths).
 setFileAccessPolicy(fileAccessPolicy);
+
+/** The fixed refusal of a research turn whose session is over the compaction threshold (research is never compacted). */
+const RESEARCH_FULL_REFUSAL = "this research session is full, start a new one";
 
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(
@@ -309,6 +312,16 @@ export async function handleChatInput(
 		},
 		chatId,
 	);
+	else {
+		// THE RESEARCH CONTEXT BOUND (review of 88cdf75 + dbe0234): research sessions are never
+		// compacted, so one that reached the same threshold ensureCompacted uses is full. The turn
+		// is refused before any model call and before any write.
+		const researchThreshold = effectiveThresholdTokens(effective.compaction?.thresholdTokens, catalogContextLimits().get(modelIdForCompaction));
+		const researchPromptTokens = Math.ceil(composeInstructions("practice").length / 4);
+		if (projectedContextTokens(record.messages, researchPromptTokens) > researchThreshold) {
+			return Response.json({ error: RESEARCH_FULL_REFUSAL }, { status: 409 });
+		}
+	}
 	const compactedRecord = stores.chatStore.getChat(chatId);
 	if (!compactedRecord) return Response.json({ error: "Unknown chat" }, { status: 404 });
 	record = compactedRecord;

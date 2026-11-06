@@ -160,6 +160,23 @@ function guarded<I>(name: string, run: (input: I) => unknown): (id: string, inpu
 	};
 }
 
+/** The refusal of a decide_inbox whose locator the learner did not name (a fixed phrase, the model's own mistake). */
+export const NOT_NAMED_REFUSAL = "the learner has not named this source";
+
+/** Whether one learner message (role user) names the locator: a whitespace token that normalizes to it, or the whole message does. */
+function learnerNames(messages: readonly LhMessage[], locator: string): boolean {
+	for (const m of messages) {
+		if (m.role !== "user") continue;
+		const raw = typeof m.content === "string" ? m.content : (m.content as Array<{ type?: string; text?: string }>).map((p) => (p.type === "text" ? (p.text ?? "") : "")).join(" ");
+		if (normalizeLocator(raw) === locator) return true;
+		for (const token of raw.split(/\s+/)) {
+			const bare = token.replace(/[)\]>,.;:'"]+$/, "");
+			if (bare !== "" && normalizeLocator(bare) === locator) return true;
+		}
+	}
+	return false;
+}
+
 /** The first problem with a set-mark argument, or null. */
 function markProblem(input: Static<typeof editMarkInput>): string | null {
 	if (input.scopeId !== undefined && input.scopeId.length > MAX_ID_CHARS) return `scopeId must be at most ${MAX_ID_CHARS} characters`;
@@ -263,6 +280,9 @@ export function researchTools(ctx: ResearchToolContext): Record<string, AgentToo
 				const locator = normalizeLocator(input.locator);
 				if (locator === "") return "decide_inbox failed: the locator is empty";
 				if (locator.length > MAX_LOCATOR_CHARS) return "decide_inbox failed: the locator is too long";
+				// Only a source the LEARNER named (in a user message of this chat) may be decided; an assistant or tool mention is not enough.
+				const record = ctx.chatStore.getChat(ctx.chatId);
+				if (!record || !learnerNames(record.messages, locator)) return refused("decide_inbox", NOT_NAMED_REFUSAL);
 				return await ctx.decideInbox(locator, input.decision);
 			}),
 		} satisfies AgentTool<typeof decideInput>,

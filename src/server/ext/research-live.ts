@@ -50,7 +50,7 @@ import { createFeedFetcher } from "./watch-fetch.ts";
 
 /** ONE research store per process (the cycle's busy guard and the inbox in-flight guard key on its objects); a dev reload reuses the first. */
 const storeHolder = globalThis as unknown as { __lhResearchStore?: typeof extStores.researchStore };
-const researchStore = (storeHolder.__lhResearchStore ??= extStores.researchStore);
+export const researchStore = (storeHolder.__lhResearchStore ??= extStores.researchStore);
 
 export const CYCLE_REFUSALS = {
 	"not-configured": "no research model is configured",
@@ -116,14 +116,29 @@ export function makeClassify(deps: MakeClassifyDeps) {
 }
 
 export interface MakeIngestDeps {
+	/** The shared daily gate: an ingest is a model-priced run, so it is refused while the ceiling is closed. */
+	costGate: Pick<CostGate, "allowed">;
 	registerImport(filePath: string): void;
 	importNotes(input: { filePath: string; text: string }): Promise<{ nodes: number }>;
 	emitChanged(): void;
 }
 
+/** The fixed refusal of an ingest while the daily ceiling is closed (the cycle logs the source as failed). */
+export const INGEST_CEILING_REFUSAL = "the daily spending ceiling is reached";
+
 /** REQ-rs-07, REQ-res-03: the source's text enters the graph only through the notes-source path, under its deterministic research file. */
 export function makeIngest(deps: MakeIngestDeps) {
 	return async (source: IngestSource): Promise<number> => {
+		// The ceiling is checked before any write. A gate that cannot answer is closed.
+		// NOTE: the notes pipeline's billed total is NOT recorded on the gate here: importNotes returns
+		// node and chain counts only (EmissionStats). The ingest is therefore free on the ledger (CONTRACTS, ingest spend).
+		let open = false;
+		try {
+			open = deps.costGate.allowed();
+		} catch {
+			open = false;
+		}
+		if (!open) throw new Error(INGEST_CEILING_REFUSAL);
 		const filePath = sourceFilePath(source.locator);
 		try {
 			deps.registerImport(filePath);
@@ -139,6 +154,7 @@ export function makeIngest(deps: MakeIngestDeps) {
 async function liveIngest(source: IngestSource): Promise<number> {
 	const [{ extraction }, { sourceDirectory }] = await Promise.all([import("../chat-handler.ts"), import("../source-organization.ts")]);
 	return makeIngest({
+		costGate: liveCostGate,
 		registerImport: (p) => sourceDirectory.registerImport(p),
 		importNotes: (input) => extraction.importNotes(input),
 		emitChanged: () => emit("sources-changed", {}),
@@ -235,7 +251,7 @@ export const researchService = (serviceHolder.__lhResearch ??= createResearchSer
 	cycleHours: researchConfigFromEnv(process.env).cycleHours,
 	canRun,
 	now: () => new Date(),
-	onError: (err) => console.error("[research service] cycle error:", err),
+	onError: () => console.error("[research service] cycle failed"),
 	buildCycleDeps: (control: CycleControl) => {
 		const config = researchConfigFromEnv(process.env);
 		const researcher = createGapResearcher({
@@ -347,19 +363,20 @@ export function startResearchSession(): { chatId: string } {
 	return { chatId: chat.id };
 }
 
-let schedulerRunning = false;
-let schedulerTimer: ReturnType<typeof setInterval> | undefined;
+/** The scheduler's flag and timer live on globalThis: a dev reload (HMR) re-evaluates this module, and a module-level flag would start a second interval. */
+const schedulerHolder = globalThis as unknown as { __lhResearchScheduler?: { running: boolean; timer?: ReturnType<typeof setInterval> } };
+const scheduler = (schedulerHolder.__lhResearchScheduler ??= { running: false });
 
 export function startResearchScheduler(): void {
-	if (schedulerRunning) return;
-	schedulerRunning = true;
+	if (scheduler.running) return;
+	scheduler.running = true;
 	if (process.env.NODE_ENV === "test") return;
-	schedulerTimer = setInterval(() => {
+	scheduler.timer = setInterval(() => {
 		try {
 			researchService.tick();
-		} catch (err) {
-			console.error("[research scheduler] tick failed:", err);
+		} catch {
+			console.error("[research scheduler] tick failed");
 		}
 	}, 60_000);
-	schedulerTimer.unref?.();
+	scheduler.timer.unref?.();
 }

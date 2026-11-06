@@ -285,6 +285,8 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 			// A source hunt looks for sources to vet; an active one is already used by verification.
 			if (!mayIngest) return { locator, outcome: "skipped-active", nodesAdded: 0 };
 			if (text.trim() === "") return { locator, outcome: "failed", nodesAdded: 0 };
+			// The ceiling is checked before EACH ingest (REQ-cost-01): a gap's spend can close it mid-gap.
+			if (stopReason() === "ceiling") return { locator, outcome: "failed", nodesAdded: 0 };
 			let nodesAdded: number;
 			try {
 				nodesAdded = count(await deps.ingest({ locator, title, text }));

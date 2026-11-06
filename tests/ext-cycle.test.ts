@@ -100,6 +100,18 @@ describe("runCycle", () => {
 		assert.equal(held.calls.verified.length, e2.gaps.length);
 	});
 
+	it("the cycle checks the daily ceiling before each ingest: a source that arrives after the ceiling closed is not ingested (REQ-cost-01)", async () => {
+		let open = true;
+		const { deps, calls } = fakeDeps({
+			costGate: { allowed: () => open, record: () => {} },
+			library: { isActive: (l) => l.startsWith("https://active.org"), activeLocators: () => [], activate: () => {} },
+			researchGap: async () => ((open = false), finding({ sources: [src("https://active.org/late")] })),
+		});
+		const entry = await runCycle(deps, "schedule");
+		assert.deepEqual(calls.ingested, [], "no ingest after the ceiling closed");
+		assert.equal(entry.gaps[0]!.sources[0]!.outcome, "failed");
+	});
+
 	it("saturation: ingesting fewer than 2 new nodes holds the node, authored by the agent (REQ-rs-06)", async () => {
 		const frontier = memLog<FrontierEvent>();
 		const { deps } = fakeDeps({

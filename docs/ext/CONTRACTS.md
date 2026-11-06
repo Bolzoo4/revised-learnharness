@@ -389,6 +389,8 @@ Triage rules (`triage(locator, isActive, inbox)`):
 Authority constraints:
 - **Agent constraint:** the agent's `decide_inbox` tool may only submit `approved` (ingest once) or `rejected` (never propose again) for a source explicitly named by the learner.
 - **Activation constraint:** `activated` (which adds the URL prefix to `sources.json` as an active source and ingests it) is strictly user-only from the UI and is never permitted to automated agents.
+- **Ingest ceiling (review item 2):** every ingest is refused while the daily gate is closed (`makeIngest` in `src/server/ext/research-live.ts`, fixed refusal `the daily spending ceiling is reached`), and the cycle checks the gate before each ingest, so a gap that closes it mid-run ingests nothing more.
+- **Ingest spend is NOT recorded on the gate (known gap):** the notes pipeline (`extraction.importNotes`) returns only node and chain counts (`EmissionStats`), not the billed total. Its usage is kept per source (`appendSourceUsage`, tokens only, no USD), so the gate sees the ingest as free. Closing this needs the pipeline to return a priced total; until then the ceiling bounds the gap research and the watch classification, not the ingest pipeline.
 
 ## `research-log.jsonl` (cycle ledger)
 

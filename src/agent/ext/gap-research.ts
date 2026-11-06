@@ -218,8 +218,8 @@ export interface GapResearchHooks {
 	maxTurns: number;
 	/** Most sources kept in the finding; the rest are listed in `capped`. An integer of at least 0. */
 	maxSources: number;
-	/** Receives the live agent right after it is built (steering). */
-	onAgent?: (agent: Agent) => void;
+	/** Receives the live agent right after it is built (steering), and null once the agent is finished with steering: report_findings accepted, or the run ended. */
+	onAgent?: (agent: Agent | null) => void;
 	/** Steering messages not yet delivered: drained at each tool start except report_findings, then delivered through the agent's steering queue. */
 	takeSteers?: () => unknown[];
 }
@@ -337,6 +337,9 @@ export function createGapResearcher(deps: GapResearchDeps) {
 						const parsed = parseGapReport(input, hooks.confidenceThreshold);
 						if (!parsed.ok) return invalidInputResult("report_findings", parsed.problems);
 						box.report = parsed.report;
+						// The report ends the run: steering stops here, so a late steer is queued, never reported as delivered.
+						agent = null;
+						hooks.onAgent?.(null);
 						return toToolResult("Findings recorded.");
 					},
 				};

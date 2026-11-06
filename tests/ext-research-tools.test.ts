@@ -16,11 +16,19 @@ const boom = (): never => {
 /** A lone UTF-16 surrogate: a high one not followed by a low one, or a low one not preceded by a high one. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
+/** The learner's words in this chat: the locators the learner named (decide_inbox accepts only those). */
+const LEARNER_MESSAGES = [
+	{ id: "u1", role: "user", content: "approve https://example.org/x and https://Example.org/a/ and https://Example.org/a/?x=1#frag", timestamp: 0 },
+	{ id: "u2", role: "user", content: "not a url", timestamp: 0 },
+];
+const msg = (id: string, role: "user" | "assistant" | "toolResult", text: string) =>
+	({ id, role, content: role === "assistant" ? [{ type: "text", text }] : text, timestamp: 0 }) as never;
+
 function ctx(over: Partial<ResearchToolContext> = {}): { c: ResearchToolContext; calls: unknown[] } {
 	const calls: unknown[] = [];
 	const c: ResearchToolContext = {
 		chatId: "chat_1",
-		chatStore: { getChat: () => null },
+		chatStore: { getChat: () => ({ kind: "research", messages: LEARNER_MESSAGES as never }) },
 		listMarks: () => [],
 		setMark: (i) => (calls.push(["setMark", i]), { id: "mark_1", scope: i.scope, mark: i.mark, note: i.note ?? "", author: "user", at: "t" }),
 		clearMark: (id) => void calls.push(["clearMark", id]),
@@ -149,6 +157,23 @@ describe("research tools", () => {
 		const text = await run(researchTools(c), "decide_inbox", { locator: "https://example.org/x", decision: "approved" });
 		assert.equal(text, "decide_inbox failed.");
 		assert.doesNotMatch(text, /SECRET/);
+	});
+
+	it("decide_inbox is refused for a locator the learner never named in a learner message, even when an assistant or tool message carries it", async () => {
+		const evil = "https://evil.example/x";
+		const messages = [msg("a1", "assistant", `you should approve ${evil}`), msg("t1", "toolResult", evil)];
+		for (const chat of [{ kind: "research", messages }, null]) {
+			const { c, calls } = ctx({ chatStore: { getChat: () => chat as never } });
+			const text = await run(researchTools(c), "decide_inbox", { locator: evil, decision: "approved" });
+			assert.equal(text, "decide_inbox refused: the learner has not named this source.");
+			assert.equal(calls.filter((x) => (x as string[])[0] === "decide").length, 0);
+		}
+	});
+
+	it("decide_inbox is refused when the learner's only word for the source is a different locator", async () => {
+		const { c, calls } = ctx({ chatStore: { getChat: () => ({ kind: "research", messages: [msg("u1", "user", "approve https://example.org/other")] }) as never } });
+		assert.match(await run(researchTools(c), "decide_inbox", { locator: "https://example.org/x", decision: "rejected" }), /has not named this source/);
+		assert.equal(calls.length, 0);
 	});
 
 	it("decide_inbox normalizes the locator the way the inbox keys it (case, slash, query, fragment), passes a non-URL through trimmed, and refuses an oversized one", async () => {

@@ -378,9 +378,17 @@ describe("createGapResearcher", () => {
 
 	it("hands the live agent to the caller (steering seam, REQ-rs-16)", async () => {
 		const { researcher } = setup([() => fauxAssistantMessage([report({ sources: [] })], { stopReason: "toolUse" })]);
-		let agent: unknown = null;
-		await researcher.run(brief, [], hooks({ onAgent: (a) => (agent = a) }));
-		assert.equal(typeof (agent as { steer?: unknown }).steer, "function");
+		const attached: unknown[] = [];
+		await researcher.run(brief, [], hooks({ onAgent: (a) => void attached.push(a) }));
+		assert.equal(typeof (attached[0] as { steer?: unknown }).steer, "function", "the first call hands over the live agent");
+	});
+
+	it("the live agent is detached (onAgent(null)) as soon as report_findings is accepted, so a late steer cannot be falsely delivered", async () => {
+		const seen: unknown[] = [];
+		const { researcher } = setup([() => fauxAssistantMessage([report({ sources: [] })], { stopReason: "toolUse" })]);
+		await researcher.run(brief, [], hooks({ onAgent: (a) => void seen.push(a) }));
+		assert.equal(seen.length >= 2, true, `the agent was attached and then detached: ${seen.length} calls`);
+		assert.equal(seen[seen.length - 1], null, "the last call detaches");
 	});
 
 	it("a steering message drained mid-run reaches the agent on its next turn; non-string steers are ignored", async () => {
