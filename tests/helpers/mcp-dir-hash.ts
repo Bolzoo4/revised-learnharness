@@ -36,41 +36,56 @@ export function treeDigest(root: string): string {
 
 type Fn = (...args: unknown[]) => unknown;
 type Table = Record<string, Fn>;
-const WRITE_APIS = [
-	"writeFileSync", "appendFileSync", "mkdirSync", "mkdtempSync", "rmSync", "rmdirSync", "unlinkSync", "renameSync", "copyFileSync",
-	"cpSync", "truncateSync", "ftruncateSync", "symlinkSync", "linkSync", "chmodSync", "chownSync", "utimesSync", "writeSync",
-	"createWriteStream",
-] as const;
 
-/** While active, any call to a write API of node:fs throws. Returns the restore function. */
+/**
+ * Every fs function whose name starts with one of these is a write API (or can
+ * create, truncate or re-permission a file). The match is by name over the
+ * whole module, so a function added to node:fs later is caught too.
+ */
+export const WRITE_NAME = /^(write|append|mk|rm|rename|unlink|copy|cp|truncate|open|symlink|link|chmod|chown|utimes|lchmod|lchown|lutimes|rmdir|mkdtemp|create|ftruncate|fchmod|fchown|futimes)/;
+
+/** An open whose flags request writing; a read open (no flags, or "r") passes through. */
+function opensForWriting(flags: unknown): boolean {
+	if (typeof flags === "string") return /[wa+]/.test(flags);
+	if (typeof flags === "number") return (flags & (fs.constants.O_WRONLY | fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_APPEND)) !== 0;
+	return false;
+}
+
+/** The fs functions of one table (fs or fs.promises) whose name matches WRITE_NAME. */
+function writeNamed(table: Table): string[] {
+	return Object.keys(table).filter((name) => WRITE_NAME.test(name) && typeof table[name] === "function");
+}
+
+/**
+ * While active, any call to a write API of node:fs or fs.promises throws (sync
+ * forms and callback forms alike; the promise form rejects). Opens pass through
+ * unless their flags write. Returns the list of attempts and the restore function.
+ */
 export function fsTripwire(): { calls: string[]; restore(): void } {
 	const calls: string[] = [];
 	const restores: Array<() => void> = [];
-	for (const name of WRITE_APIS) {
-		const m = mock.method(fs as unknown as Table, name, (..._args: unknown[]) => {
-			calls.push(name);
-			throw new Error(`fs.${name} called while the read-only server was running`);
-		});
+	const trap = (label: string, isOpen: boolean, real: Fn) => {
+		return (...args: unknown[]): unknown => {
+			if (isOpen && !opensForWriting(args[1])) return real(...args);
+			calls.push(label);
+			throw new Error(`${label} called while the read-only server was running`);
+		};
+	};
+	for (const name of writeNamed(fs as unknown as Table)) {
+		const real = (fs as unknown as Table)[name] as Fn;
+		const m = mock.method(fs as unknown as Table, name, trap(name, name.startsWith("open"), real.bind(fs)));
 		restores.push(() => m.mock.restore());
 	}
 	const promises = fs.promises as unknown as Table;
-	for (const name of ["writeFile", "appendFile", "mkdir", "rm", "rename", "unlink", "copyFile", "truncate"]) {
-		const m = mock.method(promises, name, async () => {
-			calls.push(`promises.${name}`);
-			throw new Error(`fs.promises.${name} called while the read-only server was running`);
+	for (const name of writeNamed(promises)) {
+		const real = promises[name] as Fn;
+		const label = `promises.${name}`;
+		const m = mock.method(promises, name, (...args: unknown[]) => {
+			if (name.startsWith("open") && !opensForWriting(args[1])) return (real as Fn)(...args);
+			calls.push(label);
+			return Promise.reject(new Error(`fs.${label} called while the read-only server was running`));
 		});
 		restores.push(() => m.mock.restore());
 	}
-	// openSync with a write flag is a write too; read opens pass through.
-	const realOpen = fs.openSync.bind(fs);
-	const open = mock.method(fs as unknown as Table, "openSync", (p: unknown, flags?: unknown, mode?: unknown) => {
-		const writes = typeof flags === "string" ? /[wa+]/.test(flags) : typeof flags === "number" && (flags & (fs.constants.O_WRONLY | fs.constants.O_RDWR | fs.constants.O_CREAT)) !== 0;
-		if (writes) {
-			calls.push("openSync(write)");
-			throw new Error("fs.openSync for writing called while the read-only server was running");
-		}
-		return (realOpen as Fn)(p, flags, mode);
-	});
-	restores.push(() => open.mock.restore());
 	return { calls, restore: () => restores.reverse().forEach((r) => r()) };
 }

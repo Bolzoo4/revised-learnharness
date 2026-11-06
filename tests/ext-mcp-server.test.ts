@@ -3,9 +3,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { CATALOG } from "../src/server/ext/mcp/catalog.ts";
+import { runTool } from "../src/core/ext/mcp/tools.ts";
+import { safeCall } from "../src/server/ext/mcp/server.ts";
 import { TOOL_NAMES, toolFields, toolGroup } from "../src/core/ext/mcp/tools.ts";
 import { LIMITS } from "../src/core/ext/mcp/limits.ts";
-import { cleanupAllFixtures, GOAL_ID, HIDDEN, makeFixture, N, seedGraph, seedStandard } from "./helpers/mcp-fixture.ts";
+import { cleanupAllFixtures, GOAL_ID, HIDDEN, makeFixture, N, node, seedGraph, seedStandard } from "./helpers/mcp-fixture.ts";
 import { callTool, connect } from "./helpers/mcp-client.ts";
 
 afterEach(cleanupAllFixtures);
@@ -101,7 +103,8 @@ describe("calls over the protocol", () => {
 			["list_goals", { status: "active", set_status: "paused" }],
 			["research_status", { mark: "hold" }],
 			["get_daily_plan", { date: "2026-11-05", mark_done: true }],
-			["get_node", { id: N.a, __proto__: { admin: true }, constructor: "x" }],
+			// JSON.parse makes "__proto__" a real OWN key (an object literal would set the prototype instead).
+			["get_node", JSON.parse('{"id":"n_aaaa1111","__proto__":{"admin":true},"constructor":"x"}')],
 		];
 		for (const [tool, args] of shapes) assert.equal((await callTool(client, tool, args)).isError, true, `${tool} ${JSON.stringify(args)}`);
 		for (const name of ["set_goal", "delete_node", "add_node", "mark_reviewed", "constructor", "__proto__", "toString", "", "GET_NODE"]) {
@@ -147,16 +150,25 @@ describe("calls over the protocol", () => {
 		await close();
 	});
 
-	it("a result above the response limit is refused, not cut", async () => {
+	it("a result above the response limit is refused, not cut: the core returns it whole, and the server layer answers with the error only", () => {
 		const f = makeFixture();
 		seedGraph(f);
 		const big = "x".repeat(LIMITS.statementChars);
-		for (let i = 0; i < 40; i++) f.graph("nodes.jsonl", { id: `n_big${String(i).padStart(4, "0")}`, name: `Big ${i}`, statement: big, aliases: Array.from({ length: 30 }, (_, k) => `${big.slice(0, 190)}${k}`), kind: "definition", createdAt: "2026-11-01T00:00:00.000Z" });
-		const { client, close } = await connect(f);
-		const r = await callTool(client, "search_nodes", { query: "big", limit: 50 });
-		assert.ok(r.text.length <= LIMITS.responseMaxBytes * 1.1 || r.isError);
-		if (r.isError) assert.equal(r.body.error.code, "response_too_large");
-		await close();
+		for (let i = 0; i < 40; i++) f.graph("nodes.jsonl", node(`n_big${String(i).padStart(4, "0")}`, `Big ${i}`, big, Array.from({ length: 10 }, (_, k) => `${big.slice(0, 190)}${k}`)));
+		const input = { query: "big", limit: 50 };
+		const whole = runTool("search_nodes", f.deps, input, { knowledgeOnly: false }) as { items: unknown[] };
+		const wholeBytes = Buffer.byteLength(JSON.stringify(whole), "utf-8");
+		assert.ok(wholeBytes > 1024, `the fixture must produce a large answer (${wholeBytes} bytes)`);
+		const refused = safeCall("search_nodes", f.deps, input, { knowledgeOnly: false, responseMaxBytes: 1024 });
+		assert.equal(refused.isError, true, "the server layer takes the isError branch");
+		assert.deepEqual(refused.structuredContent, { error: { code: "response_too_large", message: "The result is larger than this server's response limit. Narrow the request." } });
+		assert.ok(!refused.content.map((c) => (c as { text: string }).text).join("").includes('"items"'), "no partial items leak");
+		const allowed = safeCall("search_nodes", f.deps, input, { knowledgeOnly: false, responseMaxBytes: wholeBytes });
+		assert.equal(allowed.isError, false, "at exactly the limit the answer goes out whole");
+	});
+
+	it("the default response ceiling is 128 KiB", () => {
+		assert.equal(LIMITS.responseMaxBytes, 128 * 1024);
 	});
 
 	it("is read-only under concurrency: many parallel calls all answer", async () => {

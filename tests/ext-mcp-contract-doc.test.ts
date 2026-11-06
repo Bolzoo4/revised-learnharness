@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 import type { ToolErrorCode } from "../src/core/ext/mcp/errors.ts";
 import { LIMITS } from "../src/core/ext/mcp/limits.ts";
 import { toolFields, TOOL_NAMES } from "../src/core/ext/mcp/tools.ts";
+import { LECTURE_TOTAL_BYTES_MAX } from "../src/store/ext/readonly.ts";
 
 const doc = fs.readFileSync(path.resolve(import.meta.dirname, "..", "docs", "ext", "CONTRACTS.md"), "utf-8");
 const section = doc.slice(doc.indexOf("## MCP server (read-only, stdio)"));
@@ -49,6 +50,28 @@ describe("the MCP contract document (REQ-mcp-12)", () => {
 			assert.ok(section.includes(`${LIMITS.listBudgetBytes / 1024} KiB`));
 			assert.ok(section.includes(`${LIMITS.factsBytes / 1024} KiB`));
 		}
+	});
+
+	it("states every bound of the bounds table at the value the code enforces", () => {
+		const table = section.slice(section.indexOf("### Bounds"), section.indexOf("### Knowledge group"));
+		const row = (label: string): string => {
+			const line = table.split("\n").find((l) => l.startsWith(`| ${label} |`));
+			assert.ok(line, `bounds row "${label}" is missing`);
+			return line!;
+		};
+		assert.ok(row("default / maximum `limit`").includes(`${LIMITS.listDefault} / ${LIMITS.listMax}`));
+		assert.ok(row("default / maximum `limit`").includes(`debriefs ${LIMITS.debriefsDefault} / ${LIMITS.debriefsMax}`));
+		assert.ok(row("query").includes(`${LIMITS.queryMaxChars} characters, ${LIMITS.queryMaxTokens} words`));
+		assert.ok(row("id").includes(`${LIMITS.idMaxChars} characters`));
+		assert.ok(row("statement / explanation / quote").includes(`${LIMITS.statementChars} / ${LIMITS.explanationChars} / ${LIMITS.quoteChars} characters`));
+		assert.ok(row("neighbourhood").includes(`${LIMITS.neighbourNodesMax} nodes, ${LIMITS.neighbourEdgesMax} edges`));
+		assert.ok(row("lectures / documents").includes(`${LIMITS.lecturesMax} each`));
+		assert.ok(row("response").includes(`${LIMITS.responseMaxBytes / 1024} KiB`));
+		assert.ok(row("future day for `get_daily_plan`").includes(`${LIMITS.futureDaysMax} days`));
+		assert.ok(row("lecture files read by one `list_lectures` or `get_node`").includes(`${LECTURE_TOTAL_BYTES_MAX / 1024 / 1024} MiB`));
+		assert.ok(row("each array of a lecture outline (slides, exercises, cited nodes)").includes(`${LIMITS.lectureSectionBudgetBytes / 1024} KiB`));
+		assert.ok(section.includes(`${LIMITS.requestMaxBytes / 1024} KiB ends the session`), "the request ceiling and its effect");
+		assert.ok(!/npm run mcp|scripts\/mcp-ext/.test(doc), "the launch command is the script itself, with no npm script");
 	});
 
 	it("states the read-only facts a consumer relies on", () => {

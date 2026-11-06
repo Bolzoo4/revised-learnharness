@@ -115,6 +115,13 @@ describe("input validation", () => {
 		}
 	});
 
+	it("parseInstant refuses impossible calendar dates (Date.parse would roll them over)", () => {
+		for (const bad of ["2026-02-30T10:00:00Z", "2027-02-29T10:00:00+01:00", "2026-04-31T00:00:00Z", "2026-11-31T23:59:59.999Z", "2026-00-10T10:00:00Z"]) {
+			assert.equal(code(() => parseInstant(bad, "since")), "invalid_input", bad);
+		}
+		assert.equal(parseInstant("2028-02-29T10:00:00Z", "since"), "2028-02-29T10:00:00.000Z", "a real leap day");
+	});
+
 	it("instantMs never yields NaN", () => {
 		assert.equal(instantMs("not a date"), Number.NEGATIVE_INFINITY);
 		assert.equal(instantMs("2026-11-04T10:00:00.000Z"), Date.parse("2026-11-04T10:00:00.000Z"));

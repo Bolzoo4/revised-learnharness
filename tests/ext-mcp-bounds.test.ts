@@ -3,7 +3,9 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { LIMITS } from "../src/core/ext/mcp/limits.ts";
-import { TOOL_NAMES } from "../src/core/ext/mcp/tools.ts";
+import { runTool, TOOL_NAMES } from "../src/core/ext/mcp/tools.ts";
+import { safeCall } from "../src/server/ext/mcp/server.ts";
+import type { Block, Slide } from "../src/core/ext/lecture/lecture.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { makeLecture } from "./helpers/lecture-fixture.ts";
@@ -75,6 +77,28 @@ function walk(value: Json, where: string, strings: { max: number }): void {
 	}
 }
 
+/** Every node id a maximum-size lecture cites: 200 characters each, all distinct. */
+const longNode = (k: number): string => `n_${String(k).padStart(4, "0")}${"z".repeat(LIMITS.idMaxChars - 6)}`;
+
+/**
+ * A lecture at every structural maximum: 200 slides, each citing 20 long ids
+ * (inline links and blocks), 60 timed exercises with long prompts and 20 long
+ * ids each, and 400 distinct cited nodes (more than the 200 a list may hold).
+ */
+function maxShapedLecture(id: string) {
+	const cite = (i: number): string[] => Array.from({ length: 20 }, (_, k) => longNode((i * 7 + k) % 400));
+	const slides: Slide[] = Array.from({ length: LIMITS.slidesMax }, (_, i) => ({
+		id: `s${i}`,
+		heading: "H".repeat(LIMITS.titleChars),
+		elements: [{ id: `e${i}`, type: "text", content: cite(i).map((n) => `[[${n}]]`).join(" ") }],
+	}));
+	const narrate: Block[] = slides.map((s, i) => ({ id: `bn${i}`, role: "narrate", slideId: s.id, text: "narration", nodeIds: cite(i), cues: [] }));
+	const exercises: Block[] = Array.from({ length: LIMITS.exercisesMax + 10 }, (_, i) => ({
+		id: `bx${i}`, role: "exercise", slideId: `s${i % 200}`, text: "P".repeat(LIMITS.promptChars + 400), nodeIds: cite(i + 3), cues: [], seconds: 60,
+	}));
+	return makeLecture({ id, title: "T".repeat(LIMITS.titleChars + 300), summary: "S".repeat(LIMITS.summaryChars + 500), slides, blocks: [...narrate, ...exercises] });
+}
+
 describe("bounded outputs at scale (REQ-mcp-08)", () => {
 	it("every tool answers within the response limit, with paged lists and capped strings", () => {
 		const f = bigFixture();
@@ -97,22 +121,31 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 		assert.equal(new Set(cases.map(([t]) => t)).size, TOOL_NAMES.length, "every tool is covered by this test");
 	});
 
-	it("truncation is explicit: the marker says how much was cut and a page says truncated", () => {
+	it("truncation is explicit: the kept prefix is exactly the bound, and the marker counts the rest", () => {
 		const f = bigFixture();
+		const full = `${LONG} statement 0`;
 		const node0 = call(f, "get_node", { id: "n_00000000" });
-		assert.match(JSON.stringify(node0), /… \[truncated: \d+ more characters\]/);
+		assert.equal(node0.statement, `${full.slice(0, LIMITS.statementChars)}… [truncated: ${full.length - LIMITS.statementChars} more characters]`);
 		const r = call(f, "list_goals", { limit: 50 });
 		assert.equal(r.count, 50);
+		assert.equal(r.items.length, 50);
 		assert.equal(r.truncated, true);
 		assert.equal(call(f, "research_status").frontier.truncated, true);
 	});
 
-	it("limits that are not positive integers fall back to the default; huge ones are capped", () => {
+	it("limits that are not positive integers fall back to the default (20); huge ones are capped at 50", () => {
 		const f = bigFixture();
-		for (const limit of [Number.NaN, Infinity, -1, 0, 1.5, "10", null, 1e12]) {
+		assert.equal(LIMITS.listDefault, 20);
+		assert.equal(LIMITS.listMax, 50);
+		for (const limit of [Number.NaN, Infinity, -1, 0, 1.5, "10", null, {}]) {
 			const r = call(f, "search_nodes", { query: "set concept", limit });
-			assert.ok(r.count >= 1 && r.count <= LIMITS.listMax, `limit ${String(limit)} gave ${r.count}`);
+			assert.equal(r.count, 20, `limit ${String(limit)} must mean the default`);
+			assert.equal(r.truncated, true);
 		}
+		const capped = call(f, "search_nodes", { query: "set concept", limit: 1e12 });
+		assert.equal(capped.count, 50, "1e12 is capped at the maximum");
+		assert.equal(capped.truncated, true);
+		assert.equal(call(f, "search_nodes", { query: "set concept", limit: 50 }).count, 50);
 	});
 
 	it("a long query is refused and a many-word query is bounded (no unbounded parsing time)", () => {
@@ -120,7 +153,8 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 		assert.equal(errorCode(f, "search_nodes", { query: "a".repeat(LIMITS.queryMaxChars + 1) }), "invalid_input");
 		const started = performance.now();
 		assert.equal(errorCode(f, "search_nodes", { query: Array.from({ length: 90 }, () => "a").join(" ") }), "invalid_input", "more than 8 words");
-		assert.equal(call(f, "search_nodes", { query: "set concept alpha beta gamma delta epsilon zeta" }).truncated !== undefined, true);
+		const eightWords = call(f, "search_nodes", { query: "set concept alpha beta gamma delta epsilon zeta" });
+		assert.equal(typeof eightWords.truncated, "boolean");
 		assert.ok(performance.now() - started < 5000, "the longest allowed query must stay fast");
 	});
 
@@ -130,5 +164,25 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 		assert.ok(n.nodes.items.length <= LIMITS.neighbourNodesMax);
 		assert.ok(n.edges.items.length <= LIMITS.neighbourEdgesMax);
 		assert.equal(n.nodes.truncated, true);
+	});
+
+	it("a maximum-size lecture is truncated, flagged and answered: never response_too_large", () => {
+		const f = makeFixture();
+		const id = "lec_b0000beef_c02_l01";
+		fs.mkdirSync(path.join(f.extDir, "lectures", id), { recursive: true });
+		fs.writeFileSync(path.join(f.extDir, "lectures", id, "lecture.json"), JSON.stringify(maxShapedLecture(id)));
+		const whole = runTool("get_lecture", f.deps, { id }, { knowledgeOnly: false }) as Json;
+		const bytes = Buffer.byteLength(JSON.stringify(whole), "utf-8");
+		assert.ok(bytes <= LIMITS.responseMaxBytes, `${bytes} bytes`);
+		assert.equal(whole.slides.truncated, true, "slides are fitted");
+		assert.equal(whole.exercises.truncated, true, "exercises are fitted");
+		assert.equal(whole.citedNodes.truncated, true, "cited nodes are fitted");
+		assert.ok(whole.slides.count >= 1 && whole.slides.count < LIMITS.slidesMax);
+		assert.equal(whole.slides.count, whole.slides.items.length);
+		assert.ok(whole.exercises.count >= 1 && whole.exercises.count < LIMITS.exercisesMax + 10);
+		assert.ok(whole.citedNodes.count < LIMITS.citedNodesMax);
+		assert.match(whole.exercises.items[0].prompt, /… \[truncated: \d+ more characters\]$/, "a long prompt is capped with the marker");
+		const served = safeCall("get_lecture", f.deps, { id }, { knowledgeOnly: false });
+		assert.equal(served.isError, false, "the server answers it");
 	});
 });

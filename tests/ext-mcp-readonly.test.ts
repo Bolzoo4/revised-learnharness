@@ -1,6 +1,6 @@
 // tests/ext-mcp-readonly.test.ts
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -9,9 +9,19 @@ import { parseGoalEvent } from "../src/core/ext/goals.ts";
 import { createGoalsStore } from "../src/store/ext/goals-store.ts";
 import { createLecturesStore } from "../src/store/ext/lectures-store.ts";
 import { CURRENT_EXT_FORMAT_VERSION } from "../src/store/ext/format.ts";
-import { createGraphReader, createLectureReader, createReadableGuard, EXT_FORMAT_VERSION, readOnlyLedger, validateDataRoot } from "../src/store/ext/readonly.ts";
+import { createGraphReader, createLectureReader, createReadableGuard, EXT_FORMAT_VERSION, LECTURE_TOTAL_BYTES_MAX, readOnlyLedger, validateDataRoot } from "../src/store/ext/readonly.ts";
+import { LIMITS } from "../src/core/ext/mcp/limits.ts";
 import { makeLecture } from "./helpers/lecture-fixture.ts";
 import { cleanupAllFixtures, GOAL_ID, makeFixture, N, node, seedStandard } from "./helpers/mcp-fixture.ts";
+
+const ROOT = path.resolve(import.meta.dirname, "..");
+const TSX = path.join(ROOT, "node_modules", ".bin", "tsx");
+const CHILD = path.join(ROOT, "tests", "helpers", "mcp-read-child.ts");
+/** Runs one read in a child with a hard timeout: a hang is a failed test, never a stuck suite. */
+function readInChild(root: string, what: "ledger" | "stamp"): { ok: boolean; stdout: string; timedOut: boolean } {
+	const r = spawnSync(TSX, [CHILD, root, what], { encoding: "utf-8", timeout: 15_000 });
+	return { ok: r.status === 0, stdout: (r.stdout ?? "").trim(), timedOut: r.error !== undefined };
+}
 
 afterEach(cleanupAllFixtures);
 
@@ -170,3 +180,119 @@ describe("lecture reader", () => {
 });
 
 void GOAL_ID;
+
+describe("special files never hang a read (REQ-mcp-03, adversarial)", () => {
+	it("a FIFO named as the ledger reads as empty, quickly", () => {
+		const f = makeFixture();
+		fs.mkdirSync(f.extDir, { recursive: true });
+		execFileSync("mkfifo", [path.join(f.extDir, "goals.jsonl")]);
+		const r = readInChild(f.root, "ledger");
+		assert.ok(!r.timedOut, "the read must not block on the FIFO");
+		assert.equal(r.stdout, "ok 0");
+	});
+
+	it("a symlink to /dev/zero named as the ledger reads as empty, quickly", () => {
+		const f = makeFixture();
+		fs.mkdirSync(f.extDir, { recursive: true });
+		fs.symlinkSync("/dev/zero", path.join(f.extDir, "goals.jsonl"));
+		const r = readInChild(f.root, "ledger");
+		assert.ok(!r.timedOut, "the read must not run forever on /dev/zero");
+		assert.equal(r.stdout, "ok 0");
+	});
+
+	it("a FIFO named as the format stamp is not read: the guard returns", () => {
+		const f = makeFixture();
+		fs.mkdirSync(f.extDir, { recursive: true });
+		execFileSync("mkfifo", [path.join(f.extDir, "format.json")]);
+		const r = readInChild(f.root, "stamp");
+		assert.ok(!r.timedOut, "the stamp read must not block");
+		assert.equal(r.stdout, "ok stamp");
+	});
+
+	it("a symlink to a regular ledger is still followed, like the app does", () => {
+		const f = makeFixture();
+		fs.mkdirSync(f.extDir, { recursive: true });
+		const real = path.join(f.root, "elsewhere.jsonl");
+		fs.writeFileSync(real, `${JSON.stringify({ type: "created", goalId: "goal_000000000001", title: "t", origin: "user", originRef: "", targetNodeIds: [N.a], priority: 3, at: "2026-11-01T00:00:00.000Z" })}\n`);
+		fs.symlinkSync(real, path.join(f.extDir, "goals.jsonl"));
+		assert.equal(readInChild(f.root, "ledger").stdout, "ok 1");
+	});
+});
+
+describe("aggregate read budget for lectures (REQ-mcp-08, adversarial)", () => {
+	const lectureId = (i: number): string => `lec_b${(i + 1).toString(16).padStart(8, "0")}_c02_l01`;
+	function writeLectures(f: ReturnType<typeof makeFixture>, count: number, summaryChars: number): number {
+		let bytes = 0;
+		for (let i = 0; i < count; i++) {
+			const id = lectureId(i);
+			fs.mkdirSync(path.join(f.extDir, "lectures", id), { recursive: true });
+			const text = JSON.stringify(makeLecture({ id, summary: "s".repeat(summaryChars) }));
+			fs.writeFileSync(path.join(f.extDir, "lectures", id, "lecture.json"), text);
+			bytes += Buffer.byteLength(text);
+		}
+		return bytes;
+	}
+
+	it("the default budget is 32 MiB and is pinned (the documented bound)", () => {
+		assert.equal(LECTURE_TOTAL_BYTES_MAX, 32 * 1024 * 1024);
+	});
+
+	it("many small lectures together over the budget are refused with data_too_large, although each file is fine", () => {
+		const f = makeFixture();
+		const bytes = writeLectures(f, 40, 2000);
+		const reader = createLectureReader(f.extDir, { totalBytesMax: Math.floor(bytes / 2) });
+		assert.throws(() => reader.list(), (e) => e instanceof ToolError && e.code === "data_too_large" && !e.message.includes(f.root));
+		assert.equal(createLectureReader(f.extDir, { totalBytesMax: bytes + 1 }).list().length, 40, "under the budget every lecture is listed");
+	});
+
+	it("the budget is a sum with no slack: exactly the total passes, one byte less refuses", () => {
+		const f = makeFixture();
+		const bytes = writeLectures(f, 5, 500);
+		assert.equal(createLectureReader(f.extDir, { totalBytesMax: bytes }).list().length, 5);
+		assert.throws(() => createLectureReader(f.extDir, { totalBytesMax: bytes - 1 }).list(), (e) => e instanceof ToolError && e.code === "data_too_large");
+	});
+
+	it("a single lecture above the per-file ceiling is not listed, and the list does not read it", () => {
+		const f = makeFixture();
+		const id = lectureId(0);
+		fs.mkdirSync(path.join(f.extDir, "lectures", id), { recursive: true });
+		fs.writeFileSync(path.join(f.extDir, "lectures", id, "lecture.json"), JSON.stringify(makeLecture({ id, summary: "s".repeat(LIMITS.lectureFileMaxBytes + 10) })));
+		assert.deepEqual(createLectureReader(f.extDir).list(), []);
+		assert.equal(createLectureReader(f.extDir).get(id), null);
+	});
+
+	it("a lecture file that is a FIFO does not block the list", () => {
+		const f = makeFixture();
+		const id = lectureId(0);
+		fs.mkdirSync(path.join(f.extDir, "lectures", id), { recursive: true });
+		execFileSync("mkfifo", [path.join(f.extDir, "lectures", id, "lecture.json")]);
+		const reader = createLectureReader(f.extDir);
+		assert.deepEqual(reader.list(), []);
+		assert.equal(reader.get(id), null);
+	});
+});
+
+describe("graph ids above the id bound are skipped, not echoed (REQ-mcp-03, D)", () => {
+	it("a 60 KB node id and a 60 KB premise are skipped; the other nodes and chains still load", () => {
+		const f = makeFixture();
+		const huge = `n_${"h".repeat(60_000)}`;
+		f.graph("nodes.jsonl", node(huge, "Huge"));
+		f.graph("nodes.jsonl", node(N.a, "Fine"));
+		f.graph("nodes.jsonl", node(N.b, "Also fine"));
+		f.graph("chains.jsonl", { id: "ch_huge", premises: [huge], conclusion: N.a, provenance: [], createdAt: "x" });
+		f.graph("chains.jsonl", { id: "ch_ok", premises: [N.a], conclusion: N.b, provenance: [], createdAt: "x" });
+		const reader = createGraphReader(f.graphDir);
+		assert.deepEqual(reader.readNodes().map((n) => n.id), [N.a, N.b]);
+		assert.deepEqual(reader.readChains().map((c) => c.id), ["ch_ok"]);
+	});
+});
+
+describe("format stamp spelling", () => {
+	it("a newer stamp is refused however it is spelled (whitespace and extra keys do not hide it)", () => {
+		const f = makeFixture();
+		fs.mkdirSync(f.extDir, { recursive: true });
+		fs.writeFileSync(path.join(f.extDir, "format.json"), '\n\t{ "other": 1,   "version" :   7 }\n');
+		assert.throws(() => createReadableGuard(f.root)(), (e) => e instanceof ToolError && e.code === "data_newer_than_build");
+	});
+});
+

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { startOfLocalDay } from "../src/core/ext/local-day.ts";
 import { openCall } from "../src/core/ext/mcp/call.ts";
+import { runTool } from "../src/core/ext/mcp/tools.ts";
 import { computePlan } from "../src/core/ext/review-queries.ts";
 import { cleanupAllFixtures, GOAL_ID, HIDDEN, makeFixture, N, NOW, seedGraph, seedStandard } from "./helpers/mcp-fixture.ts";
 import { call, errorCode, expectError } from "./helpers/mcp-run.ts";
@@ -152,6 +153,43 @@ describe("get_daily_plan (REQ-mcp-05, REQ-mcp-07)", () => {
 		assert.equal(call(f, "get_daily_plan").exerciseSetPending, false);
 	});
 
+	it("replay failures outside the first guarded read are data_inconsistent too, and never carry the raw message", () => {
+		const f = makeFixture();
+		seedStandard(f);
+		const broken = (owner: Record<string, unknown>, key: string) => {
+			const real = owner[key];
+			owner[key] = () => {
+				throw new Error("/Users/secret/ext/corrupt.jsonl: bad event");
+			};
+			return () => (owner[key] = real);
+		};
+		const cases: Array<[string, Record<string, unknown>, string, Record<string, unknown>]> = [
+			["search_nodes", { query: "set", goalId: GOAL_ID }, "readEvents", f.deps.review.goalsStore as unknown as Record<string, unknown>],
+			["get_node", { id: N.a }, "readEvents", f.deps.review.goalsStore as unknown as Record<string, unknown>],
+			["list_documents", {}, "readAll", f.deps.documents as unknown as Record<string, unknown>],
+			["get_recent_debriefs", {}, "readAll", f.deps.journal as unknown as Record<string, unknown>],
+			["research_status", {}, "readAll", f.deps.frontier as unknown as Record<string, unknown>],
+		];
+		for (const [tool, input, key, owner] of cases) {
+			const restore = broken(owner, key);
+			try {
+				assert.equal(errorCode(f, tool, input), "data_inconsistent", tool);
+				const message = (() => {
+					try {
+						runTool(tool, f.deps, input, { knowledgeOnly: false });
+						return "";
+					} catch (e) {
+						return e instanceof Error ? e.message : "";
+					}
+				})();
+				assert.ok(!message.includes("/Users/secret"), `${tool} leaked: ${message}`);
+			} finally {
+				restore();
+			}
+		}
+		assert.equal(errorCode(f, "list_documents", {}), "none", "the next call still works");
+	});
+
 	it("an unreplayable review history is a fixed-text data_inconsistent error and the next call still works", () => {
 		const f = makeFixture();
 		seedStandard(f);
@@ -176,7 +214,7 @@ describe("research_status (REQ-mcp-05)", () => {
 		seedStandard(f);
 		const r = call(f, "research_status");
 		assert.deepEqual(r.frontier.items[0], {
-			id: "mark_1", scope: { kind: "goal", id: GOAL_ID }, mark: "expand", maxDepth: 2, budgetUsd: 1.5,
+			id: "mark_1", scope: { kind: "goal", id: GOAL_ID }, mark: "expand", maxDepth: 2,
 			note: "grow the set theory area", author: "user", at: "2026-11-03T12:00:00.000Z",
 		});
 		assert.deepEqual(r.inbox, { pending: 1, approved: 0, rejected: 1, activated: 0, total: 2 });
@@ -186,6 +224,19 @@ describe("research_status (REQ-mcp-05)", () => {
 		assert.deepEqual(r.lastCycle.watch, { entries: 1, items: 3, ingested: 1, inbox: 2 });
 		const text = JSON.stringify(r);
 		for (const secret of [HIDDEN.locator, HIDDEN.researchError, HIDDEN.steer, HIDDEN.rationale]) assert.ok(!text.includes(secret), secret);
+	});
+
+	it("no cost figure leaves the server: no key names cost or budget at any depth, even when the ledgers carry them", () => {
+		const f = makeFixture();
+		seedStandard(f);
+		const keys: string[] = [];
+		const walk = (v: unknown): void => {
+			if (Array.isArray(v)) v.forEach(walk);
+			else if (v !== null && typeof v === "object") for (const [k, x] of Object.entries(v)) (keys.push(k), walk(x));
+		};
+		walk(call(f, "research_status"));
+		assert.deepEqual(keys.filter((k) => /cost|budget|usd/i.test(k)), [], "the output has no cost field");
+		assert.ok(!JSON.stringify(call(f, "research_status")).includes("costUsd"));
 	});
 
 	it("nothing yet: empty marks, zero inbox, no cycle", () => {
