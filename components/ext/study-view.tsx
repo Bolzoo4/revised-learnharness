@@ -197,7 +197,7 @@ export function StudyView({ document: doc, startPage, chat }: { document: { id: 
 
 	const field = "w-full rounded border px-2 py-1 text-sm";
 	return (
-		<div className="flex h-dvh min-h-0 w-full" data-testid="study-view">
+		<div className="flex min-h-0 w-full flex-1" data-testid="study-view">
 			<section className="flex min-h-0 w-1/2 flex-col border-r">
 				<header className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-sm">
 					<strong className="mr-2 truncate">{doc.title}</strong>

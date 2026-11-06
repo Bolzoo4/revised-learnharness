@@ -1,3 +1,4 @@
+import { ExtPageShell } from "@/components/ext/ext-page-shell";
 import { PracticePanel } from "@/components/ext/practice-panel";
 import { listActiveGoals } from "@/src/server";
 
@@ -6,9 +7,8 @@ export const dynamic = "force-dynamic";
 export default function PracticePage() {
 	const goals = listActiveGoals();
 	return (
-		<main className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
-			<h1 className="text-xl font-medium">Practice</h1>
+		<ExtPageShell title="Practice" description="Start a daily review session, or open office hours on a text you paste.">
 			<PracticePanel goals={goals} />
-		</main>
+		</ExtPageShell>
 	);
 }
