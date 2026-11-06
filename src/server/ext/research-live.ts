@@ -26,7 +26,8 @@ import type { CycleControl } from "../../core/ext/cycle-control.ts";
 import type { FoundSource, GapFinding, WatchClassification } from "../../core/ext/cycle.ts";
 import { deriveGoals } from "../../core/ext/goals.ts";
 import type { Gap } from "../../core/ext/gaps.ts";
-import type { InboxItem } from "../../core/ext/inbox.ts";
+import { sourceFilePath, type InboxItem } from "../../core/ext/inbox.ts";
+import { emit } from "../../core/events.ts";
 import { isPracticeLike } from "../../core/ext/practice/session-kind.ts";
 import { researchConfigFromEnv, type ResearchConfig } from "../../core/ext/research-config.ts";
 import type { ChainLite, GraphNodeLite, IngestSource, LibraryEntryInput, TrustInfo, UncoveredChat } from "../../core/ext/research-ports.ts";
@@ -37,7 +38,6 @@ import { weakPremiseNodeIds } from "../../core/ext/weak-premises.ts";
 import { getGraph } from "../../core/graph.ts";
 import { ROLE_SLOT, ModelsNotConfiguredError, ProviderKeyMissingError } from "../../core/settings.ts";
 import { resolveRoleSpec } from "../../core/settings-resolution.ts";
-import { extraction } from "../chat-handler.ts";
 import { providerKeyPresent } from "../keys.ts";
 import { searchProvider } from "../search.ts";
 import { stores } from "../stores.ts";
@@ -47,6 +47,10 @@ import { createResearchService } from "./research-service.ts";
 import { extStores } from "./stores.ts";
 import { addLibrarySource, setLibrarySourceStatus, verifyNodesNow } from "./verification.ts";
 import { createFeedFetcher } from "./watch-fetch.ts";
+
+/** ONE research store per process (the cycle's busy guard and the inbox in-flight guard key on its objects); a dev reload reuses the first. */
+const storeHolder = globalThis as unknown as { __lhResearchStore?: typeof extStores.researchStore };
+const researchStore = (storeHolder.__lhResearchStore ??= extStores.researchStore);
 
 export const CYCLE_REFUSALS = {
 	"not-configured": "no research model is configured",
@@ -109,6 +113,41 @@ export function makeClassify(deps: MakeClassifyDeps) {
 			signal: deps.control.signal,
 		});
 	};
+}
+
+export interface MakeIngestDeps {
+	registerImport(filePath: string): void;
+	importNotes(input: { filePath: string; text: string }): Promise<{ nodes: number }>;
+	emitChanged(): void;
+}
+
+/** REQ-rs-07, REQ-res-03: the source's text enters the graph only through the notes-source path, under its deterministic research file. */
+export function makeIngest(deps: MakeIngestDeps) {
+	return async (source: IngestSource): Promise<number> => {
+		const filePath = sourceFilePath(source.locator);
+		try {
+			deps.registerImport(filePath);
+			const stats = await deps.importNotes({ filePath, text: source.text });
+			return stats.nodes;
+		} finally {
+			deps.emitChanged();
+		}
+	};
+}
+
+/** chat-handler imports this layer (for the research agent), so the pipeline is loaded lazily here (no static cycle). */
+async function liveIngest(source: IngestSource): Promise<number> {
+	const [{ extraction }, { sourceDirectory }] = await Promise.all([import("../chat-handler.ts"), import("../source-organization.ts")]);
+	return makeIngest({
+		registerImport: (p) => sourceDirectory.registerImport(p),
+		importNotes: (input) => extraction.importNotes(input),
+		emitChanged: () => emit("sources-changed", {}),
+	})(source);
+}
+
+async function liveExtractChat(chatId: string): Promise<number> {
+	const { extraction } = await import("../chat-handler.ts");
+	return (await extraction.runExtraction(chatId)).nodes;
 }
 
 function newId(prefix: string): string {
@@ -175,26 +214,24 @@ function briefForGap(gap: Gap): GapBrief {
 }
 
 export const researchAdmin = createResearchAdmin({
-	frontier: extStores.researchStore.frontier,
-	log: extStores.researchStore.log,
-	radar: extStores.researchStore.radar,
-	watchlist: extStores.researchStore.watchlist,
+	frontier: researchStore.frontier,
+	log: researchStore.log,
+	radar: researchStore.radar,
+	watchlist: researchStore.watchlist,
 	inboxService: {
-		inbox: extStores.researchStore.inbox,
+		inbox: researchStore.inbox,
 		snapshots: extStores.snapshotReader,
 		library: { activate: activateLibraryEntry },
-		ingest: async (source: IngestSource) => {
-			const stats = await extraction.importNotes({ filePath: source.locator, text: source.text });
-			return stats.nodes;
-		},
+		ingest: liveIngest,
 		now: () => new Date(),
 	},
 	newId,
 	now: () => new Date(),
 });
 
-export const researchService = createResearchService({
-	store: extStores.researchStore,
+const serviceHolder = globalThis as unknown as { __lhResearch?: ReturnType<typeof createResearchService> };
+export const researchService = (serviceHolder.__lhResearch ??= createResearchService({
+	store: researchStore,
 	cycleHours: researchConfigFromEnv(process.env).cycleHours,
 	canRun,
 	now: () => new Date(),
@@ -237,10 +274,10 @@ export const researchService = createResearchService({
 				return result;
 			},
 			weakNodeIds: () => weakPremiseNodeIds(extStores.reviewStore.readEvents(), new Date().toISOString()),
-			frontier: extStores.researchStore.frontier,
-			inbox: extStores.researchStore.inbox,
-			radar: extStores.researchStore.radar,
-			watchlist: extStores.researchStore.watchlist,
+			frontier: researchStore.frontier,
+			inbox: researchStore.inbox,
+			radar: researchStore.radar,
+			watchlist: researchStore.watchlist,
 			verification: {
 				trustOf: (nodeIds) => {
 					const trustMap = deriveTrustMap(extStores.verificationStore.readEvents());
@@ -263,9 +300,9 @@ export const researchService = createResearchService({
 				activeLocators: () => extStores.sourcesStore.read().filter((e) => e.status === "active").map((e) => e.locator),
 				activate: activateLibraryEntry,
 			},
-			snapshots: extStores.researchStore.snapshots,
-			extractChat: async (chatId) => (await extraction.runExtraction(chatId)).nodes,
-			ingest: async (source) => (await extraction.importNotes({ filePath: source.locator, text: source.text })).nodes,
+			snapshots: researchStore.snapshots,
+			extractChat: liveExtractChat,
+			ingest: liveIngest,
 			researchGap: makeResearchGap({
 				researcher,
 				briefFor: briefForGap,
@@ -277,7 +314,7 @@ export const researchService = createResearchService({
 			classify: makeClassify({ classifier, costGate: liveCostGate, control }),
 		};
 	},
-});
+}));
 
 export function researchToolContext(chatId: string): ResearchToolContext {
 	return {

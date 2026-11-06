@@ -294,7 +294,7 @@ export async function handleChatInput(
 	try { conversationEngine = piEngineForSpec(conversation, () => callPurpose.background, lifecycle, retentionForSlot("strong")); }
 	catch { return Response.json({ error: conversation.provider === "chatgpt" ? chatGPTStreamError("model catalog") : isSubscriptionProvider(conversation.provider) ? nativeSubscriptionError(conversation.provider, "model catalog") : "The selected model is unavailable." }, { status: 503 }); }
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
-	await ensureCompacted(
+	if (record.kind !== "research") await ensureCompacted(
 		{
 			chatStore: stores.chatStore,
 			engine: piEngineForSpec(conversation, true, undefined, retentionForSlot("strong")),
@@ -677,7 +677,8 @@ export async function handleChatInput(
 						try { kickEngine = piEngineForSpec(spec, true, undefined, retentionForSlot("strong")); } catch { return null; }
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
 						const freshRecord = stores.chatStore.getChat(chatId);
-						if (!freshRecord) return null;
+						// The research session's summary spend is not on the daily gate (REQ-cost-01): it is not compacted.
+						if (!freshRecord || freshRecord.kind === "research") return null;
 						return {
 							chatStore: stores.chatStore,
 							engine: kickEngine,

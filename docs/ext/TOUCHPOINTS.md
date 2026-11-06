@@ -37,6 +37,12 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `components/minimal-home.tsx` | home counts practice-like sessions as practice | Practice-like sessions |
 | `components/chain-table.tsx` | chain filter hides sources of practice-like sessions | Practice-like sessions |
 | `src/agent/subagents/pi-run.ts` | `SubagentRunOptions.onAgent?`, one call after the `Agent` is built, so a running research cycle can be steered (REQ-rs-16) | Research loop |
+| `src/core/contracts/chat.ts` | `ChatKind` gains `"research"` (research sessions) | Research loop |
+| `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"research"` | Research loop |
+| `src/store/chats.ts` | `createChat` type widened to the same kinds | Research loop |
+| `src/server/chat-handler.ts` | the research agent branch (after review), the `research-live` import, the research turn is kept out of compaction (its summary spend is not on the daily gate, REQ-cost-01: two guards, the call and the kick factory) | Research loop |
+| `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `research` session | Research loop |
+| `src/core/ext/practice/session-kind.ts` | `isPracticeLike` also covers `research`: the research session is never extracted into the graph (REQ-res-03), shared with the home counts and chain filters (side effect: research sessions count as practice there, see the report) | Research loop |
 | `src/core/contracts/chat.ts` | `ChatKind` gains `"research"` | Research loop |
 | `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"research"` | Research loop |
 | `src/store/chats.ts` | `createChat` stamps kind `"research"` | Research loop |

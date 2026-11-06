@@ -177,6 +177,43 @@ describe("the classify adapter (REQ-rs-12, REQ-cost-01)", () => {
 	});
 });
 
+describe("the notes ingest (REQ-rs-07, REQ-res-03)", () => {
+	it("registers the deterministic research path, then imports that same file with the source text", async () => {
+		const { sourceFilePath } = await import("../src/core/ext/inbox.ts");
+		const registered: string[] = [];
+		let imported: { filePath: string; text: string } | null = null;
+		let changed = 0;
+		const ingest = live.makeIngest({
+			registerImport: (p: string) => void registered.push(p),
+			importNotes: async (input: { filePath: string; text: string }) => {
+				imported = input;
+				return { nodes: 3 };
+			},
+			emitChanged: () => void (changed += 1),
+		});
+		const nodes = await ingest({ locator: "https://arxiv.org/abs/1234.5678", title: "T", text: "body" });
+		const expected = sourceFilePath("https://arxiv.org/abs/1234.5678");
+		assert.match(expected, /^research\//);
+		assert.equal(nodes, 3);
+		assert.deepEqual(registered, [expected]);
+		assert.deepEqual(imported, { filePath: expected, text: "body" });
+		assert.equal(changed, 1);
+	});
+
+	it("still announces the change when the import fails, and the failure propagates", async () => {
+		let changed = 0;
+		const ingest = live.makeIngest({
+			registerImport: () => undefined,
+			importNotes: async () => {
+				throw new Error("pipeline down");
+			},
+			emitChanged: () => void (changed += 1),
+		});
+		await assert.rejects(ingest({ locator: "https://a.org/x", title: "T", text: "body" }), /pipeline down/);
+		assert.equal(changed, 1);
+	});
+});
+
 describe("scheduler and session wiring", () => {
 	it("the research session's chat is not a teach chat and the scheduler hook is idempotent", () => {
 		const { chatId } = server.startResearchSession();
