@@ -415,7 +415,7 @@ describe("REQ-study-07 page citations", () => {
 		const text = "see (p. 12) here";
 		const cs = pageCitations(text);
 		assert.deepEqual(cs, [{ page: 12, start: 4, end: 11 }]);
-		assert.equal(text.slice(cs[0].start, cs[0].end), "(p. 12)");
+		assert.equal(text.slice(cs[0]!.start, cs[0]!.end), "(p. 12)");
 	});
 
 	it("REQ-study-07 several citations come back in text order, adjacent ones included", () => {
@@ -575,12 +575,12 @@ describe("REQ-study-01 / REQ-study-05 deriveDocuments", () => {
 	it("REQ-study-05 a chat event registered before its document is ignored (replay in file order)", () => {
 		const docs = deriveDocuments([chat(ID_A, "c1", 0), reg(ID_A, "T", 3, 1)]);
 		assert.equal(docs.length, 1);
-		assert.equal(docs[0].chatId, null);
+		assert.equal(docs[0]!.chatId, null);
 	});
 
 	it("REQ-study-05 the first chat event wins, so a document has one conversation", () => {
 		const docs = deriveDocuments([reg(ID_A, "T", 3, 0), chat(ID_A, "c1", 1), chat(ID_A, "c2", 2)]);
-		assert.equal(docs[0].chatId, "c1");
+		assert.equal(docs[0]!.chatId, "c1");
 	});
 
 	it("REQ-study-05 a chat event for an unknown document creates no document", () => {
@@ -713,20 +713,20 @@ describe("REQ-study-11 / REQ-study-12 deriveDrafts and decisions", () => {
 	it("REQ-study-11 the first proposed event per draft id defines the draft", () => {
 		const drafts = deriveDrafts([prop("d1", "A is compact"), prop("d1", "B is compact", 9, 5)]);
 		assert.equal(drafts.length, 1);
-		assert.equal(drafts[0].id, "d1");
-		assert.equal(drafts[0].proposition, "A is compact");
-		assert.equal(drafts[0].page, 3);
-		assert.equal(drafts[0].proposedAt, at(0));
+		assert.equal(drafts[0]!.id, "d1");
+		assert.equal(drafts[0]!.proposition, "A is compact");
+		assert.equal(drafts[0]!.page, 3);
+		assert.equal(drafts[0]!.proposedAt, at(0));
 	});
 
 	it("REQ-study-12 the first decision wins: approved then rejected stays approved, and the reverse", () => {
-		assert.equal(deriveDrafts([prop("d1", "x"), dec("d1", "approved"), dec("d1", "rejected")])[0].status, "approved");
-		assert.equal(deriveDrafts([prop("d1", "x"), dec("d1", "rejected"), dec("d1", "approved")])[0].status, "rejected");
+		assert.equal(deriveDrafts([prop("d1", "x"), dec("d1", "approved"), dec("d1", "rejected")])[0]!.status, "approved");
+		assert.equal(deriveDrafts([prop("d1", "x"), dec("d1", "rejected"), dec("d1", "approved")])[0]!.status, "rejected");
 	});
 
 	it("REQ-study-12 a decision before its proposal is ignored (replay in file order)", () => {
 		const drafts = deriveDrafts([dec("d1", "approved", 0), prop("d1", "x", 3, 1)]);
-		assert.equal(drafts[0].status, "pending");
+		assert.equal(drafts[0]!.status, "pending");
 	});
 
 	it("REQ-study-11 a decision for an unknown draft creates nothing", () => {
@@ -735,7 +735,7 @@ describe("REQ-study-11 / REQ-study-12 deriveDrafts and decisions", () => {
 	});
 
 	it("REQ-study-12 a proposal alone is pending, never active", () => {
-		assert.equal(deriveDrafts([prop("d1", "x")])[0].status, "pending");
+		assert.equal(deriveDrafts([prop("d1", "x")])[0]!.status, "pending");
 	});
 
 	it("REQ-study-11 two draft ids with identical text stay two drafts in deriveDrafts", () => {
@@ -872,7 +872,7 @@ describe("REQ-study-11 dropRepeats", () => {
 			5,
 		);
 		assert.equal(out.length, 1);
-		assert.equal(out[0].page, 1);
+		assert.equal(out[0]!.page, 1);
 	});
 
 	it("REQ-study-11 frozen inputs are not mutated and empty inputs give []", () => {
