@@ -180,8 +180,6 @@ setFileAccessPolicy(fileAccessPolicy);
 
 /** The fixed refusal of a research turn whose session is over the compaction threshold (research is never compacted). */
 const RESEARCH_FULL_REFUSAL = "this research session is full, start a new one";
-/** The study conversation of a document is never compacted either (the same guard as research); one per document, so it cannot be replaced. */
-const STUDY_FULL_REFUSAL = "this study conversation is full";
 
 /** The route-facing entry: parse {chatId, input} and run one turn. */
 export async function handleChatRequest(
@@ -299,9 +297,7 @@ export async function handleChatInput(
 	try { conversationEngine = piEngineForSpec(conversation, () => callPurpose.background, lifecycle, retentionForSlot("strong")); }
 	catch { return Response.json({ error: conversation.provider === "chatgpt" ? chatGPTStreamError("model catalog") : isSubscriptionProvider(conversation.provider) ? nativeSubscriptionError(conversation.provider, "model catalog") : "The selected model is unavailable." }, { status: 503 }); }
 	const modelIdForCompaction = `${conversationEngine.model.provider}:${conversationEngine.model.id}`;
-	// Research and study sessions are never compacted: their summary spend is not on the daily gate (REQ-cost-01), and a study conversation is kept as it is.
-	const neverCompacted = record.kind === "research" || record.kind === "study";
-	if (!neverCompacted) await ensureCompacted(
+	if (record.kind !== "research") await ensureCompacted(
 		{
 			chatStore: stores.chatStore,
 			engine: piEngineForSpec(conversation, true, undefined, retentionForSlot("strong")),
@@ -319,11 +315,11 @@ export async function handleChatInput(
 	else {
 		// THE RESEARCH CONTEXT BOUND (review of 88cdf75 + dbe0234): research sessions are never
 		// compacted, so one that reached the same threshold ensureCompacted uses is full. The turn
-		// is refused before any model call and before any write. Study conversations get the same bound.
+		// is refused before any model call and before any write.
 		const researchThreshold = effectiveThresholdTokens(effective.compaction?.thresholdTokens, catalogContextLimits().get(modelIdForCompaction));
 		const researchPromptTokens = Math.ceil(composeInstructions("practice").length / 4);
 		if (projectedContextTokens(record.messages, researchPromptTokens) > researchThreshold) {
-			return Response.json({ error: record.kind === "study" ? STUDY_FULL_REFUSAL : RESEARCH_FULL_REFUSAL }, { status: 409 });
+			return Response.json({ error: RESEARCH_FULL_REFUSAL }, { status: 409 });
 		}
 	}
 	const compactedRecord = stores.chatStore.getChat(chatId);
@@ -695,7 +691,7 @@ export async function handleChatInput(
 						const kickModelId = `${kickEngine.model.provider}:${kickEngine.model.id}`;
 						const freshRecord = stores.chatStore.getChat(chatId);
 						// The research session's summary spend is not on the daily gate (REQ-cost-01): it is not compacted.
-						if (!freshRecord || freshRecord.kind === "research" || freshRecord.kind === "study") return null;
+						if (!freshRecord || freshRecord.kind === "research") return null;
 						return {
 							chatStore: stores.chatStore,
 							engine: kickEngine,

@@ -47,7 +47,6 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"study"` | Assisted study |
 | `src/store/chats.ts` | `createChat` type widened to the same kinds | Assisted study |
 | `src/server/chat-handler.ts` | imports `createStudyAgent` and `studyService`; the study agent branch | Assisted study |
-| `src/server/chat-handler.ts` | study turn kept out of compaction with the research guard (two guards: the call and the kick factory) and refused with a fixed 409 when over the threshold (`STUDY_FULL_REFUSAL`) | Assisted study review |
 | `app/chat/[id]/page.tsx` | pass `"teach"` to `Chat` for a `study` session | Assisted study |
 | `components/chat.tsx` | optional `transformOutgoing` prop, applied on send and on steer (the study view prepends the page and selection) | Assisted study |
 | `components/ext/node-panel-view.tsx` | "Source in your documents" section | Assisted study |

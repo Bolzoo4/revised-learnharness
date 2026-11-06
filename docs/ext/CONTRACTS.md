@@ -526,6 +526,8 @@ A user message in a `study` session is `[study-context] <JSON>` + `\n` + the lea
 
 `pageCitations(text)` finds every `(p. N)` (regex `\(p\.\s*(\d{1,5})\)`, N at least 1) with its start and end offsets; `citationAt(text, offset)` returns the page of the citation covering `offset`, if any.
 
+A study conversation is compacted by upstream's context compaction like a teach chat: over the threshold it is compacted, never refused (only research is kept out of compaction, with a fixed 409). Accepted limit: like every upstream kind's, a study conversation's compaction summary spend is not on the daily cost gate.
+
 ## `journal.jsonl` (ledger)
 
 Event (one per debrief): `{id, kind, sessionId, sessionKind, weekOf, at, facts, commentary, nullReason, author}`
