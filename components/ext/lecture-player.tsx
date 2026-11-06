@@ -36,8 +36,14 @@ function Element({ el, cue, onNodeClick }: { el: LectureSlideElement; cue: "box"
 	return <p className={mark}><Linked text={el.content ?? ""} onNodeClick={onNodeClick} /></p>;
 }
 
+/** What the session debrief wants to know (REQ-deb-03 lecture facts). */
+export interface LectureProgress {
+	slide(slideId: string): void;
+	exercise(blockId: string): void;
+}
+
 /** Narrated lecture player (REQ-lec-09, 10). Speech: the browser's speechSynthesis; without it the lecture runs in text mode with a manual Next. */
-export function LecturePlayer({ lecture, onNodeClick }: { lecture: Lecture; onNodeClick?: (nodeId: string) => void }) {
+export function LecturePlayer({ lecture, onNodeClick, onProgress }: { lecture: Lecture; onNodeClick?: (nodeId: string) => void; onProgress?: LectureProgress }) {
 	const [index, setIndex] = useState(0);
 	const [playing, setPlaying] = useState(false);
 	const [charIndex, setCharIndex] = useState(0);
@@ -50,12 +56,20 @@ export function LecturePlayer({ lecture, onNodeClick }: { lecture: Lecture; onNo
 	const slide = lecture.slides.find((s) => s.id === block?.slideId) ?? lecture.slides[0];
 	const cue = block ? activeCue(block.cues, charIndex) : null;
 
+	// A slide counts as viewed when it is shown.
+	const slideId = slide?.id;
+	useEffect(() => {
+		if (slideId) onProgress?.slide(slideId);
+	}, [slideId, onProgress]);
+
 	const goto = useCallback((i: number) => {
+		// Leaving an exercise whose countdown ran (it ended or "Done" was pressed) counts as doing it.
+		if (block?.role === "exercise" && remaining !== null && i > index) onProgress?.exercise(block.id);
 		window.speechSynthesis?.cancel();
 		setCharIndex(0);
 		setRemaining(null);
 		setIndex(Math.max(0, Math.min(i, lecture.blocks.length - 1)));
-	}, [lecture.blocks.length]);
+	}, [lecture.blocks.length, block, remaining, index, onProgress]);
 
 	const advance = useCallback(() => {
 		if (last) setPlaying(false);
