@@ -38,6 +38,8 @@ export interface VerifyReport {
 	failed: string[];
 	skippedBudget: string[];
 	unknown: string[];
+	/** Nodes left unverified (not failed) because a provider usage limit paused the work. */
+	providerLimited: string[];
 }
 
 function hostOfUrl(ref: string): string {
@@ -93,7 +95,15 @@ export async function buildEvidence(
 
 export async function verifyNodes(nodeIds: readonly string[], deps: VerifyDeps): Promise<VerifyReport> {
 	const now = deps.now ?? (() => new Date().toISOString());
-	const report: VerifyReport = { checked: [], failed: [], skippedBudget: [], unknown: [] };
+	const report: VerifyReport = { checked: [], failed: [], skippedBudget: [], unknown: [], providerLimited: [] };
+	/** True when the gate is closed by a provider usage limit (not by the ceiling). */
+	const providerLimited = (): boolean => {
+		try {
+			return deps.costGate.reason?.() === "provider-limit";
+		} catch {
+			return false;
+		}
+	};
 	const known = new Map<string, GraphNode>(deps.graphStore.readNodes().map((n) => [n.id, n]));
 	const ids = [...new Set(nodeIds)];
 	report.unknown = ids.filter((id) => !known.has(id));
@@ -101,6 +111,11 @@ export async function verifyNodes(nodeIds: readonly string[], deps: VerifyDeps):
 
 	for (let i = 0; i < todo.length; i += VERIFY_BATCH_SIZE) {
 		const batch = todo.slice(i, i + VERIFY_BATCH_SIZE);
+		// A provider usage limit leaves every remaining node unverified, not failed, and starts no batch.
+		if (providerLimited()) {
+			report.providerLimited.push(...todo.slice(i));
+			break;
+		}
 		if (!deps.costGate.allowed()) {
 			report.skippedBudget.push(...batch);
 			continue;
@@ -124,6 +139,11 @@ export async function verifyNodes(nodeIds: readonly string[], deps: VerifyDeps):
 			failure = controller.signal.aborted ? "budget_exhausted" : `error: ${err instanceof Error ? err.message : String(err)}`;
 		}
 		if (run === null || run.output === null) {
+			// A failure during a provider limit is not a check: the batch stays unverified and the limit's text is never written.
+			if (providerLimited()) {
+				report.providerLimited.push(...batch, ...todo.slice(i + VERIFY_BATCH_SIZE));
+				break;
+			}
 			const reason = failure !== "" ? failure : "unparseable_output";
 			for (const id of batch) {
 				deps.verificationStore.appendEvent({ type: "check_failed", nodeId: id, reason, at: now() });

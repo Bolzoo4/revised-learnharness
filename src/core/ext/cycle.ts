@@ -26,6 +26,9 @@
  *    and items per watch entry all have caps (see ResearchConfig).
  *  - `GapLog.stoppedBy` (why a gap's research ended) and `CycleLogEntry.stoppedBy`
  *    (why the cycle ended) are different fields and never mixed.
+ *  - A provider usage limit (CostGate.reason() === "provider-limit") is not a failure:
+ *    the cycle stops with stoppedBy "provider-limit", the gap that hit it is not
+ *    logged as failed, and no later gap or watch entry starts while the pause holds.
  *  - The log stores only fixed error labels (GAP_FAILED, WATCH_FAILED, CYCLE_FAILED).
  *    The raw error goes to `deps.onError` and nowhere else.
  *  - `deps.onGapsDone` runs once when the research-gap phase is over, before the
@@ -242,6 +245,15 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 		}
 	};
 
+	/** True when the gate is closed by a provider usage limit (not by the ceiling). */
+	const providerLimited = (): boolean => {
+		try {
+			return deps.costGate.reason?.() === "provider-limit";
+		} catch {
+			return false;
+		}
+	};
+
 	const stopReason = (): CycleLogEntry["stoppedBy"] | null => {
 		try {
 			if (deps.isAborted()) return "aborted";
@@ -249,7 +261,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 			return "aborted";
 		}
 		try {
-			if (!deps.costGate.allowed()) return "ceiling";
+			if (!deps.costGate.allowed()) return providerLimited() ? "provider-limit" : "ceiling";
 		} catch {
 			return "ceiling"; // a gate that cannot answer is closed
 		}
@@ -286,7 +298,8 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 			if (!mayIngest) return { locator, outcome: "skipped-active", nodesAdded: 0 };
 			if (text.trim() === "") return { locator, outcome: "failed", nodesAdded: 0 };
 			// The ceiling is checked before EACH ingest (REQ-cost-01): a gap's spend can close it mid-gap.
-			if (stopReason() === "ceiling") return { locator, outcome: "failed", nodesAdded: 0 };
+			const refused = stopReason();
+			if (refused === "ceiling" || refused === "provider-limit") return { locator, outcome: "failed", nodesAdded: 0 };
 			let nodesAdded: number;
 			try {
 				nodesAdded = count(await deps.ingest({ locator, title, text }));
@@ -527,6 +540,12 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 					await runGap(gap, log);
 					gapLogs.push(log);
 				} catch (e) {
+					if (providerLimited()) {
+						// Not a failure: the spend so far is kept, the gap is left for a later cycle.
+						if (log.costUsd > 0) gapLogs.push(log);
+						stoppedBy = "provider-limit";
+						break;
+					}
 					report(e);
 					log.error = GAP_FAILED;
 					gapLogs.push(log);

@@ -44,7 +44,7 @@ export interface CycleLogEntry {
 	trigger: "schedule" | "manual";
 	startedAt: string;
 	endedAt: string;
-	stoppedBy: "completed" | "no-gaps" | "ceiling" | "aborted" | "error";
+	stoppedBy: "completed" | "no-gaps" | "ceiling" | "provider-limit" | "aborted" | "error";
 	gaps: GapLog[];
 	watch: { entries: number; items: number; ingested: number; inbox: number };
 	nodesAdded: number;
@@ -54,7 +54,7 @@ export interface CycleLogEntry {
 }
 
 const GAP_TYPES = new Set<string>(["uncovered", "no-premises", "weak-premise", "unverified", "contested-no-primary"]);
-const STOPS = new Set<string>(["completed", "no-gaps", "ceiling", "aborted", "error"]);
+const STOPS = new Set<string>(["completed", "no-gaps", "ceiling", "provider-limit", "aborted", "error"]);
 const GAP_STOPS = new Set<string>(["confidence", "no-more-sources", "turn-limit"]);
 const OUTCOMES = new Set<string>(["ingested", "inbox", "skipped-rejected", "skipped-seen", "skipped-active", "not-fetched", "not-capturable", "over-cap", "failed"]);
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
