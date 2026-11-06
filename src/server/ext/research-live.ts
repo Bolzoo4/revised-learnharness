@@ -30,6 +30,7 @@ import { sourceFilePath, type InboxItem } from "../../core/ext/inbox.ts";
 import { emit } from "../../core/events.ts";
 import { isPracticeLike } from "../../core/ext/practice/session-kind.ts";
 import { researchConfigFromEnv, type ResearchConfig } from "../../core/ext/research-config.ts";
+import { PROVIDER_LIMIT_MESSAGE } from "../../core/ext/provider-limit.ts";
 import type { ChainLite, GraphNodeLite, IngestSource, LibraryEntryInput, TrustInfo, UncoveredChat } from "../../core/ext/research-ports.ts";
 import { matchSource } from "../../core/ext/sources.ts";
 import { deriveTrustMap } from "../../core/ext/trust.ts";
@@ -42,6 +43,7 @@ import { providerKeyPresent } from "../keys.ts";
 import { searchProvider } from "../search.ts";
 import { stores } from "../stores.ts";
 import { liveCostGate } from "./cost-live.ts";
+import { observedEngine, providerPauseStatus } from "./provider-pause.ts";
 import { createResearchAdmin } from "./research-admin.ts";
 import { createResearchService } from "./research-service.ts";
 import { extStores } from "./stores.ts";
@@ -56,6 +58,7 @@ export const CYCLE_REFUSALS = {
 	"not-configured": "no research model is configured",
 	"already-running": "a research cycle is already running",
 	"clock-invalid": "the system clock is invalid",
+	"provider-limit": PROVIDER_LIMIT_MESSAGE,
 } as const;
 
 export interface MakeResearchGapDeps {
@@ -187,7 +190,7 @@ function researcherEngine(): PiEngine {
 	if (!providerKeyPresent(spec.provider)) {
 		throw new ProviderKeyMissingError(spec.provider, [ROLE_SLOT.researcher]);
 	}
-	return piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[ROLE_SLOT.researcher]?.cacheRetention);
+	return observedEngine(piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[ROLE_SLOT.researcher]?.cacheRetention));
 }
 
 function activateLibraryEntry(entry: LibraryEntryInput): void {
@@ -250,6 +253,10 @@ export const researchService = (serviceHolder.__lhResearch ??= createResearchSer
 	store: researchStore,
 	cycleHours: researchConfigFromEnv(process.env).cycleHours,
 	canRun,
+	providerPause: () => {
+		const status = providerPauseStatus(Date.now());
+		return status.paused && status.pausedUntil !== null ? { pausedUntil: status.pausedUntil } : null;
+	},
 	now: () => new Date(),
 	onError: () => console.error("[research service] cycle failed"),
 	buildCycleDeps: (control: CycleControl) => {

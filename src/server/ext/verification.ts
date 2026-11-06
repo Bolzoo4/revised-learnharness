@@ -9,7 +9,7 @@
 import { createSourceReader } from "../../agent/ext/source-reader.ts";
 import { createVerifier } from "../../agent/ext/verifier.ts";
 import { piEngineForSpec, type PiEngine } from "../../agent/models.ts";
-import { createCostGate, type CostGate } from "../../core/ext/cost-gate.ts";
+import type { CostGate } from "../../core/ext/cost-gate.ts";
 import type { SourceEntry, SourceTier } from "../../core/ext/sources.ts";
 import { trustTag } from "../../core/ext/trust.ts";
 import { createVerificationService, type TrustView } from "../../core/ext/verification-service.ts";
@@ -19,29 +19,20 @@ import { resolveRoleSpec } from "../../core/settings-resolution.ts";
 import { providerKeyPresent } from "../keys.ts";
 import { searchProvider } from "../search.ts";
 import { stores } from "../stores.ts";
+import { liveCostGate } from "./cost-live.ts";
+import { observedEngine } from "./provider-pause.ts";
 import { extStores } from "./stores.ts";
-
-/** One daily ceiling for verification and research (REQ-cost-01). Override with LH_EXT_DAILY_CEILING_USD. */
-const DEFAULT_DAILY_CEILING_USD = 2;
-function ceilingUsd(): number {
-	const raw = Number(process.env.LH_EXT_DAILY_CEILING_USD);
-	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_CEILING_USD;
-}
 
 /** The researcher slot's engine, fresh per run (a settings change lands immediately). Throws with a readable reason. */
 function researcherEngine(): PiEngine {
 	const spec = resolveRoleSpec("researcher", stores.settingsStore.readSettings());
 	if (!spec) throw new Error("verification needs a model for the researcher role: configure the models in settings");
 	if (!providerKeyPresent(spec.provider)) throw new Error(`verification: no API key for provider ${spec.provider}`);
-	return piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[ROLE_SLOT.researcher]?.cacheRetention);
+	return observedEngine(piEngineForSpec(spec, true, undefined, () => stores.settingsStore.readSettings()?.models?.[ROLE_SLOT.researcher]?.cacheRetention));
 }
 
-/** The one shared daily cost gate (REQ-cost-01); node knowledge reuses it. */
-export const costGate: CostGate = {
-	// Fresh per call so a LH_EXT_DAILY_CEILING_USD change lands without a restart.
-	allowed: () => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).allowed(),
-	record: (usd, source) => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).record(usd, source),
-};
+/** The one shared daily cost gate (REQ-cost-01) plus the provider pause; node knowledge reuses it. */
+export const costGate: CostGate = liveCostGate;
 
 const service = createVerificationService({
 	graphStore: stores.graphStore,

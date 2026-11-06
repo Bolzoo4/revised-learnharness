@@ -12,6 +12,7 @@ import { resolveRoleSpec } from "../../core/settings-resolution.ts";
 import type { CostGate, ExplanationWriter } from "../../core/ext/node-knowledge-ports.ts";
 import { callCost } from "../pricing.ts";
 import { stores } from "../stores.ts";
+import { observedEngine } from "./provider-pause.ts";
 import { costGate as sharedCostGate } from "./verification.ts";
 import { createNodeKnowledge, NodeKnowledgeError } from "./node-knowledge.ts";
 import { nodeHandlers, panelSources } from "./panel-providers.ts";
@@ -24,7 +25,7 @@ const writer: ExplanationWriter = {
 		if (!spec) {
 			throw new NodeKnowledgeError(503, "No model is configured for the strong slot (settings → models).");
 		}
-		return createExplanationWriter({ engine: piEngineForSpec(spec, true), priceCall: callCost }).write(request);
+		return createExplanationWriter({ engine: observedEngine(piEngineForSpec(spec, true)), priceCall: callCost }).write(request);
 	},
 };
 

@@ -9,6 +9,7 @@
 import type { StepPricer } from "../../agent/ext/lecture/structured.ts";
 import { createCostGate, type CostGate } from "../../core/ext/cost-gate.ts";
 import { callCost } from "../pricing.ts";
+import { providerPauseView } from "./provider-pause.ts";
 import { extStores } from "./stores.ts";
 
 const DEFAULT_DAILY_CEILING_USD = 2;
@@ -17,10 +18,16 @@ function ceilingUsd(): number {
 	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_CEILING_USD;
 }
 
+/** Closed while the daily ceiling is spent OR a provider usage limit is in force (provider-pause.ts). */
 export const liveCostGate: CostGate = {
-	allowed: () => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).allowed(),
-	record: (usd, source) => createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd() }).record(usd, source),
+	allowed: () => gate().allowed(),
+	reason: () => gate().reason?.() ?? null,
+	record: (usd, source) => gate().record(usd, source),
 };
+
+function gate(): CostGate {
+	return createCostGate({ store: extStores.costStore, ceilingUsd: ceilingUsd(), providerPause: providerPauseView });
+}
 
 /** USD of one billed step; an unpriced model counts as 0 (the same rule as the verification stage). */
 export const livePriceStep: StepPricer = (model, usage) =>

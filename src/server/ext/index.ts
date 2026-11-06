@@ -45,5 +45,6 @@ export type { RunTrigger } from "./research-service.ts";
 export type { InboxDecision, InboxItem, InboxStatus } from "../../core/ext/inbox.ts";
 export type { SourceTier } from "../../core/ext/sources.ts";
 export { debriefService, startDebriefScheduler } from "./debrief-live.ts";
+export { providerPauseStatus } from "./provider-pause.ts";
 export { outcomeResponse, parseLectureActivity, parseListQuery } from "./debrief-input.ts";
 

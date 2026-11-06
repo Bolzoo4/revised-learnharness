@@ -9,6 +9,7 @@
  */
 
 import type { CostGate } from "../../core/ext/cost-gate.ts";
+import { PROVIDER_LIMIT_MESSAGE } from "../../core/ext/provider-limit.ts";
 import type { PiEngine } from "../models.ts";
 import { createPracticeAgent, type AgentBuildOptions } from "../teacher-agent.ts";
 import { RESEARCH_INSTRUCTIONS } from "./research-instructions.ts";
@@ -30,6 +31,15 @@ export interface SpendLatch {
 
 const usd = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
 
+/** The fixed refusal of a closed gate: a provider usage limit has its own text, the ceiling keeps its own. */
+function refusalText(gate: CostGate): string {
+	try {
+		return gate.reason?.() === "provider-limit" ? PROVIDER_LIMIT_MESSAGE : CEILING_MESSAGE;
+	} catch {
+		return CEILING_MESSAGE;
+	}
+}
+
 /** A stream function that refuses the call when the latch is set or the gate is closed (or cannot answer, which counts as closed). */
 export function gateResearchEngine(engine: PiEngine, gate: CostGate, latch: SpendLatch): PiEngine {
 	const closed = (): boolean => {
@@ -43,7 +53,7 @@ export function gateResearchEngine(engine: PiEngine, gate: CostGate, latch: Spen
 	return {
 		...engine,
 		streamFn: ((model, context, options) => {
-			if (closed()) throw new Error(CEILING_MESSAGE);
+			if (closed()) throw new Error(latch.refused ? CEILING_MESSAGE : refusalText(gate));
 			return engine.streamFn(model, context, options);
 		}) as PiEngine["streamFn"],
 	};

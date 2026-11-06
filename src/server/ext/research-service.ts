@@ -25,7 +25,7 @@ export const MAX_STEERS_PER_CYCLE = 50;
 export type RunTrigger = CycleLogEntry["trigger"];
 export type StartResult =
 	| { started: true }
-	| { started: false; reason: "already-running" | "not-configured" | "clock-invalid" };
+	| { started: false; reason: "already-running" | "not-configured" | "clock-invalid" | "provider-limit" };
 
 export interface ResearchStatus {
 	running: boolean;
@@ -33,6 +33,8 @@ export interface ResearchStatus {
 	startedAt?: string;
 	steers: string[];
 	lastCycle: CycleLogEntry | null;
+	/** ISO time the provider usage-limit pause ends, while one is in force; null otherwise. */
+	providerPausedUntil: string | null;
 }
 
 /** The cycle's ports, minus the parts the service owns (log, lock key, abort and steering handles). */
@@ -45,6 +47,8 @@ export interface ResearchServiceDeps {
 	cycleHours: number;
 	/** False when no model is configured: the scheduler stays quiet instead of failing every cycle. */
 	canRun(): boolean;
+	/** The provider usage-limit pause in force, if any (ISO end time). No cycle starts while one is. */
+	providerPause?(): { pausedUntil: string } | null;
 	now(): Date;
 	onError?(err: unknown): void;
 }
@@ -77,9 +81,18 @@ export function createResearchService(deps: ResearchServiceDeps) {
 		}
 	};
 
+	const pausedUntil = (): string | null => {
+		try {
+			return deps.providerPause?.()?.pausedUntil ?? null;
+		} catch {
+			return null; // a pause that cannot be read is treated as none; the gate still refuses each call
+		}
+	};
+
 	function start(trigger: RunTrigger): StartResult {
 		if (current !== null || isCycleRunning(deps.store.log, deps.store.lockKey)) return { started: false, reason: "already-running" };
 		if (!deps.canRun()) return { started: false, reason: "not-configured" };
+		if (pausedUntil() !== null) return { started: false, reason: "provider-limit" };
 		const startedAt = clockIso(deps.now);
 		if (startedAt === null) return { started: false, reason: "clock-invalid" };
 
@@ -132,7 +145,7 @@ export function createResearchService(deps: ResearchServiceDeps) {
 
 		/** Called by the scheduler on an interval: starts a `schedule` cycle when one is due. Null when none is. */
 		tick(): StartResult | null {
-			if (current !== null || !deps.canRun()) return null;
+			if (current !== null || !deps.canRun() || pausedUntil() !== null) return null;
 			const now = clockIso(deps.now);
 			if (now === null) return null;
 			return cycleDue(deps.store.log.readAll(), now, deps.cycleHours) ? start("schedule") : null;
@@ -141,13 +154,15 @@ export function createResearchService(deps: ResearchServiceDeps) {
 		status(): ResearchStatus {
 			const log = deps.store.log.readAll();
 			const lastCycle = log.length === 0 ? null : log[log.length - 1]!;
-			if (current === null) return { running: false, steers: [], lastCycle };
+			const providerPausedUntil = pausedUntil();
+			if (current === null) return { running: false, steers: [], lastCycle, providerPausedUntil };
 			return {
 				running: true,
 				trigger: current.trigger,
 				startedAt: current.startedAt,
 				steers: current.control.allSteers(),
 				lastCycle,
+				providerPausedUntil,
 			};
 		},
 

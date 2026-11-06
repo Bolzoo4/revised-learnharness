@@ -20,6 +20,7 @@ import { providerKeyPresent } from "../keys.ts";
 import { callCost } from "../pricing.ts";
 import { stores } from "../stores.ts";
 import { liveCostGate } from "./cost-live.ts";
+import { observedEngine } from "./provider-pause.ts";
 import { createDebriefService, newDebriefState, type DebriefState } from "./debrief-service.ts";
 import { createDebriefSources } from "./debrief-sources.ts";
 import { createStudyFeed } from "./debrief-study.ts";
@@ -40,7 +41,7 @@ const writer: DebriefWriter = {
 		const spec = resolveRoleSpec("teacher", stores.settingsStore.readSettings());
 		if (!spec) throw new WriterUnavailableError("no model is configured for the strong slot");
 		if (!providerKeyPresent(spec.provider)) throw new WriterUnavailableError(`no API key for provider ${spec.provider}`);
-		return createDebriefWriter({ engine: piEngineForSpec(spec, true), priceCall: callCost, signal: shutdown.signal }).write(request, control);
+		return createDebriefWriter({ engine: observedEngine(piEngineForSpec(spec, true)), priceCall: callCost, signal: shutdown.signal }).write(request, control);
 	},
 };
 
