@@ -10,6 +10,7 @@
 import type { ExplanationEvent } from "../explanations.ts";
 import type { FrontierEvent } from "../frontier.ts";
 import type { InboxEvent } from "../inbox.ts";
+import type { JournalEvent } from "../debrief/journal.ts";
 import type { Lecture } from "../lecture/lecture.ts";
 import type { ExerciseEvent } from "../practice/exercises.ts";
 import type { ReviewDeps } from "../review-service.ts";
@@ -34,6 +35,7 @@ export interface McpDeps {
 	frontier: ReadLog<FrontierEvent>;
 	inbox: ReadLog<InboxEvent>;
 	researchLog: ReadLog<CycleLogEntry>;
+	journal: ReadLog<JournalEvent>;
 	lectures: LectureReader;
 	/** ISO-8601 instant, called once per tool call. */
 	now(): string;

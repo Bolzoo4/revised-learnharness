@@ -13,6 +13,7 @@
  */
 
 import { openCall, type Call } from "./call.ts";
+import { getRecentDebriefs } from "./debriefs.ts";
 import { ToolError, invalid } from "./errors.ts";
 import { getDailyPlan } from "./plan.ts";
 import { getGoal, listGoals } from "./goals.ts";
@@ -43,6 +44,7 @@ const HANDLERS: Record<string, Handler> = {
 	get_goal: { group: "study", fields: ["id"], run: (c, i) => getGoal(c, i) },
 	get_daily_plan: { group: "study", fields: ["date"], run: (c, i) => getDailyPlan(c, i) },
 	research_status: { group: "study", fields: [], run: (c) => researchStatus(c) },
+	get_recent_debriefs: { group: "study", fields: ["limit", "since", "kind"], run: (c, i) => getRecentDebriefs(c, i) },
 };
 
 export const TOOL_NAMES: readonly string[] = Object.freeze(Object.keys(HANDLERS));

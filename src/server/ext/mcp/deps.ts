@@ -9,6 +9,7 @@
 
 import path from "node:path";
 import { parseCardEvent } from "../../../core/ext/cards.ts";
+import { parseJournalEvent } from "../../../core/ext/debrief/journal.ts";
 import { parseExplanationEvent } from "../../../core/ext/explanations.ts";
 import { parseFrontierEvent } from "../../../core/ext/frontier.ts";
 import { parseGoalEvent } from "../../../core/ext/goals.ts";
@@ -46,6 +47,7 @@ export function createMcpDeps(dataRoot: string, clock: () => string = () => new 
 		frontier: readOnlyLedger(extDir, "frontier.jsonl", parseFrontierEvent),
 		inbox: readOnlyLedger(extDir, "inbox.jsonl", parseInboxEvent),
 		researchLog: readOnlyLedger(extDir, "research-log.jsonl", parseCycleLogEntry),
+		journal: readOnlyLedger(extDir, "journal.jsonl", parseJournalEvent),
 		lectures: createLectureReader(extDir),
 		now: clock,
 		assertReadable: createReadableGuard(dataRoot),

@@ -12,6 +12,10 @@ import { LIMITS } from "../../../core/ext/mcp/limits.ts";
 
 const id = z.string().min(1).max(LIMITS.idMaxChars);
 const limit = z.number().int().min(1).max(LIMITS.listMax).optional();
+
+/** The session kinds of the journal plus "weekly" (a test pins this list to SESSION_KINDS). */
+export const DEBRIEF_KINDS = ["review", "lecture", "office_hours", "study", "exercises", "weekly"] as const;
+
 const strict = <T extends z.ZodRawShape>(shape: T) => z.strictObject(shape);
 
 export interface ToolSpec {
@@ -73,5 +77,15 @@ export const CATALOG: Record<string, ToolSpec> = {
 		title: "Read research status",
 		description: "Frontier marks, inbox size and a summary of the last research cycle. Study-state group. Read-only.",
 		input: strict({}),
+	},
+	get_recent_debriefs: {
+		title: "Read recent session debriefs",
+		description:
+			"Newest-first session debriefs and the latest weekly synthesis with their computed facts and commentary. since is an ISO-8601 instant with a time zone. Study-state group. Read-only.",
+		input: strict({
+			limit: z.number().int().min(1).max(LIMITS.debriefsMax).optional(),
+			since: z.string().min(10).max(40).optional(),
+			kind: z.enum(DEBRIEF_KINDS).optional(),
+		}),
 	},
 };
