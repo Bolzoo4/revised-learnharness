@@ -279,6 +279,47 @@ Event `verdict`: `{type:"verdict", chatId, outcome, items, discarded, at}`; `out
 
 The model proposes items; the following decide. For each item, `checkQuote(source, sourceQuote)` of the "Quote check" section above must return `ok`, otherwise the item is dropped (`quote_too_short` or `quote_not_found`). Unless `stance` is `missing`, the item is also dropped when `normalize(workQuote, join)` is empty or does not occur in `normalize(work, join)` (`work_quote_not_found`). The work is every message of the learner in the session except messages beginning with `/verdict`. Outcome: no item kept gives `not_verifiable`; all kept items `matches` gives `consistent`; otherwise `differs`. A verdict exists only when the learner's newest message begins with `/verdict` and the session has a designated source; the text of a verdict never states correctness, only consistency with the designated source.
 
+## Narration audio (`lecture-audio/`)
+
+Each block of a lecture can be spoken by Deepgram text-to-speech (Aura-2). The pure rules are in `src/core/ext/lecture/audio.ts`; the synthesis, the files and the spend are in `src/server/ext/lecture-audio.ts`. Failure is soft: a failed block never changes its lecture.
+
+Files, under `<data>/ext/lecture-audio/`:
+- `cache/<sha256(voice + "\n" + text)>.mp3`: the audio of one request. The text is a chunk of the block with node-link markup removed. Identical text and voice are never paid twice.
+- `<lectureId>/<blockId>.mp3`: a ready block's audio, its chunks concatenated in order.
+- `<lectureId>/audio.json`: the manifest, written atomically.
+
+Manifest: `{version: 1, lectureId, language: "it" | "en" | "unknown", voice: string | null, blocks: [{blockId, status: "ready" | "failed", chars, durationSec, chunks: [{startChar, endChar, startSec, durationSec, bytes}], error?}]}`. The chunks of a ready block tile `[0, chars)` in order and their `startSec` chain; a failed block has no chunks; `error` is a fixed text. A manifest whose voice or language is not the current one counts as no audio: its blocks are generated again.
+
+Language: `guessLanguage` on the stripped text of all blocks, by stopwords. `it` or `en` when one side has at least 5 hits and at least 70% of them; otherwise `unknown`, and an unknown lecture gets no Deepgram audio (the browser voice speaks it).
+
+Voices: `aura-2-livia-it` and `aura-2-thalia-en` by default; `LH_EXT_AUDIO_VOICE_IT` and `LH_EXT_AUDIO_VOICE_EN` override them, and only an Aura-2 voice of the same language is taken.
+
+Chunking: at sentence ends where possible, else after the last whitespace of the window, else at any code point, never inside a node link. A chunk is at most 800 UTF-16 units (Deepgram refuses 2000 characters). A whitespace-only chunk is never sent and has zero duration.
+
+Requests: `POST https://api.deepgram.com/v1/speak?model=<voice>&encoding=mp3&bit_rate=48000`, header `Authorization: Token <key>`, body `{"text": "..."}`. The key is `DEEPGRAM_API_KEY`, read on the server. At most 4 requests in flight per block; a 30 s timeout per request; up to 3 attempts for 429, 5xx and network errors, backing off 1 s then 2 s (a numeric `Retry-After` is honoured, up to 30 s). A 401 or 403 is not retried.
+
+Timing approximation: Deepgram returns audio bytes only, with no timing. At the constant 48000 bit/s a chunk lasts `bytes * 8 / 48000` seconds. The container overhead is ignored, so chunk boundaries inside a block are approximate; the order is exact.
+
+Clock to text (`charIndexAtTime`): the offset of the chunk that contains the time, linear inside it; past a chunk, its end; before the start, the first offset. It is monotonic in time, and the player feeds it to `activeCue`.
+
+Cost: `chars * 0.03 / 1000` USD per request, `chars` the UTF-16 length of the request text. It is recorded in `audio-cost.jsonl` (source `audio`) BEFORE each attempt is sent. The audio gate is separate from the model gate: its own ledger, its own ceiling (`LH_EXT_AUDIO_CEILING_USD`, default 3 USD per UTC day), and a model provider's usage pause does not close it. When the gate is closed nothing is sent: an on-demand request answers 429, a batch stops, and no failed entry is written. `cost.jsonl` is not touched.
+
+Pre-generation: every stored lecture starts its missing blocks in the background (`lectureAudio.prefetch`, called from the lecture store's `save` in `src/server/ext/lecture-live.ts`); the chapter run neither waits for it nor fails on it. With no key, or a language with no voice, nothing is generated. Removing a lecture removes its audio directory.
+
+Every block of a lecture is spoken and so gets audio, including `note` blocks: the player speaks each block, and a note read by the browser voice next to Deepgram narration would sound inconsistent.
+
+Routes (`app/api/ext/lectures/[id]/audio/`):
+- `GET .../audio` answers `{keyConfigured, language, voice, ready, total, statuses: [{blockId, status: "ready" | "failed" | "missing"}], manifest}`; `manifest` holds the entries of the current voice. 404 `unknown lecture`.
+- `POST .../audio` with `{}` answers 202 `{started: true}` and generates every missing block in the background (503 without a key, 422 for a language with no voice). With `{blockId}` it waits and answers 200 `{block}` once the block is ready; a ready block costs nothing. A block that is not in the lecture is 404 `unknown block`; a failed synthesis is 502 with the block's fixed text; a spent budget is 429.
+- `GET .../audio/[blockId]` answers the block's `audio/mpeg` with `Accept-Ranges: bytes` and `Cache-Control: private, max-age=3600`. One `Range` is honoured (206; 416 when unsatisfiable). 404 for a block not of this lecture, or one not ready.
+- `GET /api/ext/lectures` entries carry `audio: {ready, total, keyConfigured}`.
+
+Player: a block with ready audio is played by an `<audio>` element and highlighted through the audio clock. A block without it is generated on demand when a key exists (the player shows "Preparing audio"), and the next block is requested while the current one plays. Any failure, or no audio at all, falls back to `speechSynthesis` as before. Pausing or leaving a block stops the element.
+
+Privacy: the text of the lecture is sent to Deepgram, in chunks, once per distinct chunk (the cache keeps the result). The key is never sent to the browser, never logged, and never appears in an answer; failures are fixed texts.
+
+Not verified here: a real Deepgram call (every test uses a fake fetch), the browser playback, and the real length of the audio against the byte-based timing approximation.
+
 ## `exercises.jsonl` (ledger)
 
 Event `set_created`: `{type:"set_created", setId, goalId, exercises, at}`; `exercises` non-empty array of `{id, prompt, nodeIds, steps}` with `steps` an array of `{id, text, nodeIds}` (the reference solution).
