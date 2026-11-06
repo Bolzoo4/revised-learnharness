@@ -17,7 +17,7 @@ import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { fuzzyScore, isPracticeLike } from "@/src/core";
+import { fuzzyScore, sessionMatchesFilter } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
@@ -423,9 +423,7 @@ function SessionsSidebar() {
 	const shown = useMemo(() => {
 		const q = query.trim();
 		let list = chats;
-		if (list && kindFilter !== "all") {
-			list = list.filter((c) => (kindFilter === "practice" ? isPracticeLike(c.kind) : (c.kind ?? "teach") === kindFilter));
-		}
+		if (list) list = list.filter((c) => sessionMatchesFilter(c.kind, kindFilter));
 		if (!list) return list;
 		if (!q) return list;
 		return list
