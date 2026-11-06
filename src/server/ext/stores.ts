@@ -20,6 +20,8 @@ import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
 import { createSourcesStore } from "../../store/ext/sources-store.ts";
 import { createVerificationStore } from "../../store/ext/verification-store.ts";
+import { parseActivityEvent } from "../../core/ext/debrief/activity.ts";
+import { parseJournalEvent } from "../../core/ext/debrief/journal.ts";
 import { parseDocumentEvent } from "../../core/ext/study/documents.ts";
 import { parseDraftEvent } from "../../core/ext/study/drafts.ts";
 import { parseStudyLinkEvent } from "../../core/ext/study/links.ts";
@@ -46,6 +48,8 @@ export const extStores = {
 	studyLinksLedger: createLedger(EXT_PATHS.dir, "study-links.jsonl", parseStudyLinkEvent),
 	studyDraftsLedger: createLedger(EXT_PATHS.dir, "study-drafts.jsonl", parseDraftEvent),
 	documentFiles: createDocumentFiles(EXT_PATHS.dir),
+	journalLedger: createLedger(EXT_PATHS.dir, "journal.jsonl", parseJournalEvent),
+	activityLedger: createLedger(EXT_PATHS.dir, "activity.jsonl", parseActivityEvent),
 };
 
 export type ExtStores = typeof extStores;

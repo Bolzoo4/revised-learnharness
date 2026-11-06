@@ -44,3 +44,6 @@ export type { AddWatchInput, SetMarkInput } from "./research-admin.ts";
 export type { RunTrigger } from "./research-service.ts";
 export type { InboxDecision, InboxItem, InboxStatus } from "../../core/ext/inbox.ts";
 export type { SourceTier } from "../../core/ext/sources.ts";
+export { debriefService, startDebriefScheduler } from "./debrief-live.ts";
+export { outcomeResponse, parseLectureActivity, parseListQuery } from "./debrief-input.ts";
+
