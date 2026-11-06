@@ -23,6 +23,17 @@ it("renders the five learning pages as real links with the right hrefs", () => {
 	);
 });
 
+it("every row carries one decorative svg icon, hidden from assistive tech, beside the label", () => {
+	const doc = render("/");
+	for (const a of anchors(doc)) {
+		const svgs = a.querySelectorAll("svg");
+		assert.equal(svgs.length, 1, `${a.textContent} has one icon`);
+		assert.equal(svgs[0]!.getAttribute("aria-hidden"), "true", `${a.textContent} icon is decorative`);
+		assert.equal(svgs[0]!.previousElementSibling, null, "the icon comes before the label");
+	}
+	assert.ok(EXT_NAV_ITEMS.every((i) => i.icon !== undefined), "every entry names its icon");
+});
+
 it("no entry duplicates another: one row per page and one label per row", () => {
 	const hrefs = EXT_NAV_ITEMS.map((i) => i.href);
 	assert.equal(new Set(hrefs).size, hrefs.length);
