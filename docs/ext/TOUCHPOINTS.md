@@ -56,7 +56,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/server/chat-handler.ts` | research turn refused with a fixed 409 when the session is over the compaction threshold (research is never compacted, REQ-cost-01) | Research review fixes |
 | `instrumentation.ts` (new root file) | `register()` starts the debrief scheduler (REQ-deb-01, REQ-deb-02) and the research loop's scheduler (REQ-rs-01), each guarded so a failure cannot crash the server; inert under `NODE_ENV=test` | Session debriefs, Research loop |
 
-Session debriefs edit no file of the closed list; src/server/ext/stores.ts and src/server/ext/index.ts are extension files.
+Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 
 The study pages (`app/study/**`) and the research page (`app/research/**`) are extension pages: they sit under the exclusions in the check command above, as `app/journal/**` does.
 
