@@ -14,11 +14,14 @@
 
 import { openCall, type Call } from "./call.ts";
 import { ToolError, invalid } from "./errors.ts";
+import { getDailyPlan } from "./plan.ts";
+import { getGoal, listGoals } from "./goals.ts";
 import { plainObject } from "./input.ts";
 import { getLecture, listLectures } from "./lectures.ts";
 import { capText } from "./limits.ts";
 import { getNeighbors, getNode } from "./node.ts";
 import type { McpDeps, RunOptions } from "./ports.ts";
+import { researchStatus } from "./research.ts";
 import { searchNodes } from "./search.ts";
 
 export type ToolGroup = "knowledge" | "study";
@@ -36,6 +39,10 @@ const HANDLERS: Record<string, Handler> = {
 	get_neighbors: { group: "knowledge", fields: ["id", "depth"], run: (c, i) => getNeighbors(c, i) },
 	list_lectures: { group: "knowledge", fields: ["chapter"], run: (c, i) => listLectures(c, i) },
 	get_lecture: { group: "knowledge", fields: ["id"], run: (c, i) => getLecture(c, i) },
+	list_goals: { group: "study", fields: ["status", "limit"], run: (c, i) => listGoals(c, i) },
+	get_goal: { group: "study", fields: ["id"], run: (c, i) => getGoal(c, i) },
+	get_daily_plan: { group: "study", fields: ["date"], run: (c, i) => getDailyPlan(c, i) },
+	research_status: { group: "study", fields: [], run: (c) => researchStatus(c) },
 };
 
 export const TOOL_NAMES: readonly string[] = Object.freeze(Object.keys(HANDLERS));
