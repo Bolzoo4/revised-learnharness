@@ -715,3 +715,48 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 `get_recent_debriefs` input: `limit`, `since` (ISO-8601 instant with a time zone), `kind` (`review|lecture|office_hours|study|exercises|weekly`). Output: `{debriefs(page of {id, kind, sessionKind, weekOf, at, facts, commentary, nullReason}), latestWeekly}`. Facts are returned when small; facts above 4 KiB are replaced by `{kind, omitted}`.
 
 `list_documents` input: none. Output: page of `{id, title, pageCount, registeredAt, lastPage, readPages, readShare}`. No file path and no chat id.
+
+## Editable extension prompts
+
+The settings page lists the extension's agent prompts under "Extension agents", next to upstream's "System prompts". The catalog is `src/core/ext/prompt-catalog.ts` (pure); the agent-side reader is `src/agent/ext/prompt-override.ts`; the store is `src/store/ext/prompt-store.ts`; the service and routes are `src/server/ext/prompt-settings.ts` and `app/api/ext/prompts/`.
+
+### Layout
+
+- Override text: `<PROMPTS_OVERRIDE_DIR>/ext/<id>.md` (`PROMPTS_OVERRIDE_DIR` is `<data root>/prompts`). The two style guides already lived here.
+- Switches: `<data root>/ext/prompt-switches.json`, a JSON object `{"<id>": true}`. Only `true` is on; absent keys, other values, and a malformed or non-object file are all off. The switches have their own file because upstream's `settings.json` drops keys it does not know.
+- A version is in use only when its switch is `true` AND its file is readable. A file without its switch, and a switch without a file, both give the default. An enabled empty file is an override with empty text: it does not fall back to the default (upstream's rule).
+- Every agent construction reads the switch and the file again. Nothing is cached, so a new run sees the current text; a run already in progress keeps its own.
+- An id is never built into a path unless it is in the catalog (`isExtPromptId`). Writes are atomic (temp file, then rename); the switches file is rewritten whole.
+
+### Editable prompts
+
+| id | Agent or builder | Default text | Appended by code, after the editable text |
+|---|---|---|---|
+| `verifier` | `verifierInstructions()` (verifier run) | `VERIFIER_INSTRUCTIONS` | nothing |
+| `research-chat` | `researchInstructions()` (research console) | `RESEARCH_INSTRUCTIONS` | nothing |
+| `gap-researcher` | `gapResearchInstructions()` (gap research run) | `GAP_RESEARCH_INSTRUCTIONS` | nothing |
+| `watch-classifier` | `watchClassifyInstructions()` (classify call) | `WATCH_CLASSIFY_INSTRUCTIONS` | nothing |
+| `review-daily` | `reviewDailyInstructions()` (daily review) | `REVIEW_INSTRUCTIONS` | nothing |
+| `review-card` | `focusedReviewInstructions(focus)` (card tutor) | `REVIEW_CARD_BODY` | the card block: node id, name, statement, question, answer |
+| `review-node` | `focusedNodeReviewInstructions(focus)` (node tutor) | `REVIEW_NODE_BODY` | the node block: node id, name, statement, explanation |
+| `study-assistant` | `studyPrompt(ctx)` (study session, per turn) | `STUDY_INSTRUCTIONS` | the document title and page count, the current page, the selection |
+| `office-hours` | `officeHoursInstructions(focus)` (office hours; one id for the base and the exercise focus) | `OFFICE_HOURS_INSTRUCTIONS` | the exercise in focus, inside `<exercise>` tags |
+| `debrief-style` | `debriefStyle()` (debrief writer) | `src/agent/ext/prompts/debrief-style.md` | the four-part rules and the submit tool (`DEBRIEF_RULES`) |
+| `explanation-style` | `explanationStyle()` (explanation writer) | `src/agent/ext/prompts/explanation-style.md` | the structure and `[[id]]` link rules (`STRUCTURE_RULES`) |
+
+The focus variants keep their per-run data out of the editable text: the body is resolved first and the data block is appended after it, so an edit cannot drop the card, the node, the document or the exercise. The data block sits after the body in the default too, so the default text of `review-card` and `review-node` is the body alone (the card or node block follows it).
+
+### Not editable, on purpose
+
+These prompts interleave their per-run data with their output schema, or their output contract is checked in code. A text edit could drop the data or break the contract, so they stay in code: the lecture outline, lecture and chapter-detection prompts (`src/agent/ext/lecture/`), the study card and page drafts (`src/agent/ext/study/draft-writer.ts`), the exercise writer (`src/agent/ext/practice/exercise-writer.ts`), and the debrief and explanation prompt builders.
+
+### Routes
+
+- `GET /api/ext/prompts` returns an array, in catalog order, of `{id, label, description, warning, defaultText, overrideText, enabled}`. `overrideText` is the saved file's text or `null`; `enabled` is true only when the switch is on and the file exists.
+- `PUT /api/ext/prompts/[id]`, body `{text?: string, enabled?: boolean}` with at least one key and no other keys. Writes the text first, then the switch. Returns the view. 400 for a body of the wrong shape, a text longer than 20000 characters, or turning a switch on with no version to use. 404 for an id outside the catalog. 413 for a body over 256 KiB. An empty text is allowed.
+- `DELETE /api/ext/prompts/[id]` removes the file and clears the switch (the switch goes first, so a crash leaves "off + file"). Idempotent. Returns `{id, deleted: true, switchCleared}`. 404 for an unknown id.
+- Errors are fixed messages; no input is echoed.
+
+### Migration note
+
+Before this section, a file in `ext/debrief-style.md` or `ext/explanation-style.md` took effect by its presence alone. Those two files now need their switch on, like every other editable prompt.

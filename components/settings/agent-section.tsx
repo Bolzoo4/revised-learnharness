@@ -80,6 +80,7 @@ import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } 
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
 import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
 import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
+import { ExtPromptsSection } from "@/components/ext/prompts-section";
 
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
@@ -990,6 +991,7 @@ export function AgentSection({
 					</div>
 				)}
 			</SettingsGroup>
+			<ExtPromptsSection />
 		</>
 	);
 }

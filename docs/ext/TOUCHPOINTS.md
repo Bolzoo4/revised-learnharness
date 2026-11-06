@@ -57,6 +57,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `instrumentation.ts` (new root file) | `register()` starts the debrief scheduler (REQ-deb-01, REQ-deb-02) and the research loop's scheduler (REQ-rs-01), each guarded so a failure cannot crash the server; inert under `NODE_ENV=test` | Session debriefs, Research loop |
 | `components/sidebar.tsx` | one import of `ExtNav` and one `<ExtNav />` line under the Teaching/Practice create buttons: the sidebar entries Review, Lectures, Study, Research, Journal (REQ-mode-01 navigation) | Navigation |
 | `components/sidebar.tsx` | the session filter uses `sessionMatchesFilter` (core barrel): review and office-hours sessions list under "Practice", study sessions under "Teaching", research sessions nowhere (not even "All") | Navigation fixes |
+| `components/settings/agent-section.tsx` | one import of `ExtPromptsSection` and one `<ExtPromptsSection />` line after the System prompts group: the "Extension agents" settings (editable extension prompts, docs/ext/CONTRACTS.md) | Editable extension prompts |
 
 Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 
