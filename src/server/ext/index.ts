@@ -29,6 +29,7 @@ export * from "./study-live.ts";
 export { StudyError } from "./study-service.ts";
 export { parseDecision, requireString } from "./study-input.ts";
 export { HttpError, httpErrorResponse, readJsonObject } from "./http-error.ts";
+export { listExtPrompts, resetExtPrompt, updateExtPrompt } from "./prompt-settings.ts";
 export { isPdfUpload, stagePdfUpload, type StagedPdf } from "./pdf-upload.ts";
 export { ReviewInputError } from "../../core/ext/review-service.ts";
 export {

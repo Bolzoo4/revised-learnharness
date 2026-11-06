@@ -19,6 +19,8 @@ export interface ExtPaths {
 	snapshots: string;
 	verification: string;
 	cost: string;
+	/** The extension prompts' on/off switches (src/agent/ext/prompt-override.ts reads the same file). */
+	promptSwitches: string;
 }
 
 export function extPathsFor(dataRoot: string): ExtPaths {
@@ -33,6 +35,7 @@ export function extPathsFor(dataRoot: string): ExtPaths {
 		snapshots: path.join(dir, "snapshots"),
 		verification: path.join(dir, "verification.jsonl"),
 		cost: path.join(dir, "cost.jsonl"),
+		promptSwitches: path.join(dir, "prompt-switches.json"),
 	};
 }
 
