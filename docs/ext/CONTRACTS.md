@@ -103,7 +103,7 @@ event is `unverified`. Events for nodes that no longer exist are ignored by read
 
 ## `cost.jsonl`
 
-Event `spend`: `{type:"spend", usd, source, at}`; `usd` finite and ≥ 0; `source` `verification` | `research`. Spend for a day = sum of `usd` of events whose
+Event `spend`: `{type:"spend", usd, source, at}`; `usd` finite and ≥ 0; `source` `verification` | `research` | `node-knowledge` | `debrief`. Spend for a day = sum of `usd` of events whose
 `at` begins with that UTC date `YYYY-MM-DD`. The gate allows work while spend for today < ceiling (default 2 USD; env `LH_EXT_DAILY_CEILING_USD`).
 
 ## Trust tag in session context
@@ -525,3 +525,53 @@ The proposition text alone is imported as a notes source with the pseudo-path `s
 A user message in a `study` session is `[study-context] <JSON>` + `\n` + the learner's text. `<JSON>` is `{"documentId": string, "page": positive integer, "selection": string}`; the selection is cut to 2000 characters; `JSON.stringify` escapes newlines so the first line ends at the first `\n`. A message without a valid first line has no context. The agent's prompt for a turn is composed from the NEWEST user message's context (and no earlier one) plus the text of that page.
 
 `pageCitations(text)` finds every `(p. N)` (regex `\(p\.\s*(\d{1,5})\)`, N at least 1) with its start and end offsets; `citationAt(text, offset)` returns the page of the citation covering `offset`, if any.
+
+## `journal.jsonl` (ledger)
+
+Event (one per debrief): `{id, kind, sessionId, sessionKind, weekOf, at, facts, commentary, nullReason, author}`
+- `kind`: `session` | `weekly`. `author`: `agent`. `at`: ISO-8601, when the entry was written.
+- Key of an entry: `sessionId` for `session`, `weekly:<weekOf>` for `weekly`. `id` = `deb_` plus the first 12 hex digits of the SHA-256 of the key.
+- `session`: `sessionId` non-empty, `sessionKind` in `review` | `lecture` | `office_hours` | `study` | `exercises`, `weekOf` null, `facts.kind` equal to `sessionKind`.
+- `weekly`: `weekOf` = local date `YYYY-MM-DD` of the window start, `sessionId` and `sessionKind` null, `facts.kind` = `weekly`.
+- `commentary`: non-empty Markdown, or null. `nullReason`: `ceiling` (the daily cost ceiling was reached) or `error` (three commentary attempts failed), non-null exactly when `commentary` is null.
+- `facts`: an object; a reader checks only that it is an object with a string `kind`. Its fields are the "Debrief facts" below.
+- Derivation (`deriveJournal`): replay in file order; the FIRST event per key wins, later ones are ignored (a session has at most one debrief). `recentDebriefs`: newest `at` first (ties: smaller `id`), optional filter by `kind` (`weekly` or a session kind) and by `since`; the limit defaults to 50, a non-positive, fractional or NaN limit means the default, the maximum is 200; the result carries `count` and `truncated`.
+- Writers never write a null commentary without a reason; readers skip lines their parser rejects.
+
+## `activity.jsonl` (ledger)
+
+Every event has `sessionId` (`[A-Za-z0-9_-]{1,100}`) and `at` (ISO-8601).
+- `end`: `{type:"end", sessionId, at}`: the user ended the session. The EARLIEST `end` of a session wins (`explicitEnds`).
+- `lecture_view`: `{type, sessionId, lectureId, slideId, at}`; `concept_open`: `{..., nodeId}`; `exercise_done`: `{..., blockId}`. For these the session id matches `lecs_[A-Za-z0-9]{8,32}`, ids are non-empty strings of at most 200 characters.
+- Lecture sessions (`deriveLectureSessions`): the first event of a session fixes its lecture; later events naming another lecture are ignored; `startedAt`/`lastActivityAt` are the earliest/latest event; slides, concepts and exercises are distinct sets. The writer refuses an event whose slide, exercise block (role `exercise`) or concept is not in the lecture, a session that belongs to another lecture, or a session that has an `end` or a debrief; it does not append an event already recorded for that session.
+
+## Session end and which sessions are debriefed
+
+Sessions (`SessionRef {sessionId, kind, title, startedAt, lastActivityAt}`):
+- chats of kind `review`, `office_hours`, `study`: id = chat id, start = `createdAt`, last activity = `updatedAt` (for `study` also the newest reading or link event of the chat's document);
+- exercise sets: id = `setId`, start = `set_created.at`, last activity = the newest `graded.at` (or the start);
+- lectures: id = the lecture session id, start/last activity from `activity.jsonl`.
+
+`endedAtOf(ref, now, idleMs, explicitEnd)`: unparseable `startedAt`/`lastActivityAt` → still open. An `explicitEnd` that parses → `max(explicitEnd, startedAt)`. Otherwise, if `idleMs` is a finite positive number and `now - lastActivityAt >= idleMs` → `lastActivityAt` (clamped to the start); else open. Defaults: `idleMs` = 30 minutes. `pendingSessions`: refs without a journal entry, ended, deduplicated by id (first listing wins), with `now - lastActivityAt <= lookback` (default 3 days) unless an explicit `end` exists; ordered by end time then id. A sweep takes at most 5 per run.
+
+Review events carry no session id: `ownerOfEvent(at, windows)` = the window with `start <= at <= end` that started last (ties: smaller session id); a review session's window is `[createdAt, end]` where `end` is its end (or its last activity while it is still open).
+
+## Debrief facts (computed by code, no model, no clock)
+
+`spanSec(a, b)` = whole seconds from `a` to `b`, 0 if reversed or unparseable. All facts carry `kind`, `startedAt`, `endedAt` (except `weekly`), `durationSec`.
+- `review`: `reviews`, `perChannel{fixed,dialogic}`, `ratings{"1".."4"}`, `lapses` (= rating 1), `reviewSec`, `budgetSec`, `budgetRatio` (`reviewSec/budgetSec`, 3 decimals, null if no budget), `weakPremises[{nodeId,name,count}]` (at most 10, count desc then id asc, one count per review event, premises counted from dialogic reviews). Counted: `review` events on existing nodes with channel `fixed`/`dialogic`, `at` inside the window and owned by the session.
+- `lecture`: `lectureId`, `title`, `slidesViewed` (distinct, only slides of the lecture if it still exists), `slidesTotal`, `conceptsOpened`, `exercisesDone`, `exercisesTotal` (blocks with role `exercise`); totals null when the lecture is gone.
+- `office_hours`: `designatedSource` (label of the latest designation), `verdicts{consistent,differs,not_verifiable}`, `latestItems{matches,differs,missing}` (items of the latest verdict), `stepsQuestioned` (distinct `stepRef` of items with stance `differs`/`missing` over all verdicts), `learnerMessages` (non-blank user messages in the window), `unansweredQuestions` (assistant messages ending in `?` with no non-blank user message before the next assistant message or the end).
+- `exercises`: `setId`, `goalId`, `exercisesTotal`, `exercisesGraded`, `nodes[{nodeId,name,outcome}]` (worst outcome per node over the latest gradings, existing nodes, by id), `lowConfidenceGradings`, `applied`, `goalReached`.
+- `study`: `documentId`/`title` (null when no document is bound), `pagesRead` (distinct positive integers, by the assisted-study reading rule over the window's visits), `learnerMessages`, `nodesLinked` (distinct nodes linked to the document in the window), `cardsCreated` (cards created in the window on those nodes).
+- A session whose facts show nothing (no review, slide, concept, exercise, message, verdict, grading, page or link) gets no entry.
+
+## Weekly window and weekly facts
+
+`weeklyWindow(now, weekday, hour)` (LOCAL time; `weekday` 0 = Sunday .. 6; invalid values fall back to Sunday 18): `end` = the latest instant at or before `now` that is that weekday at that hour; `start` = `end` minus 7 calendar days; `weekOf` = local date of `start`; `days` = the local calendar days touched by `[start, end)`, clipped to it (7 or 8). Only the latest window is ever produced.
+
+`weekly` facts: `weekOf`, `windowStart`, `windowEnd`, `budgetSec`; `days[{date,reviews,reviewSec}]` (fixed/dialogic reviews of existing nodes, half-open window); `backlog{dueAtStart,dueAtEnd,trend}` (active-scope nodes with a review state whose `due` is at or before each end; `trend` `up`/`down`/`flat`); `retention{reviews,recalled,rate}` (fixed/dialogic reviews in the window of nodes already reviewed before, rating >= 2 recalled; `rate` null if none, 3 decimals); `goals[{goalId,title,status,total,solidAtStart,solidAtEnd,delta}]` (goals not paused; scope nodes that exist; solid = recall >= 0.85 at each end); `trust{total,sourced,contested,refuted,unverified}` (active scope); `sessions` (count of session debriefs per kind written in the window, each session once). The review events are replayed in TIME order (stable), so a ledger whose file order is not chronological does not break the replay. A week with no reviews, no debriefed session and no active goal gets no entry.
+
+## Commentary and cost
+
+The agent submits `observations`, `stateOfLearning`, `critique`, `suggestion` (each non-blank, at most 2500 characters); the stored Markdown is `## Observations`, `## State of learning`, `## Critique`, `## Suggestion for the next session`, in that order, each followed by its text with any leading `#` heading marks removed. The model has no tool but the submission. Spend is recorded in `cost.jsonl` with `source` `debrief`; the commentary is attempted only while the shared daily ceiling allows (the `source` list of the `cost.jsonl` section also includes `node-knowledge` and `debrief`).
