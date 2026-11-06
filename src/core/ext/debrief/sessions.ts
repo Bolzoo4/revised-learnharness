@@ -7,7 +7,7 @@
  * activity.jsonl) or after `idleMs` without activity (REQ-deb-01).
  */
 
-import { findDebrief, type JournalEvent, type SessionKind } from "./journal.ts";
+import { findDebrief, sessionKey, type JournalEvent, type SessionKind } from "./journal.ts";
 
 export interface SessionRef {
 	/** Unique across kinds: a chat id, an exercise set id or a lecture session id. */
@@ -22,7 +22,8 @@ const ms = (iso: string): number => Date.parse(iso);
 
 /**
  * When the session ended, or null while it is still open.
- * - An explicit end wins, clamped to not precede the start.
+ * - An explicit end WINS: it is the session end, clamped to not precede the
+ *   start. Activity after an explicit end is ignored for that session.
  * - Otherwise the session ended at its last activity once `idleMs` has passed since.
  * An unparseable timestamp never ends a session (it stays open and out of the sweep).
  */
@@ -47,6 +48,10 @@ export interface PendingSession {
 /**
  * Ended sessions without a debrief and recent enough to deserve one, oldest
  * end first. A session id listed twice counts once (the first listing wins).
+ * The lookback applies to explicitly ended sessions too (config: sessions
+ * whose last activity is older than the lookback are never debriefed by the sweep).
+ * The journal is matched by the session's KEY, so a session id that looks like
+ * a weekly key is never confused with that week.
  */
 export function pendingSessions(input: {
 	refs: readonly SessionRef[];
@@ -61,11 +66,10 @@ export function pendingSessions(input: {
 	for (const ref of input.refs) {
 		if (seen.has(ref.sessionId)) continue;
 		seen.add(ref.sessionId);
-		if (findDebrief(input.journal, ref.sessionId) !== null) continue;
+		if (findDebrief(input.journal, sessionKey(ref.sessionId)) !== null) continue;
 		const endedAt = endedAtOf(ref, input.now, input.idleMs, input.ends.get(ref.sessionId));
 		if (endedAt === null) continue;
-		const last = ms(ref.lastActivityAt);
-		if (input.now.getTime() - last > input.lookbackMs && !input.ends.has(ref.sessionId)) continue;
+		if (input.now.getTime() - ms(ref.lastActivityAt) > input.lookbackMs) continue;
 		out.push({ ref, endedAt });
 	}
 	return out.sort((a, b) => ms(a.endedAt) - ms(b.endedAt) || (a.ref.sessionId < b.ref.sessionId ? -1 : 1));

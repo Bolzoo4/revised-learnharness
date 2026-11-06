@@ -14,13 +14,28 @@ export type WriterRequest =
 	| { kind: "session"; facts: SessionFacts; title: string }
 	| { kind: "weekly"; facts: WeeklyFacts };
 
+/**
+ * What the service gives the writer for one run. The writer reports the cost
+ * of every billed model step through `onSpend` as the step completes, and asks
+ * `allowed` before each new model step: a closed gate (or a failed spend
+ * record, which cancels the run) must stop the run before the next provider call.
+ */
+export interface WriterControl {
+	onSpend(usd: number): void;
+	allowed(): boolean;
+	/** Aborted when the run is cancelled. */
+	signal: AbortSignal;
+}
+
 export interface DebriefWriter {
 	/**
 	 * One commentary for the given facts. Throws WriterUnavailableError when no
-	 * model is configured (the caller defers and tries again later) and any other
-	 * error for a failed call.
+	 * model is configured (the caller defers and tries again later), an
+	 * AbortError when the run was cancelled, and any other error for a failed call.
+	 * `costUsd` is the total of the run; the service records only what `onSpend` did not.
+	 * Without a control (a direct call) nothing is recorded and no gate applies.
 	 */
-	write(request: WriterRequest): Promise<{ commentary: Commentary; costUsd: number; styleVersion: string }>;
+	write(request: WriterRequest, control?: WriterControl): Promise<{ commentary: Commentary; costUsd: number; styleVersion: string }>;
 }
 
 /** No model or key is configured: not a failure of the debrief, nothing is stored. */

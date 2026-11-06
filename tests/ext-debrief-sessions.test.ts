@@ -57,11 +57,12 @@ describe("pendingSessions", () => {
 		assert.equal(out.length, 1);
 		assert.equal(out[0]?.ref.kind, "review");
 	});
-	it("ignores sessions older than the lookback unless the user ended them explicitly", () => {
+	it("ignores sessions older than the lookback, explicitly ended or not", () => {
 		const old = ref("old", "2026-10-20T07:00:00.000Z", "2026-10-20T08:00:00.000Z");
 		assert.deepEqual(pendingSessions({ ...base, refs: [old] }), []);
+		// The lookback applies to explicitly ended sessions too (decision 2026-11-06: one rule for every session).
 		const ends = new Map([["old", "2026-10-20T08:05:00.000Z"]]);
-		assert.equal(pendingSessions({ ...base, refs: [old], ends }).length, 1);
+		assert.deepEqual(pendingSessions({ ...base, refs: [old], ends }), []);
 	});
 	it("returns nothing for no sessions", () => {
 		assert.deepEqual(pendingSessions({ ...base, refs: [] }), []);

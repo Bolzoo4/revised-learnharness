@@ -78,7 +78,7 @@ export function computeReviewFacts(input: {
 		reviews += 1;
 		perChannel[e.channel] += 1;
 		ratings[String(e.rating) as keyof typeof ratings] += 1;
-		reviewSec += e.durationSec;
+		reviewSec += Number.isFinite(e.durationSec) && e.durationSec > 0 ? e.durationSec : 0;
 		for (const id of new Set(e.weakPremises ?? [])) if (input.names.has(id)) weak.set(id, (weak.get(id) ?? 0) + 1);
 	}
 	const budget = Number.isFinite(input.budgetSec) && input.budgetSec > 0 ? input.budgetSec : 0;
@@ -192,14 +192,16 @@ export function computeOfficeHoursFacts(input: {
 	const questioned = new Set<string>();
 	let latest = { matches: 0, differs: 0, missing: 0 };
 	for (const e of mine) {
-		if (e.type === "designated") designated = e.label;
-		else {
-			verdicts[e.outcome] += 1;
-			latest = { matches: 0, differs: 0, missing: 0 };
-			for (const item of e.items) {
-				latest[item.stance] += 1;
-				if (item.stance !== "matches") questioned.add(item.stepRef);
-			}
+		if (e.type === "designated") {
+			designated = e.label;
+			continue;
+		}
+		if (!inWindow(e.at, w)) continue; // verdicts count only inside the session (like the learner's messages)
+		verdicts[e.outcome] += 1;
+		latest = { matches: 0, differs: 0, missing: 0 };
+		for (const item of e.items) {
+			latest[item.stance] += 1;
+			if (item.stance !== "matches") questioned.add(item.stepRef);
 		}
 	}
 	const lines = input.transcript.filter((l) => inWindow(l.at, w));
@@ -283,7 +285,10 @@ export interface StudyFacts {
 	pagesRead: number;
 	learnerMessages: number;
 	nodesLinked: number;
+	/** Cards created on nodes linked to the document in the window. */
 	cardsCreated: number;
+	/** Every card created in the window, linked or not: any of them is study output. */
+	cardsCreatedInWindow: number;
 }
 
 export function computeStudyFacts(input: {
@@ -309,6 +314,7 @@ export function computeStudyFacts(input: {
 		learnerMessages: input.transcript.filter((l) => l.role === "user" && l.text.trim() !== "" && inWindow(l.at, input)).length,
 		nodesLinked: linked.size,
 		cardsCreated: input.createdCards.filter((c) => linked.has(c.nodeId) && inWindow(c.at, input)).length,
+		cardsCreatedInWindow: input.createdCards.filter((c) => inWindow(c.at, input)).length,
 	};
 }
 
@@ -321,7 +327,7 @@ export function hasSubstance(f: SessionFacts): boolean {
 		case "lecture": return f.slidesViewed + f.conceptsOpened + f.exercisesDone > 0;
 		case "office_hours": return f.learnerMessages > 0 || f.verdicts.consistent + f.verdicts.differs + f.verdicts.not_verifiable > 0;
 		case "exercises": return f.exercisesGraded > 0;
-		case "study": return f.pagesRead + f.learnerMessages + f.nodesLinked > 0;
+		case "study": return f.pagesRead + f.learnerMessages + f.nodesLinked + f.cardsCreatedInWindow > 0;
 	}
 }
 

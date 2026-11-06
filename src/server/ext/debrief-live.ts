@@ -32,12 +32,15 @@ const config = readDebriefConfig(process.env, DEFAULT_PLAN_PARAMS.budgetSec);
 const g = globalThis as { __lhExtDebriefState?: DebriefState; __lhExtDebriefTimer?: ReturnType<typeof setInterval> };
 const state = (g.__lhExtDebriefState ??= newDebriefState());
 
+/** Aborts every debrief call in flight; nothing in the codebase fires it yet, the per-call timeout still bounds each call. */
+const shutdown = new AbortController();
+
 const writer: DebriefWriter = {
-	async write(request) {
+	async write(request, control) {
 		const spec = resolveRoleSpec("teacher", stores.settingsStore.readSettings());
 		if (!spec) throw new WriterUnavailableError("no model is configured for the strong slot");
 		if (!providerKeyPresent(spec.provider)) throw new WriterUnavailableError(`no API key for provider ${spec.provider}`);
-		return createDebriefWriter({ engine: piEngineForSpec(spec, true), priceCall: callCost }).write(request);
+		return createDebriefWriter({ engine: piEngineForSpec(spec, true), priceCall: callCost, signal: shutdown.signal }).write(request, control);
 	},
 };
 

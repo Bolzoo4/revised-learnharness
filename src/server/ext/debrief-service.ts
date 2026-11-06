@@ -10,7 +10,14 @@
  * Idempotence (REQ-deb-10) has three layers: a lookup before work, a lookup
  * again just before the append (the model call takes time and another server
  * instance may have written), and first-event-wins when the journal is read.
- * Concurrent calls for one key share one in-flight promise.
+ * Concurrent calls for one key share one in-flight promise, registered before
+ * the writer runs, so a call made from inside the writer joins it instead of
+ * paying again. Sweeps are single flight: a second caller joins the running one.
+ *
+ * Spend (REQ-deb-06) is recorded on the shared gate as each billed step
+ * completes, also when the run then fails. A commentary that was obtained but
+ * could not be stored is kept in memory and appended on the next sweep without
+ * a model call.
  */
 
 import { alreadyRecorded, ANY_SESSION_ID, explicitEnds, LECTURE_SESSION_ID, type ActivityEvent } from "../../core/ext/debrief/activity.ts";
@@ -27,7 +34,7 @@ import {
 	type JournalEvent,
 	type ListFilter,
 } from "../../core/ext/debrief/journal.ts";
-import { WriterUnavailableError, type DebriefSources, type DebriefWriter, type WriterRequest } from "../../core/ext/debrief/ports.ts";
+import { WriterUnavailableError, type DebriefSources, type DebriefWriter, type WriterControl, type WriterRequest } from "../../core/ext/debrief/ports.ts";
 import { endedAtOf, pendingSessions, type SessionRef } from "../../core/ext/debrief/sessions.ts";
 import { hasWeeklySubstance, weeklyWindow } from "../../core/ext/debrief/weekly.ts";
 import type { CostGate } from "../../core/ext/cost-gate.ts";
@@ -47,7 +54,7 @@ export type DebriefOutcome =
 	| { status: "exists"; entry: JournalEvent }
 	/** The session or week had nothing to comment on: no entry. */
 	| { status: "empty" }
-	/** Not stored now: no model is configured, or the commentary failed and will be retried. */
+	/** Not stored now: no model is configured, the commentary failed and will be retried, or the append failed and will be retried. */
 	| { status: "deferred"; reason: "unavailable" | "retry" };
 
 export interface SweepResult {
@@ -62,9 +69,12 @@ export interface DebriefState {
 	failures: Map<string, number>;
 	/** key -> signature of the last evaluation that found nothing to comment on (skips re-reading the ledgers every tick). */
 	empty: Map<string, string>;
+	/** key -> a commentary already paid for whose journal append failed: retried without a model call. */
+	pending: Map<string, JournalEvent>;
+	/** The running sweep, registered before its first step so a sweep started from inside it joins it. */
 	sweep: Promise<SweepResult> | null;
 }
-export const newDebriefState = (): DebriefState => ({ inflight: new Map(), failures: new Map(), empty: new Map(), sweep: null });
+export const newDebriefState = (): DebriefState => ({ inflight: new Map(), failures: new Map(), empty: new Map(), pending: new Map(), sweep: null });
 
 export interface DebriefDeps {
 	journal: { append(e: JournalEvent): void; readAll(): JournalEvent[] };
@@ -82,6 +92,9 @@ export interface DebriefDeps {
 	state?: DebriefState;
 }
 
+const isAbortError = (err: unknown): boolean => typeof err === "object" && err !== null && (err as { name?: unknown }).name === "AbortError";
+const emptySweep = (): SweepResult => ({ created: 0, deferred: 0, errors: 0, weekly: "not_due" });
+
 export type LectureActivityInput =
 	| { type: "lecture_view"; sessionId: string; lectureId: string; slideId: string }
 	| { type: "concept_open"; sessionId: string; lectureId: string; nodeId: string }
@@ -93,13 +106,34 @@ export function createDebriefService(deps: DebriefDeps) {
 	const state = deps.state ?? newDebriefState();
 	const journal = (): JournalEvent[] => deriveJournal(deps.journal.readAll());
 
-	/** Concurrent calls for one key share one run. The check and the set happen in one synchronous step. */
+	/**
+	 * Concurrent calls for one key share one run. The run is registered BEFORE it starts
+	 * (it starts in a later microtask), so a call made from inside the run joins it.
+	 */
 	function once(key: string, run: () => Promise<DebriefOutcome>): Promise<DebriefOutcome> {
 		const running = state.inflight.get(key);
 		if (running) return running;
-		const p = run().finally(() => state.inflight.delete(key));
+		const p = Promise.resolve()
+			.then(run)
+			.finally(() => state.inflight.delete(key));
 		state.inflight.set(key, p);
 		return p;
+	}
+
+	/** Stores an entry. A failed append keeps the entry for a retry without a model call; the caller sees "deferred", never the error. */
+	function persist(key: string, entry: JournalEvent): DebriefOutcome {
+		const already = findDebrief(journal(), key);
+		state.pending.delete(key);
+		if (already) return { status: "exists", entry: already };
+		try {
+			deps.journal.append(entry);
+		} catch {
+			state.pending.set(key, entry);
+			console.error("[ext] debrief journal append failed; the entry is kept and retried without a model call");
+			return { status: "deferred", reason: "retry" };
+		}
+		state.failures.delete(key);
+		return { status: "created", entry };
 	}
 
 	async function finish(
@@ -109,24 +143,52 @@ export function createDebriefService(deps: DebriefDeps) {
 	): Promise<DebriefOutcome> {
 		let commentary: string | null = null;
 		let nullReason: JournalEvent["nullReason"] = null;
+		let styleVersion: string | undefined;
 		if (!deps.gate.allowed()) {
 			nullReason = "ceiling"; // REQ-deb-06: facts are stored, the commentary is not attempted
 		} else {
+			const run = new AbortController();
+			let reported = 0;
+			let spendFailed = false;
+			const recordSpend = (usd: number): void => {
+				try {
+					deps.gate.record(usd, COST_SOURCE);
+				} catch {
+					// The spend is unrecorded: stop the run and never pay for this session again.
+					spendFailed = true;
+					run.abort();
+					console.error("[ext] debrief spend could not be recorded; the run is stopped");
+				}
+			};
+			const control: WriterControl = {
+				signal: run.signal,
+				allowed: () => !run.signal.aborted && deps.gate.allowed(),
+				onSpend(usd) {
+					if (!(usd > 0) || !Number.isFinite(usd)) return;
+					reported += usd;
+					recordSpend(usd);
+				},
+			};
 			try {
-				const written = await deps.writer.write(request);
-				deps.gate.record(written.costUsd, COST_SOURCE);
+				const written = await deps.writer.write(request, control);
+				const rest = written.costUsd - reported; // what the writer did not report step by step
+				if (rest > 1e-9) recordSpend(rest);
 				commentary = renderCommentary(written.commentary);
+				styleVersion = written.styleVersion;
 			} catch (err) {
 				if (err instanceof WriterUnavailableError) return { status: "deferred", reason: "unavailable" };
-				console.error("[ext] debrief commentary failed:", err); // never returned to a client
-				const attempts = (state.failures.get(key) ?? 0) + 1;
-				state.failures.set(key, attempts);
-				if (attempts < MAX_COMMENTARY_ATTEMPTS) return { status: "deferred", reason: "retry" };
-				nullReason = "error";
+				if (spendFailed) nullReason = "error"; // paid, but unrecorded: never a second paid call
+				else if (!deps.gate.allowed()) nullReason = "ceiling";
+				else if (isAbortError(err)) return { status: "deferred", reason: "retry" }; // cancelled by shutdown: not a failure of the session
+				else {
+					console.error("[ext] debrief commentary failed"); // never returned to a client
+					const attempts = (state.failures.get(key) ?? 0) + 1;
+					state.failures.set(key, attempts);
+					if (attempts < MAX_COMMENTARY_ATTEMPTS) return { status: "deferred", reason: "retry" };
+					nullReason = "error";
+				}
 			}
 		}
-		const already = findDebrief(journal(), key);
-		if (already) return { status: "exists", entry: already };
 		const entry: JournalEvent = {
 			id: debriefId(key),
 			...identity,
@@ -134,11 +196,10 @@ export function createDebriefService(deps: DebriefDeps) {
 			facts: request.facts as unknown as JournalEvent["facts"],
 			commentary,
 			nullReason,
+			...(styleVersion !== undefined ? { styleVersion } : {}),
 			author: "agent",
 		};
-		deps.journal.append(entry);
-		state.failures.delete(key);
-		return { status: "created", entry };
+		return persist(key, entry);
 	}
 
 	function debriefSession(ref: SessionRef, endedAt: string): Promise<DebriefOutcome> {
@@ -146,6 +207,8 @@ export function createDebriefService(deps: DebriefDeps) {
 		return once(key, async () => {
 			const found = findDebrief(journal(), key);
 			if (found) return { status: "exists", entry: found };
+			const waiting = state.pending.get(key);
+			if (waiting) return persist(key, waiting);
 			const signature = `${ref.lastActivityAt}|${endedAt}`;
 			if (state.empty.get(key) === signature) return { status: "empty" };
 			const facts = deps.sources.sessionFacts(ref, endedAt);
@@ -164,6 +227,8 @@ export function createDebriefService(deps: DebriefDeps) {
 		return once(key, async () => {
 			const found = findDebrief(journal(), key);
 			if (found) return { status: "exists", entry: found };
+			const waiting = state.pending.get(key);
+			if (waiting) return persist(key, waiting);
 			if (state.empty.get(key) === w.end) return { status: "empty" };
 			const facts = deps.sources.weeklyFacts(w);
 			if (!hasWeeklySubstance(facts)) {
@@ -176,9 +241,14 @@ export function createDebriefService(deps: DebriefDeps) {
 
 	function sweepNow(): Promise<SweepResult> {
 		if (state.sweep) return state.sweep; // single flight: a second caller joins the first
-		const run = (async (): Promise<SweepResult> => {
-			const result: SweepResult = { created: 0, deferred: 0, errors: 0, weekly: "not_due" };
+		// The run starts in a later microtask, after it is registered: a sweep started from inside the writer joins it.
+		const run = Promise.resolve()
+			.then(async (): Promise<SweepResult> => {
+			const result = emptySweep();
 			const at = now();
+			for (const [key, entry] of [...state.pending]) {
+				if (persist(key, entry).status === "created") result.created += 1; // paid appends first, no model call
+			}
 			const pending = pendingSessions({
 				refs: deps.sources.sessions(),
 				journal: journal(),
@@ -192,9 +262,9 @@ export function createDebriefService(deps: DebriefDeps) {
 					const out = await debriefSession(p.ref, p.endedAt);
 					if (out.status === "created") result.created += 1;
 					else if (out.status === "deferred") result.deferred += 1;
-				} catch (err) {
+				} catch {
 					result.errors += 1; // one broken session never blocks the others
-					console.error(`[ext] debrief of session ${p.ref.sessionId} failed:`, err);
+					console.error("[ext] debrief of one session failed");
 				}
 			}
 			try {
@@ -202,15 +272,16 @@ export function createDebriefService(deps: DebriefDeps) {
 				result.weekly = out === "not_due" ? out : out.status;
 				if (out !== "not_due" && out.status === "created") result.created += 1;
 				if (out !== "not_due" && out.status === "deferred") result.deferred += 1;
-			} catch (err) {
+			} catch {
 				result.weekly = "error";
 				result.errors += 1;
-				console.error("[ext] weekly synthesis failed:", err);
+				console.error("[ext] weekly synthesis failed");
 			}
 			return result;
-		})().finally(() => {
-			state.sweep = null;
-		});
+			})
+			.finally(() => {
+				state.sweep = null;
+			});
 		state.sweep = run;
 		return run;
 	}
@@ -248,7 +319,7 @@ export function createDebriefService(deps: DebriefDeps) {
 		const done = journal();
 		return deps.sources
 			.sessions()
-			.filter((r) => findDebrief(done, r.sessionId) === null && endedAtOf(r, at, deps.config.idleMs, ends.get(r.sessionId)) === null)
+			.filter((r) => findDebrief(done, sessionKey(r.sessionId)) === null && endedAtOf(r, at, deps.config.idleMs, ends.get(r.sessionId)) === null)
 			.sort((a, b) => Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt))
 			.slice(0, limit)
 			.map((r) => ({ sessionId: r.sessionId, kind: r.kind, title: r.title, lastActivityAt: r.lastActivityAt }));
@@ -264,7 +335,7 @@ export function createDebriefService(deps: DebriefDeps) {
 		const events = deps.activity.readAll();
 		const session = deriveLectureSessions(events).find((s) => s.sessionId === input.sessionId);
 		if (session && session.lectureId !== input.lectureId) throw new HttpError(409, "this session belongs to another lecture");
-		if (explicitEnds(events).has(input.sessionId) || findDebrief(journal(), input.sessionId)) throw new HttpError(409, "this session has ended; start a new one");
+		if (explicitEnds(events).has(input.sessionId) || findDebrief(journal(), sessionKey(input.sessionId))) throw new HttpError(409, "this session has ended; start a new one");
 		const event = { ...input, at: clock() } as Exclude<ActivityEvent, { type: "end" }>;
 		if (alreadyRecorded(events, event)) return { recorded: false };
 		deps.activity.append(event);

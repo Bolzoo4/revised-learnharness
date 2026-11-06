@@ -8,7 +8,7 @@
  */
 
 import type { GraphChain } from "../../core/contracts.ts";
-import { type ActivityEvent, deriveLectureSessions, explicitEnds } from "../../core/ext/debrief/activity.ts";
+import { ANY_SESSION_ID, type ActivityEvent, deriveLectureSessions, explicitEnds } from "../../core/ext/debrief/activity.ts";
 import {
 	computeExerciseFacts,
 	computeLectureFacts,
@@ -96,8 +96,19 @@ export function transcriptOf(messages: readonly unknown[]): TranscriptLine[] {
 const later = (a: string, b: string | null): string => (b !== null && Date.parse(b) > Date.parse(a) ? b : a);
 
 export function createDebriefSources(deps: SourcesDeps): DebriefSources {
+	/**
+	 * Every session once, by id. Precedence when two sources share an id:
+	 * chats, then exercise sets, then lecture sessions (the first listing wins).
+	 * Ids that the journal would not accept are left out, never stored.
+	 */
 	function refs(): SessionRef[] {
 		const out: SessionRef[] = [];
+		const seen = new Set<string>();
+		const add = (r: SessionRef) => {
+			if (!ANY_SESSION_ID.test(r.sessionId) || seen.has(r.sessionId)) return;
+			seen.add(r.sessionId);
+			out.push(r);
+		};
 		for (const c of deps.chats.list()) {
 			if (!CHAT_KINDS.has(c.kind)) continue;
 			let last = c.updatedAt;
@@ -105,16 +116,16 @@ export function createDebriefSources(deps: SourcesDeps): DebriefSources {
 				const doc = deps.study.documentOfChat(c.id);
 				if (doc) last = later(last, deps.study.lastActivityAt(doc.documentId));
 			}
-			out.push({ sessionId: c.id, kind: c.kind as SessionRef["kind"], title: c.title, startedAt: c.createdAt, lastActivityAt: last });
+			add({ sessionId: c.id, kind: c.kind as SessionRef["kind"], title: c.title, startedAt: c.createdAt, lastActivityAt: last });
 		}
 		const goals = deriveGoals(deps.goalEvents());
 		for (const set of deriveExerciseSets(deps.exerciseEvents())) {
 			let last = set.createdAt;
 			for (const g of set.graded.values()) last = later(last, g.at);
-			out.push({ sessionId: set.setId, kind: "exercises", title: `Exercises: ${goals.find((g) => g.id === set.goalId)?.title ?? set.goalId}`, startedAt: set.createdAt, lastActivityAt: last });
+			add({ sessionId: set.setId, kind: "exercises", title: `Exercises: ${goals.find((g) => g.id === set.goalId)?.title ?? set.goalId}`, startedAt: set.createdAt, lastActivityAt: last });
 		}
 		for (const s of deriveLectureSessions(deps.activityEvents())) {
-			out.push({ sessionId: s.sessionId, kind: "lecture", title: deps.lecture(s.lectureId)?.title ?? s.lectureId, startedAt: s.startedAt, lastActivityAt: s.lastActivityAt });
+			add({ sessionId: s.sessionId, kind: "lecture", title: deps.lecture(s.lectureId)?.title ?? s.lectureId, startedAt: s.startedAt, lastActivityAt: s.lastActivityAt });
 		}
 		return out;
 	}

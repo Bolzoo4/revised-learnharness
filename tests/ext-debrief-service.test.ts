@@ -183,11 +183,11 @@ describe("sweep (REQ-deb-01: inactivity)", () => {
 		const [a, b] = await Promise.all([h.service.sweep(), h.service.sweep()]);
 		assert.strictEqual(a, b);
 	});
-	it("an explicit end older than the lookback is still debriefed", async () => {
+	it("an explicit end older than the lookback is not debriefed by the sweep (the lookback applies to every session)", async () => {
 		const old = ref("chat_old", local(10, 1, 9));
 		const h = harness({ refs: [old], activity: [{ type: "end", sessionId: "chat_old", at: local(10, 1, 10).toISOString() }] });
 		await h.service.sweep();
-		assert.equal(h.journal.events.filter((e) => e.sessionId === "chat_old").length, 1);
+		assert.equal(h.journal.events.filter((e) => e.sessionId === "chat_old").length, 0);
 	});
 });
 

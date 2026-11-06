@@ -11,6 +11,8 @@
  */
 
 import { createHash } from "node:crypto";
+import { ANY_SESSION_ID } from "./activity.ts";
+import { MAX_PART_CHARS } from "./commentary.ts";
 
 export type SessionKind = "review" | "lecture" | "office_hours" | "study" | "exercises";
 export const SESSION_KINDS: readonly SessionKind[] = ["review", "lecture", "office_hours", "study", "exercises"];
@@ -33,12 +35,24 @@ export interface JournalEvent {
 	/** The agent's Markdown commentary, or null (daily ceiling reached, or the commentary failed repeatedly). */
 	commentary: string | null;
 	nullReason: NullReason | null;
+	/** The commentary's style guide version (bounded, optional: lines written before it existed have none). */
+	styleVersion?: string;
 	author: "agent";
 }
 
 const WEEK_OF = /^\d{4}-\d{2}-\d{2}$/;
+const AT = /^\d{4}-\d{2}-\d{2}T/;
+const STYLE_VERSION = /^[A-Za-z0-9._-]{1,32}$/;
+/** Bounds on one stored line: a commentary is at most four parts, facts are a small object. */
+export const MAX_STORED_COMMENTARY_CHARS = 4 * MAX_PART_CHARS + 512;
+export const MAX_STORED_FACTS_CHARS = 16 * 1024;
 
-export const sessionKey = (sessionId: string): string => sessionId;
+/**
+ * The key of a session debrief. Ids without a colon keep their plain form
+ * (existing journal entries stay valid); an id with a colon is namespaced so
+ * it can never equal a weekly key (`weekly:<weekOf>`), whatever the id is.
+ */
+export const sessionKey = (sessionId: string): string => (sessionId.includes(":") ? `session:${sessionId}` : sessionId);
 export const weeklyKey = (weekOf: string): string => `weekly:${weekOf}`;
 export const debriefId = (key: string): string => `deb_${createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
 
@@ -47,33 +61,48 @@ export function keyOf(e: Pick<JournalEvent, "kind" | "sessionId" | "weekOf">): s
 }
 
 const isStr = (v: unknown): v is string => typeof v === "string" && v !== "";
-const isIso = (v: unknown): v is string => isStr(v) && !Number.isNaN(Date.parse(v));
+/** A timestamp: ISO-8601 with a date and a time, and parseable. */
+const isAt = (v: unknown): v is string => isStr(v) && AT.test(v) && !Number.isNaN(Date.parse(v));
+
+/** A YYYY-MM-DD that is a real calendar date (2026-13-45 is not). */
+export function isWeekOf(v: string): boolean {
+	if (!WEEK_OF.test(v)) return false;
+	const [y, m, d] = v.split("-").map(Number) as [number, number, number];
+	const t = new Date(Date.UTC(y, m - 1, d));
+	return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
 
 export function parseJournalEvent(raw: unknown): JournalEvent | null {
 	if (typeof raw !== "object" || raw === null) return null;
 	const r = raw as Record<string, unknown>;
-	if (!isStr(r.id) || !isIso(r.at) || r.author !== "agent") return null;
-	if (r.commentary !== null && !isStr(r.commentary)) return null;
+	if (!isStr(r.id) || !isAt(r.at) || r.author !== "agent") return null;
+	if (r.commentary !== null && (!isStr(r.commentary) || r.commentary.length > MAX_STORED_COMMENTARY_CHARS)) return null;
 	if (r.nullReason !== null && r.nullReason !== "ceiling" && r.nullReason !== "error") return null;
 	// A commentary and a reason for its absence never coexist.
 	if ((r.commentary === null) === (r.nullReason === null)) return null;
+	if (r.styleVersion !== undefined && (typeof r.styleVersion !== "string" || !STYLE_VERSION.test(r.styleVersion))) return null;
 	const facts = r.facts;
 	if (typeof facts !== "object" || facts === null || Array.isArray(facts) || !isStr((facts as { kind?: unknown }).kind)) return null;
+	if (JSON.stringify(facts).length > MAX_STORED_FACTS_CHARS) return null;
 	const factsKind = (facts as { kind: string }).kind;
+	const common = {
+		at: r.at,
+		facts: facts as JournalEvent["facts"],
+		commentary: r.commentary,
+		nullReason: r.nullReason as NullReason | null,
+		...(r.styleVersion !== undefined ? { styleVersion: r.styleVersion as string } : {}),
+		author: "agent" as const,
+	};
 	if (r.kind === "session") {
-		if (!isStr(r.sessionId) || typeof r.sessionKind !== "string" || !SESSION_KINDS.includes(r.sessionKind as SessionKind)) return null;
+		if (!isStr(r.sessionId) || !ANY_SESSION_ID.test(r.sessionId) || typeof r.sessionKind !== "string" || !SESSION_KINDS.includes(r.sessionKind as SessionKind)) return null;
 		if (r.weekOf !== null || factsKind !== r.sessionKind) return null;
-		return {
-			id: r.id, kind: "session", sessionId: r.sessionId, sessionKind: r.sessionKind as SessionKind, weekOf: null, at: r.at,
-			facts: facts as JournalEvent["facts"], commentary: r.commentary, nullReason: r.nullReason as NullReason | null, author: "agent",
-		};
+		const event: JournalEvent = { ...common, id: r.id, kind: "session", sessionId: r.sessionId, sessionKind: r.sessionKind as SessionKind, weekOf: null };
+		return event.id === debriefId(keyOf(event)) ? event : null;
 	}
 	if (r.kind === "weekly") {
-		if (!isStr(r.weekOf) || !WEEK_OF.test(r.weekOf) || r.sessionId !== null || r.sessionKind !== null || factsKind !== "weekly") return null;
-		return {
-			id: r.id, kind: "weekly", sessionId: null, sessionKind: null, weekOf: r.weekOf, at: r.at,
-			facts: facts as JournalEvent["facts"], commentary: r.commentary, nullReason: r.nullReason as NullReason | null, author: "agent",
-		};
+		if (!isStr(r.weekOf) || !isWeekOf(r.weekOf) || r.sessionId !== null || r.sessionKind !== null || factsKind !== "weekly") return null;
+		const event: JournalEvent = { ...common, id: r.id, kind: "weekly", sessionId: null, sessionKind: null, weekOf: r.weekOf };
+		return event.id === debriefId(keyOf(event)) ? event : null;
 	}
 	return null;
 }

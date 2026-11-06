@@ -16,7 +16,8 @@ export type ActivityEvent =
 /** A lecture session id is minted by the player. */
 export const LECTURE_SESSION_ID = /^lecs_[A-Za-z0-9]{8,32}$/;
 /** Any session id (a chat id, a set id, a lecture session id). */
-export const ANY_SESSION_ID = /^[A-Za-z0-9_-]{1,100}$/;
+/** Ids are used as object keys: the prototype names are refused. */
+export const ANY_SESSION_ID = /^(?!(?:__proto__|constructor|prototype)$)[A-Za-z0-9_-]{1,100}$/;
 const TARGET_MAX = 200;
 
 const isStr = (v: unknown): v is string => typeof v === "string" && v !== "";

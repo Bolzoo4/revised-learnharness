@@ -24,9 +24,7 @@ describe("commentary structure (REQ-deb-04)", () => {
 	it("refuses to render an unusable commentary", () => {
 		assert.throws(() => renderCommentary({ ...ok, critique: "" }), /critique is empty/);
 	});
-	it("a part cannot open its own headings and break the structure", () => {
-		const md = renderCommentary({ ...ok, critique: "# Fake heading\nBody\n\n\n\nMore" });
-		assert.equal((md.match(/^#+ /gm) ?? []).length, 4);
-		assert.match(md, /Fake heading\nBody\n\nMore/);
+	it("a part cannot open its own headings: such a commentary is refused, not stored", () => {
+		assert.throws(() => renderCommentary({ ...ok, critique: "# Fake heading\nBody\n\n\n\nMore" }), /critique contains a heading/);
 	});
 });
