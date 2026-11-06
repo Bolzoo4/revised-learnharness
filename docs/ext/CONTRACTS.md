@@ -444,7 +444,7 @@ Event `classified`: `{type:"classified", entryId, itemId, title, link, nearestNo
 - `entryId`: watch entry id.
 - `itemId`: unique feed item identifier or link.
 - `title`, `link`: string metadata.
-- `nearestNodeIds`: array of candidate node ids selected by distinct word overlap (4+ letter words).
+- `nearestNodeIds`: array of candidate node ids selected by distinct word overlap (a word is a run of 4+ Unicode letters, no digits, compared case-insensitively).
 - `relation`: proposed relation: `extends` | `contradicts` | `applies` | `unrelated`.
 - `action`: `ingest` (if approved active source) | `ignore`.
 - `rationale`: string explanation from classifier.
@@ -470,7 +470,7 @@ Derivations:
 
 ## Research console chat
 
-- **Session kind:** `ChatKind` `"research"`. It is categorized as practice-like (`isPracticeLike`), ensuring it never triggers extraction pipelines and uses practice-style compaction.
+- **Session kind:** `ChatKind` `"research"`. It is categorized as practice-like (`isPracticeLike`, defined in `src/core/ext/practice/session-kind.ts`), so it never triggers extraction. It is never compacted: a turn over the compaction threshold is refused with the fixed 409 message "this research session is full, start a new one".
 - **Agent:** Built via `createResearchAgent` with `RESEARCH_INSTRUCTIONS`.
 - **Dedicated tools:** The agent is given 9 tools:
   1. `read_log`: inspect recent cycle log entries and cycle status.

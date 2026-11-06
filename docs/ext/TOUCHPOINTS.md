@@ -4,7 +4,7 @@ The closed list of files of the LearnHarness fork that this extension edits. Any
 upstream file must stay byte-identical to `upstream/main` (REQ-int-04). Check with:
 
 ```bash
-git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/helpers/**' ':!docs/ext/**' ':!docs/superpowers/**' ':!app/api/ext/**' ':!app/lectures/**' ':!app/practice/**' ':!app/journal/**' ':!components/ext/**' ':!scripts/ext-*'
+git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/helpers/**' ':!docs/ext/**' ':!docs/superpowers/**' ':!app/api/ext/**' ':!app/lectures/**' ':!app/practice/**' ':!app/journal/**' ':!app/study/**' ':!app/research/**' ':!components/ext/**' ':!scripts/ext-*'
 ```
 
 | File | Why | Added in |
@@ -54,9 +54,11 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `app/api/graph/coverage/extract/route.ts` | answers 400 (`HttpError`, fixed message) for a practice-like session | Research review fixes |
 | `components/chat.tsx` | `kind` prop gains `"research"`; the coverage ring hides for a research session, as for practice | Research review fixes |
 | `src/server/chat-handler.ts` | research turn refused with a fixed 409 when the session is over the compaction threshold (research is never compacted, REQ-cost-01) | Research review fixes |
-| `instrumentation.ts` (new root file, shared with the research loop) | `register()` also starts the debrief scheduler (REQ-deb-01, REQ-deb-02) | Session debriefs |
+| `instrumentation.ts` (new root file) | `register()` starts the debrief scheduler (REQ-deb-01, REQ-deb-02) and the research loop's scheduler (REQ-rs-01), each guarded so a failure cannot crash the server; inert under `NODE_ENV=test` | Session debriefs, Research loop |
 
 Session debriefs edit no file of the closed list; src/server/ext/stores.ts and src/server/ext/index.ts are extension files.
+
+The study pages (`app/study/**`) and the research page (`app/research/**`) are extension pages: they sit under the exclusions in the check command above, as `app/journal/**` does.
 
 Completed: All five child specs (Source Verification, Personal Layer, Node Knowledge, Lectures & Office Hours, and Autonomous Research Loop) are implemented.
 
