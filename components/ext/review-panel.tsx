@@ -12,7 +12,10 @@ import {
 	emptyText,
 	errorText,
 	groupCardsByNode,
+	newCardBody,
 	type NodeCards,
+	type NodeRef,
+	noCardView,
 	type PlanView,
 	RATINGS,
 	type Rating,
@@ -20,6 +23,7 @@ import {
 	runnerCards,
 	secondsSince,
 	summaryLine,
+	tutorBody,
 } from "./review-logic";
 import { postJson, REQUEST_FAILED, type Fetcher } from "./study-logic";
 
@@ -277,6 +281,151 @@ export function CardForm({
 	);
 }
 
+/** The question and answer of a card for one node, with visible labels. The node is fixed by the row. */
+export function NoCardForm({
+	nodeId,
+	question,
+	answer,
+	busy,
+	onQuestion,
+	onAnswer,
+	onSubmit,
+}: {
+	nodeId: string;
+	question: string;
+	answer: string;
+	busy: boolean;
+	onQuestion: (v: string) => void;
+	onAnswer: (v: string) => void;
+	onSubmit: () => void;
+}) {
+	const ready = cardFormReady(nodeId, question, answer);
+	return (
+		<form
+			className="flex flex-col gap-2"
+			onSubmit={(e) => {
+				e.preventDefault();
+				if (!busy && ready) onSubmit();
+			}}
+		>
+			<label className="flex flex-col gap-1 text-sm">
+				Question
+				<textarea className="min-h-16 rounded border px-2 py-1" value={question} onChange={(e) => onQuestion(e.target.value)} />
+			</label>
+			<label className="flex flex-col gap-1 text-sm">
+				Answer
+				<textarea className="min-h-16 rounded border px-2 py-1" value={answer} onChange={(e) => onAnswer(e.target.value)} />
+			</label>
+			<button type="submit" disabled={busy || !ready} className="self-start rounded border px-3 py-1">
+				Add card
+			</button>
+		</form>
+	);
+}
+
+/** One node without a card: "Write a card" (primary) opens the inline form, "With the tutor" (secondary) opens a chat. */
+function NoCardRow({ node, busy, onSaved, onTutor }: { node: NodeRef; busy: boolean; onSaved: () => void; onTutor: () => void }) {
+	const [open, setOpen] = useState(false);
+	const [question, setQuestion] = useState("");
+	const [answer, setAnswer] = useState("");
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	async function save() {
+		setSaving(true);
+		setError(null);
+		const res = await postJson(fetcher, "/api/ext/cards", newCardBody(node.nodeId, question, answer));
+		setSaving(false);
+		if (!res.ok) {
+			setError(errorText(res.json));
+			return;
+		}
+		onSaved();
+	}
+
+	return (
+		<li className="flex flex-col gap-2 rounded border p-3">
+			<span className="text-sm font-medium">{node.name}</span>
+			<span className="flex flex-wrap gap-2">
+				<button
+					type="button"
+					aria-expanded={open}
+					disabled={busy || saving}
+					className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground"
+					onClick={() => setOpen((o) => !o)}
+				>
+					Write a card
+				</button>
+				<button type="button" disabled={busy || saving} className="rounded border px-3 py-1 text-sm" onClick={onTutor}>
+					With the tutor
+				</button>
+			</span>
+			{open ? (
+				<NoCardForm
+					nodeId={node.nodeId}
+					question={question}
+					answer={answer}
+					busy={saving}
+					onQuestion={setQuestion}
+					onAnswer={setAnswer}
+					onSubmit={() => void save()}
+				/>
+			) : null}
+			{error !== null ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+		</li>
+	);
+}
+
+/**
+ * The nodes that are due or in today's plan and have no active card. Writing a card
+ * removes the node from this list (onSaved refreshes the plan); "With the tutor"
+ * opens a chat focused on the node (onOpenChat with its id). No model runs here.
+ */
+export function NodesWithoutCard({
+	nodes,
+	onSaved,
+	onOpenChat,
+}: {
+	nodes: NodeRef[];
+	onSaved: () => void;
+	onOpenChat: (chatId: string) => void;
+}) {
+	const { shown, more } = noCardView(nodes);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	async function tutor(nodeId: string) {
+		setBusy(true);
+		setError(null);
+		const res = await postJson(fetcher, "/api/ext/review/session", tutorBody(nodeId));
+		setBusy(false);
+		if (res.ok && typeof res.json.chatId === "string") onOpenChat(res.json.chatId);
+		else setError(res.ok ? REQUEST_FAILED : errorText(res.json));
+	}
+
+	return (
+		<section aria-labelledby="review-no-card" className="flex flex-col gap-3">
+			<div>
+				<h2 id="review-no-card" className="font-medium">Nodes without a card</h2>
+				<p className="text-sm text-muted-foreground">
+					These nodes are due or in today&apos;s plan and have no card yet. Write a card, or talk the node through with the tutor.
+				</p>
+			</div>
+			{error !== null ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+			{nodes.length === 0 ? (
+				<p className="text-sm text-muted-foreground">Every node in today&apos;s plan has a card.</p>
+			) : (
+				<ul className="flex flex-col gap-2">
+					{shown.map((n) => (
+						<NoCardRow key={n.nodeId} node={n} busy={busy} onSaved={onSaved} onTutor={() => void tutor(n.nodeId)} />
+					))}
+				</ul>
+			)}
+			{more > 0 ? <p className="text-sm text-muted-foreground">{more} more</p> : null}
+		</section>
+	);
+}
+
 /** The card list and the editor for a fixed card the learner writes. */
 export function CardsSection({ cards, nodes, onChanged }: { cards: CardView[]; nodes: Array<{ id: string; name: string }>; onChanged: () => void }) {
 	const router = useRouter();
@@ -362,12 +511,21 @@ async function patchCard(cardId: string, action: "approve" | "retire"): Promise<
 	return { ok: res.ok, json };
 }
 
-/** The Review page body: the runner first, then the card list. */
-export function ReviewPanel({ cards, nodes }: { cards: CardView[]; nodes: Array<{ id: string; name: string }> }) {
+/** The Review page body: the runner, the nodes without a card, then the card list. */
+export function ReviewPanel({ cards, nodes, withoutCard }: { cards: CardView[]; nodes: Array<{ id: string; name: string }>; withoutCard: NodeRef[] }) {
+	const router = useRouter();
 	const [reloadKey, setReloadKey] = useState(0);
 	return (
 		<div className="flex flex-col gap-8">
 			<ReviewRunner reloadKey={reloadKey} />
+			<NodesWithoutCard
+				nodes={withoutCard}
+				onSaved={() => {
+					setReloadKey((k) => k + 1);
+					router.refresh();
+				}}
+				onOpenChat={(chatId) => router.push(`/chat/${chatId}`)}
+			/>
 			<CardsSection cards={cards} nodes={nodes} onChanged={() => setReloadKey((k) => k + 1)} />
 		</div>
 	);

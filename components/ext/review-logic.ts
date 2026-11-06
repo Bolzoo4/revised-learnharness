@@ -21,11 +21,18 @@ export interface PlanItemView {
 	card?: { cardId: string; question: string; answer: string };
 }
 
+export interface NodeRef {
+	nodeId: string;
+	name: string;
+}
+
 /** The part of GET /api/ext/review/plan the page reads. */
 export interface PlanView {
 	items: PlanItemView[];
-	deferred: Array<{ nodeId: string; name: string }>;
-	needsCard: Array<{ nodeId: string; name: string }>;
+	deferred: NodeRef[];
+	needsCard: NodeRef[];
+	/** Nodes of today's plan with no active card: dialogic items without one, then needsCard. */
+	withoutCard: NodeRef[];
 	due: number;
 	plannedSec: number;
 }
@@ -47,11 +54,6 @@ export function runnerCards(plan: PlanView): RunnerCard[] {
 	);
 }
 
-/** Items that need a conversation (dialogic channel): not part of the card runner. */
-export function conversationCount(plan: PlanView): number {
-	return plan.items.length - runnerCards(plan).length;
-}
-
 const plural = (n: number, one: string, many: string) => (n === 1 ? `${n} ${one}` : `${n} ${many}`);
 
 /** One line above the runner: due count, planned items and minutes, deferred count. */
@@ -61,18 +63,36 @@ export function summaryLine(plan: PlanView): string {
 }
 
 /**
- * What the runner says when no card is left. Mirrors the agent's wording rule
- * (review-instructions.ts): how many items were deferred to tomorrow and which
- * nodes still need a card.
+ * What the runner says when no card is left: how many items were deferred to
+ * tomorrow, and how many nodes have no card yet (listed below the runner).
  */
 export function emptyText(plan: PlanView): string {
 	const parts = ["Nothing left to review today"];
 	if (plan.deferred.length > 0) parts.push(`${plural(plan.deferred.length, "item", "items")} deferred to tomorrow`);
 	let text = `${parts.join("; ")}.`;
-	if (plan.needsCard.length > 0) text += ` Nodes that still need a card: ${plan.needsCard.map((n) => n.name).join(", ")}.`;
-	const conversations = conversationCount(plan);
-	if (conversations > 0) text += ` ${plural(conversations, "item needs", "items need")} a conversation and is not part of this card review.`;
+	if (plan.withoutCard.length > 0) {
+		text += ` ${plural(plan.withoutCard.length, "node has", "nodes have")} no card yet: write one or talk it through.`;
+	}
 	return text;
+}
+
+/** How many nodes without a card the section lists before it says "N more". */
+export const NO_CARD_SHOWN = 20;
+
+/** The first NO_CARD_SHOWN nodes without a card (named, the id when the name is blank), and how many are left over. */
+export function noCardView(nodes: readonly NodeRef[], shown: number = NO_CARD_SHOWN): { shown: NodeRef[]; more: number } {
+	const named = nodes.slice(0, shown).map((n) => ({ nodeId: n.nodeId, name: n.name.trim() !== "" ? n.name : n.nodeId }));
+	return { shown: named, more: Math.max(0, nodes.length - shown) };
+}
+
+/** Body of POST /api/ext/review/session for "With the tutor" on a node without a card. */
+export function tutorBody(nodeId: string): { nodeId: string } {
+	return { nodeId };
+}
+
+/** Body of POST /api/ext/cards for a card written on the Review page, with the text trimmed. */
+export function newCardBody(nodeId: string, question: string, answer: string): { nodeId: string; question: string; answer: string } {
+	return { nodeId, question: question.trim(), answer: answer.trim() };
 }
 
 /** Body of POST /api/ext/review/answer: the learner's rating and the seconds the card was open. */

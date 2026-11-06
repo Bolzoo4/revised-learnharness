@@ -5,21 +5,25 @@ import assert from "node:assert/strict";
 import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
-import { CardForm, CardGroups, CardRunner, RunnerView } from "../components/ext/review-panel.tsx";
+import { CardForm, CardGroups, CardRunner, NodesWithoutCard, NoCardForm, RunnerView } from "../components/ext/review-panel.tsx";
 import {
 	answerBody,
 	askTutorBody,
 	cardActions,
 	cardFormReady,
 	type CardView,
-	conversationCount,
 	emptyText,
 	errorText,
 	groupCardsByNode,
+	newCardBody,
+	NO_CARD_SHOWN,
+	noCardView,
+	type NodeRef,
 	type PlanView,
 	runnerCards,
 	secondsSince,
 	summaryLine,
+	tutorBody,
 } from "../components/ext/review-logic.ts";
 
 const dom = parseHTML("<html><body></body></html>");
@@ -102,6 +106,7 @@ const plan = (over: Partial<PlanView> = {}): PlanView => ({
 	items: [{ nodeId: "n_a", name: "Alpha", channel: "fixed", card: { cardId: "card_1", question: "What is Alpha?", answer: "Alpha holds." } }],
 	deferred: [],
 	needsCard: [],
+	withoutCard: [],
 	due: 1,
 	plannedSec: 90,
 	...over,
@@ -115,10 +120,10 @@ it("the section says it is loading before the plan arrives", async () => {
 });
 
 it("with nothing due it says so, with the deferred count and the nodes that still need a card", async () => {
-	const p = plan({ items: [], due: 0, plannedSec: 0, deferred: [{ nodeId: "n_b", name: "Beta" }, { nodeId: "n_c", name: "Gamma" }], needsCard: [{ nodeId: "n_d", name: "Delta" }] });
+	const p = plan({ items: [], due: 0, plannedSec: 0, deferred: [{ nodeId: "n_b", name: "Beta" }, { nodeId: "n_c", name: "Gamma" }], needsCard: [{ nodeId: "n_d", name: "Delta" }], withoutCard: [{ nodeId: "n_d", name: "Delta" }] });
 	await mount(<RunnerView plan={p} loadError={null} queue={[]} revealed={false} busy={false} error={null} onReveal={() => {}} onRate={() => {}} onAsk={() => {}} />);
 	const text = host!.textContent ?? "";
-	assert.ok(text.includes("Nothing left to review today; 2 items deferred to tomorrow. Nodes that still need a card: Delta."), text);
+	assert.ok(text.includes("Nothing left to review today; 2 items deferred to tomorrow. 1 node has no card yet: write one or talk it through."), text);
 	assert.equal(host!.querySelector("[data-testid='review-card']"), null);
 });
 
@@ -132,7 +137,7 @@ it("a load or rating error is shown with role alert", async () => {
 	assert.equal(host!.querySelector("[role='alert']")?.textContent, "rating must be 1, 2, 3 or 4");
 });
 
-it("the runner runs only fixed items that carry a card; dialogic items are counted, not run", () => {
+it("the runner runs only fixed items that carry a card; a dialogic item is not run", () => {
 	const p = plan({
 		items: [
 			{ nodeId: "n_a", name: "Alpha", channel: "fixed", card: { cardId: "card_1", question: "Q1", answer: "A1" } },
@@ -140,16 +145,34 @@ it("the runner runs only fixed items that carry a card; dialogic items are count
 		],
 	});
 	assert.deepEqual(runnerCards(p).map((c) => c.cardId), ["card_1"]);
-	assert.equal(conversationCount(p), 1);
-	assert.ok(emptyText(p).includes("1 item needs a conversation"));
 });
 
-it("the empty text names both the deferred items and the conversations that remain", () => {
-	const p = plan({ items: [{ nodeId: "n_b", name: "Beta", channel: "dialogic" }], deferred: [{ nodeId: "n_c", name: "Gamma" }] });
-	assert.equal(
-		emptyText(p),
-		"Nothing left to review today; 1 item deferred to tomorrow. 1 item needs a conversation and is not part of this card review.",
-	);
+it("the empty text names the deferred items and the nodes that have no card yet, in the singular and the plural", () => {
+	const one = plan({ items: [], withoutCard: [{ nodeId: "n_b", name: "Beta" }], deferred: [{ nodeId: "n_c", name: "Gamma" }] });
+	assert.equal(emptyText(one), "Nothing left to review today; 1 item deferred to tomorrow. 1 node has no card yet: write one or talk it through.");
+	const two = plan({ items: [], withoutCard: [{ nodeId: "n_b", name: "Beta" }, { nodeId: "n_c", name: "Gamma" }] });
+	assert.equal(emptyText(two), "Nothing left to review today. 2 nodes have no card yet: write one or talk it through.");
+	assert.equal(emptyText(plan({ items: [] })), "Nothing left to review today.", "nothing to say about cards when every node has one");
+});
+
+// ─── nodes without a card: the bounded view and the request bodies ─────────
+
+const nodesOf = (n: number): NodeRef[] => Array.from({ length: n }, (_, i) => ({ nodeId: `n_${i}`, name: `Node ${i}` }));
+
+it("the nodes without a card are shown up to the bound, with the rest counted", () => {
+	const view = noCardView(nodesOf(NO_CARD_SHOWN + 5));
+	assert.equal(view.shown.length, NO_CARD_SHOWN);
+	assert.equal(view.more, 5);
+	assert.deepEqual(noCardView(nodesOf(3)), { shown: nodesOf(3), more: 0 });
+});
+
+it("a node with a blank name is shown by its id", () => {
+	assert.deepEqual(noCardView([{ nodeId: "n_x", name: "  " }]).shown, [{ nodeId: "n_x", name: "n_x" }]);
+});
+
+it("Write a card trims the question and the answer and names the node; With the tutor posts only the node", () => {
+	assert.deepEqual(newCardBody("n_a", "  Q?  ", " A. "), { nodeId: "n_a", question: "Q?", answer: "A." });
+	assert.deepEqual(tutorBody("n_a"), { nodeId: "n_a" });
 });
 
 // ─── pure request and grouping logic ───────────────────────────────────────
@@ -238,4 +261,77 @@ it("the card editor has visible labels, is disabled until complete, and submits 
 		q("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
 	});
 	assert.equal(submits.length, 1);
+});
+
+// ─── nodes without a card: the section and its rows ────────────────────────
+
+it("the card form for a node has visible labels and is disabled until complete", async () => {
+	const submits: number[] = [];
+	await mount(<NoCardForm nodeId="n_a" question="Q" answer="" busy={false} onQuestion={() => {}} onAnswer={() => {}} onSubmit={() => submits.push(1)} />);
+	const labels = [...host!.querySelectorAll("label")].map((l) => l.textContent ?? "");
+	for (const text of ["Question", "Answer"]) assert.ok(labels.some((l) => l.startsWith(text)), `label ${text}`);
+	assert.equal(buttonNamed("Add card")?.hasAttribute("disabled"), true, "no answer yet");
+	await mount(<NoCardForm nodeId="n_a" question="Q" answer="A" busy={false} onQuestion={() => {}} onAnswer={() => {}} onSubmit={() => submits.push(1)} />);
+	assert.equal(buttonNamed("Add card")?.hasAttribute("disabled"), false);
+	await act(async () => {
+		q("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+	});
+	assert.equal(submits.length, 1);
+});
+
+it("the section lists each node by name, with Write a card as the primary and With the tutor as the secondary button", async () => {
+	await mount(<NodesWithoutCard nodes={[{ nodeId: "n_b", name: "Beta" }]} onSaved={() => {}} onOpenChat={() => {}} />);
+	assert.equal(host!.querySelector("h2")?.textContent, "Nodes without a card");
+	assert.ok(host!.querySelector("li")?.textContent?.includes("Beta"));
+	assert.ok(buttonNamed("Write a card")?.className.includes("bg-primary"), "the primary button is styled as primary");
+	assert.equal(buttonNamed("With the tutor")?.className.includes("bg-primary"), false, "the tutor button is secondary");
+	assert.equal(buttonNamed("Add card"), null, "the form is closed until Write a card is pressed");
+});
+
+it("Write a card opens the inline form for that node; the form is not open for other nodes", async () => {
+	await mount(<NodesWithoutCard nodes={[{ nodeId: "n_b", name: "Beta" }, { nodeId: "n_c", name: "Gamma" }]} onSaved={() => {}} onOpenChat={() => {}} />);
+	await click(buttonNamed("Write a card"));
+	assert.ok(buttonNamed("Add card"), "the form opens");
+	assert.equal(host!.querySelectorAll("form").length, 1, "one form, for the first node");
+	assert.equal(host!.querySelectorAll("li")[1]?.querySelector("form"), null);
+});
+
+it("With the tutor posts the node id to the review session and opens the chat it returns", async () => {
+	const bodies: string[] = [];
+	const opened: string[] = [];
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = (async (url: string, init?: RequestInit) => {
+		bodies.push(`${url} ${String(init?.body)}`);
+		return new Response(JSON.stringify({ chatId: "chat_9" }), { status: 200, headers: { "Content-Type": "application/json" } });
+	}) as typeof fetch;
+	try {
+		await mount(<NodesWithoutCard nodes={[{ nodeId: "n_b", name: "Beta" }]} onSaved={() => {}} onOpenChat={(id) => opened.push(id)} />);
+		await click(buttonNamed("With the tutor"));
+		assert.deepEqual(bodies, ['/api/ext/review/session {"nodeId":"n_b"}']);
+		assert.deepEqual(opened, ["chat_9"]);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});
+
+it("a failed tutor request shows the server's message and opens no chat", async () => {
+	const opened: string[] = [];
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = (async () => new Response(JSON.stringify({ error: "unknown node" }), { status: 404, headers: { "Content-Type": "application/json" } })) as typeof fetch;
+	try {
+		await mount(<NodesWithoutCard nodes={[{ nodeId: "n_b", name: "Beta" }]} onSaved={() => {}} onOpenChat={(id) => opened.push(id)} />);
+		await click(buttonNamed("With the tutor"));
+		assert.equal(host!.querySelector("[role='alert']")?.textContent, "unknown node");
+		assert.deepEqual(opened, []);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});
+
+it("with no node left the section says every node has a card; more than the bound says how many are left", async () => {
+	await mount(<NodesWithoutCard nodes={[]} onSaved={() => {}} onOpenChat={() => {}} />);
+	assert.ok(host!.textContent?.includes("Every node in today's plan has a card."));
+	await mount(<NodesWithoutCard nodes={nodesOf(NO_CARD_SHOWN + 2)} onSaved={() => {}} onOpenChat={() => {}} />);
+	assert.equal(host!.querySelectorAll("li").length, NO_CARD_SHOWN);
+	assert.ok(host!.textContent?.includes("2 more"));
 });
