@@ -53,6 +53,13 @@ export interface PanelLecture {
 	title: string;
 }
 
+/** A page of a registered document the node came from (assisted study, REQ-study-10). */
+export interface PanelStudySource {
+	documentId: string;
+	title: string;
+	page: number;
+}
+
 export interface PanelCard {
 	cardId: string;
 	question: string;
@@ -77,6 +84,7 @@ export interface PanelGoal {
 export interface PanelSources {
 	trust?(nodeId: string): PanelTrust;
 	lecturesCiting?(nodeId: string): PanelLecture[];
+	studySources?(nodeId: string): PanelStudySource[];
 	cards?(nodeId: string): PanelCard[];
 	review?(nodeId: string): PanelReview | null;
 }
@@ -102,6 +110,8 @@ export interface NodePanelData {
 	concluding: Array<{ chainId: string; premises: NodeRef[] }>;
 	usedAsPremise: Array<{ chainId: string; coPremises: NodeRef[]; conclusion: NodeRef }>;
 	citingLectures: PanelLecture[];
+	/** Where in the learner's documents the node came from (study-links), with the document's title. */
+	studySources: PanelStudySource[];
 	/** Nodes whose current explanation links here (derived, never stored). */
 	mentionedBy: NodeRef[];
 	cards: PanelCard[];

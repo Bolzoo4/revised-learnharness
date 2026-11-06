@@ -11,6 +11,8 @@
 
 import { citingLectures } from "../../core/ext/lecture/lecture-graph.ts";
 import { panelTrustOf } from "../../core/ext/panel-trust.ts";
+import { deriveDocuments } from "../../core/ext/study/documents.ts";
+import { sourcesOfNode } from "../../core/ext/study/links.ts";
 import type { PanelSources } from "../../core/ext/node-panel-types.ts";
 import type { NodeActionHandlers } from "./node-knowledge.ts";
 import { personalPanel } from "./personal-panel.ts";
@@ -21,6 +23,13 @@ export const panelSources: PanelSources = {
 	...personalPanel.sources,
 	trust: (nodeId) => panelTrustOf(trustViews([nodeId])[0]),
 	lecturesCiting: (nodeId) => citingLectures(nodeId, extStores.lecturesStore.list()).map((l) => ({ lectureId: l.id, title: l.title })),
+	studySources: (nodeId) => {
+		const docs = deriveDocuments(extStores.documentsLedger.readAll());
+		return sourcesOfNode(extStores.studyLinksLedger.readAll(), nodeId).flatMap((s) => {
+			const doc = docs.find((d) => d.id === s.documentId);
+			return doc === undefined ? [] : [{ documentId: doc.id, title: doc.title, page: s.page }];
+		});
+	},
 };
 
 export const nodeHandlers: NodeActionHandlers = {

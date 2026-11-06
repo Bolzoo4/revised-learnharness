@@ -221,6 +221,20 @@ export function NodePanelView(p: NodePanelViewProps) {
 				{data.citingLectures.length === 0 ? <p className="text-muted-foreground">None.</p> : data.citingLectures.map((l) => <p key={l.lectureId}>{l.title}</p>)}
 			</Section>
 
+			<Section title="Source in your documents" testId="panel-study-sources">
+				{data.studySources.length === 0 ? (
+					<p className="text-muted-foreground">None.</p>
+				) : (
+					data.studySources.map((s) => (
+						<p key={`${s.documentId}:${s.page}`}>
+							<a className="underline" href={`/study/${s.documentId}?page=${s.page}`}>
+								{s.title}, p. {s.page}
+							</a>
+						</p>
+					))
+				)}
+			</Section>
+
 			<Section title="Mentioned in explanations of" testId="panel-mentions">
 				{data.mentionedBy.length === 0 ? <p className="text-muted-foreground">None.</p> : <NodeList nodes={data.mentionedBy} onNavigate={p.onNavigate} />}
 			</Section>

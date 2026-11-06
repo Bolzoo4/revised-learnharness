@@ -85,6 +85,7 @@ export function buildNodePanel(nodeId: string, input: PanelInput): NodePanelData
 				conclusion: ref(c.conclusion),
 			})),
 		citingLectures: input.sources.lecturesCiting?.(nodeId) ?? [],
+		studySources: input.sources.studySources?.(nodeId) ?? [],
 		mentionedBy: mentionedBy(nodeId, currentBodies).map(ref),
 		cards: input.sources.cards?.(nodeId) ?? [],
 		review: input.sources.review?.(nodeId) ?? null,

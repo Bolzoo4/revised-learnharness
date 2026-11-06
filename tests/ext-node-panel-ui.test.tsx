@@ -26,6 +26,7 @@ function data(over: Partial<NodePanelData> = {}): NodePanelData {
 		],
 		usedAsPremise: [{ chainId: "arg_3", coPremises: [], conclusion: { id: "n_d", name: "Delta" } }],
 		citingLectures: [{ lectureId: "l1", title: "Lecture One" }],
+		studySources: [{ documentId: "d".repeat(64), title: "Probability", page: 12 }],
 		mentionedBy: [{ id: "n_d", name: "Delta" }],
 		cards: [{ cardId: "c1", question: "Why gamma?", status: "active" }],
 		review: { dueAt: null, reps: 2, pinned: false, retired: false },
@@ -76,6 +77,15 @@ it("shows the statement, trust with evidence, arguments, lectures, back-links, c
 	}
 	assert.equal(q('[data-testid="panel-explanation"]')?.textContent?.includes("Gamma because"), true);
 	assert.equal(q('[data-testid="explanation-nosource"]') !== null, true, "marks 'no source context'");
+});
+
+it("shows where in the learner's documents the node came from, linking to that page (REQ-study-10)", async () => {
+	await mount(props());
+	const link = q('[data-testid="panel-study-sources"] a');
+	assert.equal(link?.textContent, "Probability, p. 12");
+	assert.equal(link?.getAttribute("href"), `/study/${"d".repeat(64)}?page=12`);
+	await act(async () => { root!.render(<NodePanelView {...props({ data: data({ studySources: [] }) })} />); });
+	assert.match(q('[data-testid="panel-study-sources"]')?.textContent ?? "", /None\./);
 });
 
 it("a single argument is not labelled alternative", async () => {

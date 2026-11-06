@@ -43,7 +43,7 @@ describe("buildNodePanel", () => {
 		const p = buildNodePanel("n_c", input());
 		assert.equal(p?.node.statement, "N_C holds.");
 		assert.deepEqual(p?.trust, { level: "unverified", evidence: [] });
-		assert.deepEqual([p?.citingLectures, p?.cards, p?.review, p?.goals], [[], [], null, []]);
+		assert.deepEqual([p?.citingLectures, p?.studySources, p?.cards, p?.review, p?.goals], [[], [], [], null, []]);
 		assert.deepEqual(p?.availableActions, ["askInChat", "useAsGoalTarget"]);
 	});
 
@@ -115,12 +115,14 @@ describe("buildNodePanel", () => {
 			sources: {
 				trust: () => ({ level: "sourced", evidence: [{ sourceId: "s1", locator: "p. 3", quote: "q", stance: "supports", tier: "primary", snapshotHash: "h" }] }),
 				lecturesCiting: () => [{ lectureId: "l1", title: "Lecture 1" }],
+				studySources: () => [{ documentId: "d1", title: "Probability", page: 12 }],
 				cards: () => [{ cardId: "c1", question: "Why?", status: "active" }],
 				review: () => ({ dueAt: T0, reps: 2, pinned: false, retired: false }),
 			},
 		}));
 		assert.equal(p?.trust.level, "sourced");
 		assert.equal(p?.citingLectures[0]?.title, "Lecture 1");
+		assert.deepEqual(p?.studySources, [{ documentId: "d1", title: "Probability", page: 12 }]);
 		assert.equal(p?.cards[0]?.question, "Why?");
 		assert.equal(p?.review?.reps, 2);
 	});
