@@ -8,12 +8,19 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { LhMessage } from "../../../core/native-messages.ts";
+import { MAX_TITLE_CHARS, flattenText } from "../../../core/ext/study/bounds.ts";
 import { invalidInputResult, toToolResult } from "../../tool-execute.ts";
 import { healToolRecord } from "../../tools/heal.ts";
 
 /** Longest page text handed to the model. */
 export const MAX_PAGE_CHARS = 12_000;
 export const MAX_SEARCH_HITS = 10;
+/** Longest query the search runs (the schema says the same). */
+export const MAX_QUERY_CHARS = 200;
+/** Longest snippet of one hit. */
+export const MAX_SNIPPET_CHARS = 300;
+/** Largest search answer handed to the model. */
+export const MAX_SEARCH_OUTPUT_CHARS = 20_000;
 
 export interface StudyToolContext {
 	chatId: string;
@@ -32,13 +39,31 @@ export function clipPage(text: string): string {
 
 /** The page as the model reads it: a header with the page number, then the text. */
 export function formatPage(title: string, page: number, pageCount: number, text: string | null): string {
-	const head = `--- ${title}, page ${page} of ${pageCount} ---`;
+	const head = `--- ${flattenText(title, MAX_TITLE_CHARS)}, page ${page} of ${pageCount} ---`;
 	if (text === null || text.trim() === "") return `${head}\n(This page has no extractable text: it may be a scan or a figure.)`;
 	return `${head}\n${clipPage(text)}`;
 }
 
+/**
+ * The search answer: a JSON array with one hit per line, each hit a JSON string
+ * "(p. N) snippet". Valid JSON at every size; the hit count and the total length
+ * are capped, so no page of the document can make the answer unbounded.
+ */
+export function searchOutput(query: string, hits: ReadonlyArray<{ page: number; snippet: string }>): string {
+	const items = hits
+		.slice(0, MAX_SEARCH_HITS)
+		.map((h) => JSON.stringify(`(p. ${h.page}) ${h.snippet.slice(0, MAX_SNIPPET_CHARS)}`));
+	if (items.length === 0) return JSON.stringify(`No page contains ${JSON.stringify(query)}.`);
+	const join = (xs: readonly string[]): string => `[${xs.join(",\n")}]`;
+	let kept = items;
+	while (kept.length > 1 && join(kept).length > MAX_SEARCH_OUTPUT_CHARS) kept = kept.slice(0, -1);
+	return join(kept);
+}
+
 const readInput = Type.Object({ page: Type.Integer({ minimum: 1, description: "Page number, 1-based." }) });
-const searchInput = Type.Object({ query: Type.String({ minLength: 2, description: "Words or a phrase to find, ignoring case." }) });
+const searchInput = Type.Object({
+	query: Type.String({ minLength: 2, maxLength: MAX_QUERY_CHARS, description: "Words or a phrase to find, ignoring case." }),
+});
 
 export function studyTools(ctx: StudyToolContext): Record<string, AgentTool<any>> {
 	const read_page: AgentTool<typeof readInput> = {
@@ -62,9 +87,8 @@ export function studyTools(ctx: StudyToolContext): Record<string, AgentTool<any>
 		parameters: searchInput,
 		executionMode: "sequential",
 		execute: async (_id, input) => {
-			const hits = ctx.search(input.query).slice(0, MAX_SEARCH_HITS);
-			if (hits.length === 0) return toToolResult(`No page contains "${input.query}".`);
-			return toToolResult(hits.map((h) => `(p. ${h.page}) ${h.snippet}`).join("\n"));
+			const query = input.query.slice(0, MAX_QUERY_CHARS);
+			return toToolResult(searchOutput(query, ctx.search(query)));
 		},
 	};
 
