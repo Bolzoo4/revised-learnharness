@@ -37,7 +37,8 @@ import { HttpError } from "./http-error.ts";
 
 export class StudyError extends HttpError {}
 
-export const MAX_PDF_BYTES = 200 * 1024 * 1024;
+/** Largest PDF a study document or a book ingest accepts (owner, 2026-11-06: books can be large). */
+export const MAX_PDF_BYTES = 500 * 1024 * 1024;
 /** Pages per model call in a complete run. */
 export const COMPLETE_BATCH_PAGES = 4;
 /** Most proposals kept per page in a complete run. */
@@ -331,7 +332,7 @@ export function createStudyService(deps: StudyServiceDeps) {
 			} catch {
 				throw new StudyError(404, "that file cannot be read");
 			}
-			if (size > limit) throw new StudyError(400, "that PDF is too large (limit 200 MB)");
+			if (size > limit) throw new StudyError(400, "that PDF is too large (limit 500 MB)");
 		}
 		let bytes: Uint8Array;
 		try {
@@ -339,7 +340,7 @@ export function createStudyService(deps: StudyServiceDeps) {
 		} catch {
 			throw new StudyError(404, "that file cannot be read");
 		}
-		if (bytes.length > limit) throw new StudyError(400, "that PDF is too large (limit 200 MB)");
+		if (bytes.length > limit) throw new StudyError(400, "that PDF is too large (limit 500 MB)");
 		if (new TextDecoder("latin1").decode(bytes.subarray(0, 5)) !== "%PDF-") throw new StudyError(400, "that file is not a PDF");
 
 		const id = createHash("sha256").update(bytes).digest("hex");
