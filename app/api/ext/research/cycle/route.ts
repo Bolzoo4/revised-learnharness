@@ -24,13 +24,15 @@ export async function POST(req: Request) {
 		const body = await readJsonObject(req);
 		const action = body.action;
 		if (action === "start") {
-			const trigger = (body.trigger as RunTrigger) ?? "manual";
-			const result = researchService.start(trigger);
+			const trigger = body.trigger ?? "manual";
+			if (trigger !== "manual" && trigger !== "schedule") throw new HttpError(400, "a trigger is manual or schedule");
+			const result = researchService.start(trigger as RunTrigger);
 			return Response.json(result);
 		}
 		if (action === "steer") {
 			const message = typeof body.message === "string" ? body.message : "";
 			const result = researchService.steer(message);
+			if (result === null) throw new HttpError(409, "no research cycle is running");
 			return Response.json({ status: result });
 		}
 		if (action === "abort") {

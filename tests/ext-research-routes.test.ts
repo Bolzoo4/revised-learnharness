@@ -559,3 +559,36 @@ describe("research radar routes", () => {
 		await assertInternal(await radar.GET(get("/api/ext/research/radar")));
 	});
 });
+
+describe("research session route", () => {
+	it("POST creates a research chat and returns its id", async () => {
+		const session = await import("../app/api/ext/research/session/route.ts");
+		const { getChat } = await import("../src/server/index.ts");
+		const res = await session.POST();
+		assert.equal(res.status, 200);
+		const { chatId } = (await res.json()) as { chatId: string };
+		assert.equal(typeof chatId, "string");
+		assert.equal(getChat(chatId)?.kind, "research");
+	});
+});
+
+describe("research cycle route contract", () => {
+	it("POST action=start refuses a trigger that is not manual or schedule (400, nothing started)", async () => {
+		let called = false;
+		mock.method(researchService, "start", () => {
+			called = true;
+			return { started: true };
+		});
+		const res = await cycle.POST(post("/api/ext/research/cycle", { action: "start", trigger: "anything-else" }));
+		assert.equal(res.status, 400);
+		assert.equal(called, false);
+	});
+
+	it("POST action=steer with no running cycle is 409 with a fixed message", async () => {
+		mock.method(researchService, "steer", () => null);
+		const res = await cycle.POST(post("/api/ext/research/cycle", { action: "steer", message: "try theorem 2" }));
+		assert.equal(res.status, 409);
+		const body = (await res.json()) as { error?: unknown };
+		assert.equal(typeof body.error, "string");
+	});
+});
