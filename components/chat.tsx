@@ -222,6 +222,7 @@ export function Chat({
 	initiallyCompacting = false,
 	initialConfigured = false,
 	kind = "teach",
+	transformOutgoing,
 }: {
 	chatId: string;
 	title: string;
@@ -245,6 +246,8 @@ export function Chat({
 	 *  it (BYOK, owner 2026-09-22). The server gate stays the truth; this
 	 *  only decides whether the pill rides the composer. */
 	initialConfigured?: boolean;
+	/** Extension seam (docs/ext/TOUCHPOINTS.md): rewrites the text of a composer send or steer just before it is sent. The study view uses it to prepend the page and the selection. */
+	transformOutgoing?: (text: string) => string;
 }) {
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
@@ -1229,7 +1232,7 @@ export function Chat({
 		}
 		draftRef.current = t; // the refusal flow's preserve-and-replay seam
 		applyText("");
-		void send({ type: "text", text: t });
+		void send({ type: "text", text: transformOutgoing ? transformOutgoing(t) : t });
 	};
 
 	/* STEER VS SEND (owner arc 2026-10-03): a send while a turn runs steers
@@ -1247,7 +1250,7 @@ export function Chat({
 		if (!t) return;
 		if (busy) {
 			applyText("");
-			void steer(t);
+			void steer(transformOutgoing ? transformOutgoing(t) : t);
 			return;
 		}
 		doSend();
