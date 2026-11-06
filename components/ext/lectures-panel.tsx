@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { PdfChooser } from "./pdf-chooser.tsx";
+import { failureText, uploadPdf } from "./pdf-upload.ts";
+
+const UPLOAD_REJECTED = "Could not start the ingest. Choose a PDF file and try again.";
 
 interface ChapterRow { chapter: { index: number; title: string }; state: string; lectures: number; uncovered: number; error?: string }
 interface RunRow { bookId: string; title: string; phase: string; error?: string; chapters: ChapterRow[] }
@@ -10,6 +14,7 @@ interface LectureRow { id: string; title: string; bookTitle: string; chapter: { 
 export function LecturesPanel() {
 	const [pdfPath, setPdfPath] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
 	const [runs, setRuns] = useState<RunRow[]>([]);
 	const [lectures, setLectures] = useState<LectureRow[]>([]);
 
@@ -28,17 +33,45 @@ export function LecturesPanel() {
 
 	async function ingest() {
 		setError(null);
-		const res = await fetch("/api/ext/lectures", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdfPath }) });
-		if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Could not start the ingest.");
-		else void refresh();
+		setBusy(true);
+		try {
+			const res = await fetch("/api/ext/lectures", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdfPath }) });
+			if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Could not start the ingest.");
+			else void refresh();
+		} finally {
+			setBusy(false);
+		}
+	}
+
+	/** The chosen or dropped book, uploaded to the same route; the run continues in the background. */
+	async function ingestFile(file: File, title: string) {
+		setError(null);
+		setBusy(true);
+		try {
+			const res = await uploadPdf(fetch, "/api/ext/lectures", file, title);
+			if (!res.ok) setError(await failureText(res, UPLOAD_REJECTED));
+			else void refresh();
+		} catch {
+			setError(UPLOAD_REJECTED);
+		} finally {
+			setBusy(false);
+		}
 	}
 
 	return (
 		<div className="flex flex-col gap-6">
-			<form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void ingest(); }}>
-				<input className="flex-1 rounded border px-2 py-1" placeholder="/absolute/path/to/book.pdf" value={pdfPath} onChange={(e) => setPdfPath(e.target.value)} />
-				<button type="submit" className="rounded border px-3 py-1" disabled={pdfPath.trim() === ""}>Make lectures</button>
-			</form>
+			<section className="flex flex-col gap-2">
+				<h2 className="font-medium">Make lectures from a book</h2>
+				<p className="text-sm text-muted-foreground">Choose a PDF of a book or drop it here. Each chapter becomes lectures, and the progress shows below.</p>
+				<PdfChooser busy={busy} onPick={(file, title) => void ingestFile(file, title)} onError={setError} />
+				<details className="text-sm">
+					<summary className="cursor-pointer text-muted-foreground">Or paste a path</summary>
+					<form className="mt-2 flex gap-2" onSubmit={(e) => { e.preventDefault(); void ingest(); }}>
+						<input className="flex-1 rounded border px-2 py-1" placeholder="/absolute/path/to/book.pdf" value={pdfPath} onChange={(e) => setPdfPath(e.target.value)} />
+						<button type="submit" className="rounded border px-3 py-1" disabled={busy || pdfPath.trim() === ""}>Make lectures</button>
+					</form>
+				</details>
+			</section>
 			{error !== null ? <p className="text-destructive">{error}</p> : null}
 			{runs.map((r) => (
 				<section key={r.bookId} className="rounded border p-3">
