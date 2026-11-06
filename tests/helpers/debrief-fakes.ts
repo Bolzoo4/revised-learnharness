@@ -90,7 +90,7 @@ export function harness(opts: { now?: Date; refs?: SessionRef[]; journal?: Journ
 	const gate = fakeGate(true);
 	const service = createDebriefService({
 		journal, activity, sources, writer, gate, config: DEFAULT_DEBRIEF_CONFIG, lecture: opts.lecture ?? (() => null),
-		now: () => clock.now, state: newDebriefState(),
+		now: () => clock.now, clock: () => clock.now.toISOString(), state: newDebriefState(),
 	});
 	return { clock, journal, activity, sources, writer, gate, service };
 }

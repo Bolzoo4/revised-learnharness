@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { after, describe, it } from "node:test";
+import { after, describe, it, mock } from "node:test";
 
 // The seam, BEFORE any config-loading import.
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-debrief-live-"));
@@ -60,6 +60,10 @@ describe("the live debrief service over the real stores", () => {
 describe("study sessions use the reading ledgers (assisted study)", () => {
 	it("a study chat bound to a document reports the pages read and the nodes linked in its window", async () => {
 		const DOC = "c".repeat(64);
+		// The session's reading happened over the past minute. The end is stamped with the cheap clock (the system time),
+		// so the test moves the clock to a minute after the start rather than relying on events in the future.
+		const start = Date.now();
+		mock.timers.enable({ apis: ["Date"], now: start });
 		const study = stores.chatStore.createChat("Probability book", "study");
 		extStores.documentsLedger.append({ type: "registered", documentId: DOC, title: "Probability", pageCount: 200, at: study.createdAt });
 		extStores.documentsLedger.append({ type: "chat", documentId: DOC, chatId: study.id, at: study.createdAt });
@@ -69,7 +73,12 @@ describe("study sessions use the reading ledgers (assisted study)", () => {
 		extStores.readingLedger.append({ type: "close", documentId: DOC, at: t(40_000) });
 		extStores.studyLinksLedger.append({ type: "link", nodeId: "n_live1", documentId: DOC, page: 3, at: t(10_000) });
 		extStores.costStore.appendEvent({ type: "spend", usd: 5, source: "verification", at: new Date().toISOString() });
-		await debriefService.endSession(study.id);
+		mock.timers.setTime(start + 60_000);
+		try {
+			await debriefService.endSession(study.id);
+		} finally {
+			mock.timers.reset();
+		}
 		const entry = extStores.journalLedger.readAll().find((e) => e.sessionId === study.id)!;
 		const facts = entry.facts as { pagesRead?: number; nodesLinked?: number; title?: string };
 		assert.deepEqual([facts.pagesRead, facts.nodesLinked, facts.title], [2, 1, "Probability"]);

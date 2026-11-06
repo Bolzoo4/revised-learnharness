@@ -74,7 +74,10 @@ export interface DebriefDeps {
 	gate: CostGate;
 	config: DebriefConfig;
 	lecture(id: string): Lecture | null;
+	/** The sweep clock. The live wiring passes a function that scans every ledger (liveNow), so only sweeps and debrief timestamps use it. */
 	now?: () => Date;
+	/** The cheap clock that stamps activity and session ends (default: the system time). It never scans the ledgers. */
+	clock?: () => string;
 	/** Shared across module instances by the live wiring; tests get a fresh one. */
 	state?: DebriefState;
 }
@@ -86,6 +89,7 @@ export type LectureActivityInput =
 
 export function createDebriefService(deps: DebriefDeps) {
 	const now = deps.now ?? (() => new Date());
+	const clock = deps.clock ?? (() => new Date().toISOString());
 	const state = deps.state ?? newDebriefState();
 	const journal = (): JournalEvent[] => deriveJournal(deps.journal.readAll());
 
@@ -126,7 +130,7 @@ export function createDebriefService(deps: DebriefDeps) {
 		const entry: JournalEvent = {
 			id: debriefId(key),
 			...identity,
-			at: now().toISOString(),
+			at: clock(),
 			facts: request.facts as unknown as JournalEvent["facts"],
 			commentary,
 			nullReason,
@@ -220,10 +224,10 @@ export function createDebriefService(deps: DebriefDeps) {
 		const ends = explicitEnds(deps.activity.readAll());
 		let end = ends.get(sessionId);
 		if (end === undefined) {
-			end = now().toISOString();
+			end = clock();
 			deps.activity.append({ type: "end", sessionId, at: end });
 		}
-		const endedAt = endedAtOf(ref, now(), deps.config.idleMs, end) ?? end;
+		const endedAt = endedAtOf(ref, new Date(clock()), deps.config.idleMs, end) ?? end;
 		return debriefSession(ref, endedAt);
 	}
 
@@ -261,7 +265,7 @@ export function createDebriefService(deps: DebriefDeps) {
 		const session = deriveLectureSessions(events).find((s) => s.sessionId === input.sessionId);
 		if (session && session.lectureId !== input.lectureId) throw new HttpError(409, "this session belongs to another lecture");
 		if (explicitEnds(events).has(input.sessionId) || findDebrief(journal(), input.sessionId)) throw new HttpError(409, "this session has ended; start a new one");
-		const event = { ...input, at: now().toISOString() } as Exclude<ActivityEvent, { type: "end" }>;
+		const event = { ...input, at: clock() } as Exclude<ActivityEvent, { type: "end" }>;
 		if (alreadyRecorded(events, event)) return { recorded: false };
 		deps.activity.append(event);
 		return { recorded: true };
