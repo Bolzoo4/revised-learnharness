@@ -43,11 +43,17 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/ext/practice/session-kind.ts` | `isPracticeLike` accepts `"research"` | Research loop |
 | `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for a `research` session | Research loop |
 | `src/server/chat-handler.ts` | imports `researchToolContext` and `createResearchAgent`, branches for kind `"research"` | Research loop |
+| `src/core/contracts/chat.ts` | `ChatKind` gains `"study"` | Assisted study |
+| `src/core/ports.ts` | `ChatStore.createChat` accepts kind `"study"` | Assisted study |
+| `src/store/chats.ts` | `createChat` type widened to the same kinds | Assisted study |
+| `src/server/chat-handler.ts` | imports `createStudyAgent` and `studyService`; the study agent branch | Assisted study |
+| `app/chat/[id]/page.tsx` | pass `"teach"` to `Chat` for a `study` session | Assisted study |
+| `components/chat.tsx` | optional `transformOutgoing` prop, applied on send and on steer (the study view prepends the page and selection) | Assisted study |
+| `components/ext/node-panel-view.tsx` | "Source in your documents" section | Assisted study |
 
 Completed: All five child specs (Source Verification, Personal Layer, Node Knowledge, Lectures & Office Hours, and Autonomous Research Loop) are implemented.
 
-Planned / future (not yet touched): the standalone PDF viewer
-and MCP dependencies in `package.json`.
+Planned (not yet touched): the MCP dependency in `package.json`.
 
 Not touched on purpose: `config.ts` (paths are derived in `src/store/ext/paths.ts`) and
 `src/server/stores.ts` (the extension has its own root, `src/server/ext/stores.ts`).

@@ -484,3 +484,42 @@ Derivations:
   - Wraps the engine via `gateResearchEngine` against `cost.jsonl`.
   - Checks if daily spend is below ceiling (default 2 USD; env `LH_EXT_DAILY_CEILING_USD`). If exceeded, throws `"the daily research ceiling is reached"`.
   - Usage collector records model spend to `cost.jsonl` with `source: "research"`. If recording fails, a latch refuses subsequent model calls.
+
+## `documents.jsonl` (ledger)
+
+Event `registered`: `{type:"registered", documentId, title, pageCount, at}`. `documentId` is the lowercase-hex sha256 (64 chars) of the PDF file's bytes; `title` non-empty; `pageCount` a positive integer.
+Event `chat`: `{type:"chat", documentId, chatId, at}`; binds the document's one study conversation.
+
+Derivation (`deriveDocuments`, `documentOfChat`): replay in file order; the first `registered` per `documentId` defines the document (the same file registered twice is one document); the first `chat` per document wins, so there is exactly one conversation per document; a `chat` for an unregistered document is ignored. `documentOfChat(chatId)` is the inverse lookup.
+
+Stored files, content-addressed under `documents/`: `<documentId>.pdf` (a byte copy, written through a temp file and renamed) and `<documentId>.pages.json` (a JSON array of strings, one per page, page 1 first; a cache of the extracted text, rebuilt when absent).
+
+## `reading.jsonl` (ledger)
+
+Event `visit`: `{type:"visit", documentId, page, at}` (page a positive integer). Event `close`: `{type:"close", documentId, at}`.
+
+Derivation (`deriveReading(events, documentId, {dwellSeconds = 5, pageCount})`): replay the document's events in file order. A visit lasts until the next event of the same document (a visit or a close). A page is READ when some visit to it lasted at least `dwellSeconds`. The newest visit has no end and counts only once a later event follows. `lastPage` is the page of the newest visit. Pages greater than `pageCount` (when given) are ignored. `readPages` is ascending and distinct.
+
+## `study-links.jsonl` (ledger)
+
+Event `link`: `{type:"link", nodeId, documentId, page, at}`. Append-only. `sourcesOfNode` returns the distinct `(documentId, page)` pairs of a node in order of first appearance; `linkedPages(documentId)` the ascending distinct pages that have at least one node; `nodeIdsOnPages(documentId, pages)` the distinct node ids on those pages. Nothing here is derived from the content ledgers: a link to a node that no longer exists is filtered by the reader.
+
+## `study-drafts.jsonl` (ledger)
+
+Event `proposed`: `{type:"proposed", draftId, documentId, page, proposition, question, answer, at}` (all strings non-blank, page a positive integer). Event `decided`: `{type:"decided", draftId, decision, at}` with `decision` in `approved` | `rejected`. Event `pages_processed`: `{type:"pages_processed", documentId, pages, at}` (non-empty array of positive integers): the pages a "complete" run has handled.
+
+Derivation (`deriveDrafts`): replay in file order; the first `proposed` per `draftId` defines the draft with status `pending`; the first `decided` per draft wins; a `decided` for an unknown draft is ignored. `processedPages(documentId)` is the ascending distinct union of `pages_processed`. Drafts are never graph content: only approval sends the proposition to the extraction pipeline.
+
+### Complete (the run that writes `proposed` events)
+
+Pages offered: read (`deriveReading`) and not in `processedPages`, ascending. Each batch of 4 pages is checked against the daily cost ceiling before the call; when it is reached the run stops with `ceilingReached` and the pages not yet handled stay unprocessed. The model proposes candidates; `dropRepeats` removes any whose proposition equals (`sameProposition`: `normalizeForMatch(…, "join")` equal after stripping trailing full stops and whitespace) the statement of a node linked to a page of the batch, the proposition of any draft (pending, approved or rejected) on those pages, or an earlier candidate, then keeps at most 5 per page. Propositions are at most 400 characters. Every handled page is recorded in a `pages_processed` event, including pages that produced nothing.
+
+### Confirming a card (the only road into the graph)
+
+The proposition text alone is imported as a notes source with the pseudo-path `study/<slug>/p<page, 4 digits>-<sha256(proposition.trim())[0..8]>.md` (`<slug>` is the title NFKD-normalised, diacritics removed, lowercased, non-alphanumerics collapsed to `-`, at most 40 characters, `document` when empty); the source text is the trimmed proposition plus a newline. The pipeline may create or link nodes. The card attaches to the node returned by `pickCardNode`: the candidate maximising the Jaccard overlap of word sets (`normalizeForMatch(·, "join")` split on non-letter-or-digit, words of at least 2 characters) between the proposition and the node's statement, any alias, or its name; a tie goes to the first candidate; with no candidate the confirmation fails and nothing is linked. A `link` event is appended for the node and page. A user-confirmed card is `active`; an unedited approved draft is an agent card approved by the learner. The node is pinned unless the learner opted out.
+
+## The study message context line
+
+A user message in a `study` session is `[study-context] <JSON>` + `\n` + the learner's text. `<JSON>` is `{"documentId": string, "page": positive integer, "selection": string}`; the selection is cut to 2000 characters; `JSON.stringify` escapes newlines so the first line ends at the first `\n`. A message without a valid first line has no context. The agent's prompt for a turn is composed from the NEWEST user message's context (and no earlier one) plus the text of that page.
+
+`pageCitations(text)` finds every `(p. N)` (regex `\(p\.\s*(\d{1,5})\)`, N at least 1) with its start and end offsets; `citationAt(text, offset)` returns the page of the citation covering `offset`, if any.
