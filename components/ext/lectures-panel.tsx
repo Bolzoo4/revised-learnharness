@@ -1,16 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { LecturesTree } from "./lectures-tree.tsx";
+import { buildLectureTree, type LectureRow, type RunRow, type TreeBook } from "./lectures-tree.ts";
 import { PdfChooser } from "./pdf-chooser.tsx";
 import { failureText, uploadPdf } from "./pdf-upload.ts";
 
 const UPLOAD_REJECTED = "Could not start the ingest. Choose a PDF file and try again.";
 
-interface ChapterRow { chapter: { index: number; title: string }; state: string; lectures: number; uncovered: number; error?: string }
-interface RunRow { bookId: string; title: string; phase: string; error?: string; chapters: ChapterRow[] }
-interface LectureRow { id: string; title: string; bookTitle: string; chapter: { index: number; title: string }; order: number }
+/** The tree with navigation: a child component, so the router is read only when there is a tree to show. */
+function NavigatingTree({ books }: { books: TreeBook[] }) {
+	const router = useRouter();
+	return <LecturesTree books={books} onStarted={(chatId) => router.push(`/chat/${chatId}`)} />;
+}
 
-/** Lectures page: ingest a book PDF (absolute path), follow the per-chapter progress, open lectures (REQ-lec-01 to 08). */
+/** Lectures page: ingest a book PDF, follow the per-chapter progress, and open lectures and their exercises (REQ-lec-01 to 08). */
 export function LecturesPanel() {
 	const [pdfPath, setPdfPath] = useState("");
 	const [error, setError] = useState<string | null>(null);
@@ -58,6 +63,8 @@ export function LecturesPanel() {
 		}
 	}
 
+	const books = buildLectureTree(runs, lectures);
+
 	return (
 		<div className="flex flex-col gap-6">
 			<section className="flex flex-col gap-2">
@@ -73,27 +80,12 @@ export function LecturesPanel() {
 				</details>
 			</section>
 			{error !== null ? <p className="text-destructive">{error}</p> : null}
-			{runs.map((r) => (
-				<section key={r.bookId} className="rounded border p-3">
-					<h2 className="font-medium">{r.title} <span className="text-xs text-muted-foreground">{r.phase}</span></h2>
-					{r.error ? <p className="text-destructive">{r.error}</p> : null}
-					<ul className="text-sm">
-						{r.chapters.map((c) => (
-							<li key={c.chapter.index}>
-								{c.chapter.index}. {c.chapter.title}: {c.state}, {c.lectures} lectures{c.uncovered > 0 ? `, ${c.uncovered} nodes not covered` : ""}{c.error ? ` (${c.error})` : ""}
-							</li>
-						))}
-					</ul>
-				</section>
-			))}
-			<section>
-				<h2 className="mb-2 font-medium">Lectures</h2>
-				{lectures.length === 0 ? <p className="text-sm text-muted-foreground">None yet.</p> : (
-					<ul className="flex flex-col gap-1">
-						{lectures.map((l) => (
-							<li key={l.id}><a className="underline" href={`/lectures/${l.id}`}>{l.bookTitle} · ch. {l.chapter.index} · {l.order}. {l.title}</a></li>
-						))}
-					</ul>
+			<section className="flex flex-col gap-2">
+				<h2 className="font-medium">Books, chapters and lectures</h2>
+				{books.length === 0 ? (
+					<p className="text-sm text-muted-foreground">No lectures yet. Choose a book above to make them; each chapter's lectures and exercises will appear here.</p>
+				) : (
+					<NavigatingTree books={books} />
 				)}
 			</section>
 		</div>
