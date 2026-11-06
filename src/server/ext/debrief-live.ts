@@ -13,6 +13,8 @@ import { readDebriefConfig } from "../../core/ext/debrief/config.ts";
 import { WriterUnavailableError, type DebriefWriter } from "../../core/ext/debrief/ports.ts";
 import { getGraph } from "../../core/graph.ts";
 import { DEFAULT_PLAN_PARAMS } from "../../core/ext/daily-plan.ts";
+import { deriveDocuments } from "../../core/ext/study/documents.ts";
+import { deriveReading } from "../../core/ext/study/reading.ts";
 import { resolveRoleSpec } from "../../core/settings-resolution.ts";
 import { providerKeyPresent } from "../keys.ts";
 import { callCost } from "../pricing.ts";
@@ -20,6 +22,7 @@ import { stores } from "../stores.ts";
 import { liveCostGate } from "./cost-live.ts";
 import { createDebriefService, newDebriefState, type DebriefState } from "./debrief-service.ts";
 import { createDebriefSources } from "./debrief-sources.ts";
+import { createStudyFeed } from "./debrief-study.ts";
 import { extStores } from "./stores.ts";
 import { trustViews } from "./verification.ts";
 
@@ -38,6 +41,15 @@ const writer: DebriefWriter = {
 	},
 };
 
+const liveNow = (): Date => {
+	let max = Date.now();
+	for (const s of sources.sessions()) {
+		const t = Date.parse(s.lastActivityAt);
+		if (t > max) max = t;
+	}
+	return new Date(max);
+};
+
 const sources = createDebriefSources({
 	chats: {
 		list: () => stores.chatStore.listChats(),
@@ -53,7 +65,13 @@ const sources = createDebriefSources({
 	graph: () => getGraph(stores.graphStore),
 	lecture: (id) => extStores.lecturesStore.get(id),
 	trustLevels: (ids) => new Map(trustViews([...ids]).map((v) => [v.nodeId, v.level] as const)),
-	now: () => new Date(),
+	study: createStudyFeed({
+		documents: () => deriveDocuments(extStores.documentsLedger.readAll()),
+		reading: () => extStores.readingLedger.readAll(),
+		links: () => extStores.studyLinksLedger.readAll(),
+		readPages: (events, documentId) => deriveReading(events, documentId).readPages,
+	}),
+	now: liveNow,
 	idleMs: config.idleMs,
 	budgetSec: config.budgetSec,
 });
@@ -66,6 +84,7 @@ export const debriefService = createDebriefService({
 	gate: liveCostGate,
 	config,
 	lecture: (id) => extStores.lecturesStore.get(id),
+	now: liveNow,
 	state,
 });
 

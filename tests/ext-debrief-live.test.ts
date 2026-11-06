@@ -56,3 +56,23 @@ describe("the live debrief service over the real stores", () => {
 		assert.deepEqual(JSON.parse(fs.readFileSync(path.join(TMP_DATA, "ext", "format.json"), "utf-8")), { version: 1 });
 	});
 });
+
+describe("study sessions use the reading ledgers (assisted study)", () => {
+	it("a study chat bound to a document reports the pages read and the nodes linked in its window", async () => {
+		const DOC = "c".repeat(64);
+		const study = stores.chatStore.createChat("Probability book", "study");
+		extStores.documentsLedger.append({ type: "registered", documentId: DOC, title: "Probability", pageCount: 200, at: study.createdAt });
+		extStores.documentsLedger.append({ type: "chat", documentId: DOC, chatId: study.id, at: study.createdAt });
+		const t = (ms: number) => new Date(Date.parse(study.createdAt) + ms).toISOString();
+		extStores.readingLedger.append({ type: "visit", documentId: DOC, page: 3, at: t(0) });
+		extStores.readingLedger.append({ type: "visit", documentId: DOC, page: 4, at: t(20_000) });
+		extStores.readingLedger.append({ type: "close", documentId: DOC, at: t(40_000) });
+		extStores.studyLinksLedger.append({ type: "link", nodeId: "n_live1", documentId: DOC, page: 3, at: t(10_000) });
+		extStores.costStore.appendEvent({ type: "spend", usd: 5, source: "verification", at: new Date().toISOString() });
+		await debriefService.endSession(study.id);
+		const entry = extStores.journalLedger.readAll().find((e) => e.sessionId === study.id)!;
+		const facts = entry.facts as { pagesRead?: number; nodesLinked?: number; title?: string };
+		assert.deepEqual([facts.pagesRead, facts.nodesLinked, facts.title], [2, 1, "Probability"]);
+	});
+});
+
