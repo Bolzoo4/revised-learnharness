@@ -7,12 +7,14 @@
  * the composition root (src/server/ext/mcp/deps.ts) makes every one refuse.
  */
 
+import type { DocumentEvent } from "../study/documents.ts";
 import type { ExplanationEvent } from "../explanations.ts";
 import type { FrontierEvent } from "../frontier.ts";
 import type { InboxEvent } from "../inbox.ts";
 import type { JournalEvent } from "../debrief/journal.ts";
 import type { Lecture } from "../lecture/lecture.ts";
 import type { ExerciseEvent } from "../practice/exercises.ts";
+import type { ReadingEvent } from "../study/reading.ts";
 import type { ReviewDeps } from "../review-service.ts";
 import type { CycleLogEntry } from "../research-log.ts";
 import type { VerificationEvent } from "../trust.ts";
@@ -36,6 +38,8 @@ export interface McpDeps {
 	inbox: ReadLog<InboxEvent>;
 	researchLog: ReadLog<CycleLogEntry>;
 	journal: ReadLog<JournalEvent>;
+	documents: ReadLog<DocumentEvent>;
+	reading: ReadLog<ReadingEvent>;
 	lectures: LectureReader;
 	/** ISO-8601 instant, called once per tool call. */
 	now(): string;

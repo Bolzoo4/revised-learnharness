@@ -65,6 +65,7 @@ describe("calls over the protocol", () => {
 			get_daily_plan: [{}, { date: "2026-11-05" }],
 			research_status: [{}],
 			get_recent_debriefs: [{}, { limit: 5, since: "2026-11-01T00:00:00Z", kind: "weekly" }],
+			list_documents: [{}],
 		};
 		assert.deepEqual(Object.keys(valid).sort(), [...TOOL_NAMES].sort());
 		for (const [tool, inputs] of Object.entries(valid)) {

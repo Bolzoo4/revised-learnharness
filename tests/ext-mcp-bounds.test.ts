@@ -42,6 +42,7 @@ function bigFixture(): Fixture {
 	fs.writeFileSync(path.join(f.extDir, "lectures", lecture.id, "lecture.json"), JSON.stringify(lecture));
 	for (let j = 0; j < 80; j++) {
 		f.ext("journal.jsonl", { id: `deb_${String(j).padStart(12, "0")}`, kind: "session", sessionId: `s${j}`, sessionKind: "review", weekOf: null, at: "2026-11-01T10:00:00.000Z", facts: { kind: "review", blob: LONG }, commentary: LONG, nullReason: null, author: "agent" });
+		f.ext("documents.jsonl", { type: "registered", documentId: j.toString(16).padStart(64, "0"), title: LONG, pageCount: 9, at: "2026-11-01T10:00:00.000Z" });
 	}
 	f.ext("explanations.jsonl", { type: "version", nodeId: "n_00000000", version: 1, body: LONG, author: "agent", sourceRefs: [], styleVersion: "abc123abc123", fingerprint: "x", noSource: false, proposed: false, at: "2026-11-02T11:00:00.000Z" });
 	return f;
@@ -83,6 +84,7 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 			["get_neighbors", { id: "n_00000700", depth: 2 }], ["get_neighbors", { id: "n_00000000", depth: 2 }],
 			["list_lectures", {}], ["get_lecture", { id: makeLecture().id }], ["list_goals", { limit: 50 }], ["list_goals", {}], ["get_goal", { id: "goal_000000000000" }],
 			["get_daily_plan", {}], ["research_status", {}], ["get_recent_debriefs", { limit: 50 }],
+			["list_documents", {}],
 		];
 		for (const [tool, input] of cases) {
 			const out = call(f, tool, input);

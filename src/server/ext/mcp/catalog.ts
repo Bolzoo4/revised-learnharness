@@ -88,4 +88,9 @@ export const CATALOG: Record<string, ToolSpec> = {
 			kind: z.enum(DEBRIEF_KINDS).optional(),
 		}),
 	},
+	list_documents: {
+		title: "List registered documents",
+		description: "Registered PDFs with title, page count and reading progress. Study-state group. Read-only.",
+		input: strict({}),
+	},
 };

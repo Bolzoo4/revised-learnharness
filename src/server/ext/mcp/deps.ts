@@ -10,12 +10,14 @@
 import path from "node:path";
 import { parseCardEvent } from "../../../core/ext/cards.ts";
 import { parseJournalEvent } from "../../../core/ext/debrief/journal.ts";
+import { parseDocumentEvent } from "../../../core/ext/study/documents.ts";
 import { parseExplanationEvent } from "../../../core/ext/explanations.ts";
 import { parseFrontierEvent } from "../../../core/ext/frontier.ts";
 import { parseGoalEvent } from "../../../core/ext/goals.ts";
 import { parseInboxEvent } from "../../../core/ext/inbox.ts";
 import type { McpDeps, ReadLog } from "../../../core/ext/mcp/ports.ts";
 import { parseExerciseEvent } from "../../../core/ext/practice/exercises.ts";
+import { parseReadingEvent } from "../../../core/ext/study/reading.ts";
 import { parseCycleLogEntry } from "../../../core/ext/research-log.ts";
 import { parseReviewEvent } from "../../../core/ext/review.ts";
 import { parseVerificationEvent } from "../../../core/ext/trust.ts";
@@ -48,6 +50,8 @@ export function createMcpDeps(dataRoot: string, clock: () => string = () => new 
 		inbox: readOnlyLedger(extDir, "inbox.jsonl", parseInboxEvent),
 		researchLog: readOnlyLedger(extDir, "research-log.jsonl", parseCycleLogEntry),
 		journal: readOnlyLedger(extDir, "journal.jsonl", parseJournalEvent),
+		documents: readOnlyLedger(extDir, "documents.jsonl", parseDocumentEvent),
+		reading: readOnlyLedger(extDir, "reading.jsonl", parseReadingEvent),
 		lectures: createLectureReader(extDir),
 		now: clock,
 		assertReadable: createReadableGuard(dataRoot),
