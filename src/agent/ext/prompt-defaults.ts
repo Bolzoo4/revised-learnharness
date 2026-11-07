@@ -16,6 +16,7 @@ import { REVIEW_CARD_BODY, REVIEW_INSTRUCTIONS, REVIEW_NODE_BODY } from "./revie
 import { SESSION_NOTE_INSTRUCTIONS } from "./session-notes-writer.ts";
 import { STUDY_INSTRUCTIONS } from "./study/study-instructions.ts";
 import { VERIFIER_INSTRUCTIONS } from "./verifier.ts";
+import { VIDEO_BUILDER_INSTRUCTIONS } from "./video-builder.ts";
 import { WATCH_CLASSIFY_INSTRUCTIONS } from "./watch-classify.ts";
 
 export const EXT_PROMPT_DEFAULTS: Record<ExtPromptId, () => string> = {
@@ -31,6 +32,7 @@ export const EXT_PROMPT_DEFAULTS: Record<ExtPromptId, () => string> = {
 	"debrief-style": () => loadDebriefStyle(),
 	"explanation-style": () => loadStyleGuide(),
 	"session-notes": () => SESSION_NOTE_INSTRUCTIONS,
+	"video-builder": () => VIDEO_BUILDER_INSTRUCTIONS,
 };
 
 /** The default text of one catalog prompt. */

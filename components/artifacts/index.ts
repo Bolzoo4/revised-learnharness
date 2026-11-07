@@ -3,6 +3,7 @@ import type { ArtifactPartProps } from "@/src/core";
 import { DemoCard } from "@/components/artifacts/demo-card";
 import { JobCard, PdfJobCard } from "@/components/artifacts/job-card";
 import { VisualCard } from "@/components/artifacts/visual-card";
+import { VideoCard } from "@/components/ext/video-card";
 import { ImageCard } from "@/components/artifacts/image-card";
 import { ProbeDoneCard } from "@/components/artifacts/probe-done-card";
 import { ToolCallCard } from "@/components/artifacts/tool-call-card";
@@ -29,6 +30,8 @@ export const artifactRenderers: Record<string, ComponentType<ArtifactPartProps>>
 	// Artifacts (W6 fills in the components):
 	demo: DemoCard,
 	visual: VisualCard,
+	// ext (video): the Manim video, docs/ext/CONTRACTS.md "Video" — teach phase only (the tool is registered there).
+	video: VideoCard,
 	// A learner image shown as-is (issue #363): the picture itself, inline.
 	show_image: ImageCard,
 	// The probe conclusion: the assessment belongs to the learner as much as

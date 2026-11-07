@@ -18,7 +18,11 @@ import {
 	type UsageStepLike,
 	type VisualResult,
 	type VisualToolInput,
+	type VideoResult,
+	type VideoToolInput,
 } from "../../core/contracts.ts";
+import { renderFailureNote, type VideoRenderOutcome } from "../../core/ext/video/outcome.ts";
+import { runVideoBuilder } from "../ext/video-builder.ts";
 import { registerJobAbort, unregisterJobAbort } from "./aborts.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -63,11 +67,15 @@ export const visualModelOverride: { current?: PiEngine } = {};
 export const pdfModelOverride: { current?: PiEngine } = {};
 
 /** The dispatch-time tool input (from src/agent/tools/jobs.ts schemas). */
-type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput;
+type JobToolInput = ResearchToolInput | DemoToolInput | VisualToolInput | PdfToolInput | VideoToolInput;
 
 export interface JobRunnerDeps {
 	chatStore: ChatStore;
 	jobStore: JobStore;
+	/** ext (video): renders one scene for a video job — the sandboxed render
+	 *  service in production (src/server/ext/video-render.ts). Absent = the
+	 *  video job refuses honestly (the runtime is not wired). */
+	videoRender?: (req: { jobId: string; scene: string; signal: AbortSignal }) => Promise<VideoRenderOutcome>;
 	/**
 	 * Hand a finished job's steer to the session delivery registry. The
 	 * promise tracks durable marker acceptance, but the worker never waits
@@ -124,6 +132,9 @@ const KIND_ROLE: Record<JobKind, ModelRole> = {
 	demo: "demoBuilder",
 	visual: "visualMaker",
 	pdf: "pdfReader",
+	// ext (video): the video builder shares the demo builder's model slot —
+	// one code-writing tier, one settings slot, no new role (docs/ext/CONTRACTS.md, "Video").
+	video: "demoBuilder",
 };
 
 export function createJobRunner(deps: JobRunnerDeps): JobRunner {
@@ -187,6 +198,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		demo: (jobId, engine, input, loop) => runDemoJob(jobId, engine, input, loop),
 		visual: (jobId, engine, input, loop) => runVisualJob(jobId, engine, input, loop),
 		pdf: (jobId, engine, input, loop) => runPdfJob(jobId, engine, input, loop),
+		video: (jobId, engine, input, loop) => runVideoJob(jobId, engine, input, loop),
 	};
 
 	async function runJob(jobId: string, input?: JobToolInput): Promise<void> {
@@ -218,9 +230,10 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 				| DemoToolInput
 				| VisualToolInput
 				| PdfToolInput
+				| VideoToolInput
 				| undefined;
 			const pdf = resolved as PdfToolInput | undefined;
-			const failure: ResearchResult | DemoResult | VisualResult | PdfResult =
+			const failure: ResearchResult | DemoResult | VisualResult | PdfResult | VideoResult =
 				job.kind === "research"
 					? { brief: `Research failed: ${reason}`, sources: [] }
 					: job.kind === "demo"
@@ -232,6 +245,8 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 							}
 						: job.kind === "visual"
 							? { svg: "", notes: `FAILED: ${reason}` }
+							: job.kind === "video"
+								? { title: typeof (resolved as VideoToolInput | undefined)?.title === "string" ? (resolved as VideoToolInput).title : "Video", jobId: "", scene: "", durationSec: 0, notes: `FAILED: ${reason}` }
 							: {
 									path: typeof pdf?.path === "string" ? pdf.path : "",
 									question: typeof pdf?.question === "string" ? pdf.question : "",
@@ -301,7 +316,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 	 * Save the computation outcome and session delivery obligation together.
 	 * Worker liveness ends after cleanup, not after a lesson consumes the result.
 	 */
-	async function finishJob(jobId: string, result: ResearchResult | DemoResult | VisualResult | PdfResult): Promise<void> {
+	async function finishJob(jobId: string, result: ResearchResult | DemoResult | VisualResult | PdfResult | VideoResult): Promise<void> {
 		const job = jobStore.getJob(jobId);
 		if (!job) return;
 		// Aborted mid-run (abortJob flips the record before
@@ -485,6 +500,54 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			const reason = err instanceof Error ? err.message : String(err);
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { svg: "", notes: `FAILED: ${reason}` });
+		}
+	}
+
+	// ─── video (ext: Manim render, docs/ext/CONTRACTS.md "Video") ───────────
+
+	async function runVideoJob(
+		jobId: string,
+		model: PiEngine | undefined,
+		passedInput: JobToolInput | undefined,
+		loop: LoopContext,
+	): Promise<void> {
+		const ctx = jobContext(jobId);
+		if (!ctx) return;
+		const { job } = ctx;
+
+		const input = (passedInput ?? resolveInput(job, passedInput)) as VideoToolInput | undefined;
+		const title = typeof input?.title === "string" && input.title.trim() ? input.title.trim() : "Video";
+		const brief = typeof input?.brief === "string" ? input.brief : "";
+		const render = deps.videoRender;
+		if (!render) {
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: "the video renderer is not installed" });
+			await finishJob(jobId, { title, jobId: "", scene: "", durationSec: 0, notes: "FAILED: the video renderer is not installed" });
+			return;
+		}
+
+		try {
+			jobStore.updateJob(jobId, { activity: "writing scene" });
+			const built = await runVideoBuilder(
+				{ title, brief },
+				{
+					engine: model,
+					abortSignal: loop.abortSignal,
+					chatId: loop.chatId,
+					onUsage: (usage) => loop.onUsage(piUsageToStep(usage)),
+					onActivity: (line) => jobStore.updateJob(jobId, { activity: line }),
+					render: (scene) => render({ jobId, scene, signal: loop.abortSignal }),
+				},
+			);
+			if (!built.ok && stillRunning(jobId)) jobStore.updateJob(jobId, { error: built.notes });
+			const result: VideoResult = built.ok
+				? { title, jobId, scene: built.scene, durationSec: built.durationSec, ...(built.notes ? { notes: built.notes } : {}) }
+				: { title, jobId: "", scene: built.scene, durationSec: 0, notes: built.notes };
+			await finishJob(jobId, result);
+		} catch (err) {
+			if (loop.abortSignal.aborted) return;
+			const reason = err instanceof Error ? err.message : String(err);
+			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
+			await finishJob(jobId, { title, jobId: "", scene: "", durationSec: 0, notes: `FAILED: ${renderFailureNote("failed")}` });
 		}
 	}
 

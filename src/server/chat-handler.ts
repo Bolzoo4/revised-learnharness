@@ -18,6 +18,7 @@ import { SubscriptionRequestCycle, type SubscriptionDispatchLifecycle } from "..
 import { reconstructRequestCause } from "../core/native-messages.ts";
 import { isPracticeLike } from "../core/ext/index.ts";
 import { createJobRunner } from "../agent/subagents/runner.ts";
+import { renderJobVideo } from "./ext/video-render.ts";
 import { createExtractionPipeline } from "../agent/subagents/extraction.ts";
 import type { ModelRole } from "../../config.ts";
 import {
@@ -109,6 +110,8 @@ const jobRunner = createJobRunner({
 	chatStore: stores.chatStore,
 	jobStore: stores.jobStore,
 	deliver: deliverJobResult,
+	// ext (video): the sandboxed Manim render (docs/ext/CONTRACTS.md "Video"); absent runtime = the job refuses.
+	videoRender: renderJobVideo,
 	// BYOK (owner, 2026-09-22): job engines resolve the chain — role
 	// override → slot → NOTHING — read FRESH per job (a settings PUT
 	// between dispatch and spawn lands); an empty chain flows through as

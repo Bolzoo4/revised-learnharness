@@ -839,6 +839,7 @@ The settings page lists the extension's agent prompts under "Extension agents", 
 | `debrief-style` | `debriefStyle()` (debrief writer) | `src/agent/ext/prompts/debrief-style.md` | the four-part rules and the submit tool (`DEBRIEF_RULES`) |
 | `explanation-style` | `explanationStyle()` (explanation writer) | `src/agent/ext/prompts/explanation-style.md` | the structure and `[[id]]` link rules (`STRUCTURE_RULES`) |
 | `session-notes` | `sessionNoteInstructions()` (session note proposal, after an extraction batch) | `SESSION_NOTE_INSTRUCTIONS` | the note so far and the learner's messages of the batch, one line each |
+| `video-builder` | `runVideoBuilder()` (video job, the Manim scene writer) | `VIDEO_BUILDER_INSTRUCTIONS` | nothing (the scene rules and the render tool names are in the text; see "Video") |
 
 The focus variants keep their per-run data out of the editable text: the body is resolved first and the data block is appended after it, so an edit cannot drop the card, the node, the document or the exercise. The data block sits after the body in the default too, so the default text of `review-card` and `review-node` is the body alone (the card or node block follows it).
 
@@ -856,3 +857,56 @@ These prompts interleave their per-run data with their output schema, or their o
 ### Migration note
 
 Before this section, a file in `ext/debrief-style.md` or `ext/explanation-style.md` took effect by its presence alone. Those two files now need their switch on, like every other editable prompt.
+
+## Video (Manim renders)
+
+The `video` job tool dispatches a background sub-agent that writes one Manim scene, renders it in a macOS sandbox, and returns the mp4 to the lesson. The design is `docs/superpowers/specs/2026-11-07-manim-video-design.md` (REQ-vid-01..13); the runtime bundle is built by a separate script (`scripts/manim-runtime`, `docs/ext/MANIM-RUNTIME.md`). This section is the contract the app code keeps.
+
+### Runtime root
+
+- `manimRuntimeRoot()` (`src/agent/ext/video-runtime.ts`): `LH_MANIM_RUNTIME` when set, else `<process.resourcesPath>/manim-runtime`. The root is usable only when it holds `bin/manim` AND `bin/ffprobe`. Otherwise the runtime is absent: the `video` tool is not offered, and a job that reaches the runner refuses with a failure steer (REQ-vid-12).
+- `bin/manim` is a `sh` wrapper that the render runs as `<root>/bin/manim -ql --disable_caching --media_dir <work>/media -o scene <work>/scene.py Scene`. The output is `<work>/media/videos/scene/480p15/scene.mp4`. `bin/ffprobe` checks it.
+
+### Render (`src/server/ext/video-render.ts`)
+
+- One render: a fresh work directory under the real temp folder, the scene written as `scene.py`, then `/usr/bin/sandbox-exec -p <profile> <root>/bin/manim …` with cwd and `TMPDIR` in the work directory, `HOME` set to the work directory, a PATH of the runtime's `bin` and the system folders, and no other environment (no API keys). Each command runs in its own process group.
+- Time limit: `VIDEO_LIMITS.renderTimeoutMs` (120 s). A timeout or an abort SIGKILLs the process group (the tree) and fails the render (`timeout` / `aborted`).
+- The output must exist and pass `ffprobe` (run sandboxed too): an mp4 or mov container, a video stream, a positive duration, at most `VIDEO_LIMITS.outputMaxBytes` (25 MB). The mp4 is copied to its job path with a `.part` rename.
+- The work directory is deleted on every outcome (success, failure, timeout, abort).
+- Fails closed: without `/usr/bin/sandbox-exec` nothing runs.
+
+### Sandbox profile (`src/core/ext/video/sandbox-profile.ts`)
+
+Deny by default. Network: `deny network*`. Writes: only the work directory and `/dev/null` (plus `/dev/dtracehelper`, which the loader touches). Reads: `/` as a literal, file metadata, the system folders (`/System`, `/usr`, `/bin`, `/sbin`, `/Library`, `/private/var/db/dyld`, `/private/var/select`, `/private/etc`, `/dev`), the runtime root, and the work directory. Process exec and fork are allowed, because the scene runs the bundled Python, Manim and ffmpeg. The home folder and the app's data are unreadable. `tests/ext-video-sandbox.test.ts` proves each rule on this Mac with the real `sandbox-exec` (write inside allowed, write outside refused, connection to a local listener refused, home folder refused, runtime readable).
+
+Scope note: the profile does not limit which programs may be executed. A scene can run any binary the system provides; the network and file rules are what stop it from reaching out.
+
+### The job
+
+- Tool `video` (`src/agent/ext/video-tools.ts`): input `{title, brief}`, checked by `checkVideoInput` (non-empty after trimming; title at most 120 characters, brief at most 4000). Fire-and-forget, deduped by toolCallId, like `demo`. Registered in ONE place: `createTeacherTools` in `src/agent/tools.ts` (teach phase only; the prober does not get it). Switched off with the settings toggle `video` (`TOGGLEABLE_TOOLS`).
+- Job kind `video`. Model slot: the video builder runs on the `demoBuilder` role (the same code-writing tier and settings slot as `demo`; no new role). Usage is folded into the job record like the other kinds, so the daily cost gate counts it.
+- Sub-agent (`src/agent/ext/video-builder.ts`): tools `write_scene` (the scene must define `class Scene(Scene):`; at most 64 KB) and `render_video`. At most `maxFixes + 1` renders (`VIDEO_LIMITS.maxFixes` = 4, so 5). If the last scene was not rendered, one final verification render runs before delivery. A render port that throws is a failed render, never an exception.
+- Failure: the result is `{title, jobId: "", scene: "", durationSec: 0, notes: "FAILED: …"}`. The notes are learner-safe (`renderFailureNote`, fixed text per reason). The steer text tells the teacher to fall back to a `demo`. A sandbox refusal is recorded on the job as the activity line (`render failed: denied`) and the job error.
+- Success: `{title, jobId, scene, durationSec, notes?}`. The steer is `subagent-steer` with `kind: "video"`.
+- Runner: `runVideoJob` in `src/agent/subagents/runner.ts`; the render comes in through `JobRunnerDeps.videoRender`, wired to `renderJobVideo` in the chat handler.
+
+### Store layout
+
+Beside the job record (`data/jobs/`, upstream's JobStore is unchanged):
+
+| File | Written by | Contents |
+|---|---|---|
+| `data/jobs/<jobId>.json` | the JobStore | the job record (`kind: "video"`, `input: {title, brief}`, `result` = the video result, `status`, `usage`) |
+| `data/jobs/<jobId>.mp4` | `renderScene` on success | the finished video, copied in with a `.part` rename |
+
+- The JobStore lists only `*.json`, so the mp4 is never mistaken for a record.
+- `deleteJobsForChat` removes each job's `.mp4` with its record (`removeJobVideo`, `src/store/ext/job-video.ts`). Session deletion therefore removes the video (REQ-vid-13).
+- The id is checked (`^[A-Za-z0-9_-]+$`) before any path is built.
+
+### Serving
+
+- `GET /api/ext/videos/[jobId]` (`app/api/ext/videos/[jobId]/route.ts`, `videoResponse` in `src/server/ext/video-serve.ts`): 200 with `video/mp4`, a Range header honoured (206, or 416 when unsatisfiable). 404 unless the job exists, is of kind `video`, is `done`, and its file is on disk.
+
+### The card
+
+- `components/ext/video-card.tsx`: while the call runs, the dispatch card (`video` → "Video builder"); when delivered, the title, a native `<video controls>` on the route above, and "Show scene" for the Manim source. A failed result shows its notes and no player. The steer card routes `kind: "video"` to it. Light and dark themes use the page tokens.

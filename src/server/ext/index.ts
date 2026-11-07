@@ -53,3 +53,4 @@ export { debriefService, startDebriefScheduler } from "./debrief-live.ts";
 export { providerPauseStatus } from "./provider-pause.ts";
 export { outcomeResponse, parseLectureActivity, parseListQuery } from "./debrief-input.ts";
 
+export { videoResponse } from "./video-serve.ts";

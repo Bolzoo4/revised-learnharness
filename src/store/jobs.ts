@@ -16,6 +16,7 @@ import type { JobStore } from "../core/ports.ts";
 import type { CreateJobInit, JobPatch } from "../core/ports.ts";
 import type { JobRecord } from "../core/contracts.ts";
 import { removeLeftoverTemps, writeFileAtomicSync } from "./atomic-write.ts";
+import { removeJobVideo } from "./ext/job-video.ts";
 
 /** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
 const JOBS_DIR = path.join(PATHS.data, "jobs");
@@ -101,6 +102,7 @@ function deleteJobsForChat(chatId: string): number {
 		try {
 			fs.unlinkSync(jobFile(job.id));
 			removeLeftoverTemps(jobFile(job.id));
+			removeJobVideo(job.id); // ext: a video job's mp4 lives beside its record (store/ext/job-video.ts)
 			removed++;
 		} catch {
 			/* already gone — the count is best-effort truth */

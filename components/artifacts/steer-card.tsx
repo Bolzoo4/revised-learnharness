@@ -7,6 +7,7 @@ import { isSubagentFailure } from "@/src/core";
 import { DemoOutputCard } from "@/components/artifacts/demo-card";
 import { PdfBriefCard, ResearchBriefCard } from "@/components/artifacts/job-card";
 import { VisualOutputCard } from "@/components/artifacts/visual-card";
+import { VideoOutputCard } from "@/components/ext/video-card";
 
 /**
  * The sub-agent result delivery card (contracts.ts "THE ASYNC PROTOCOL" §4).
@@ -57,6 +58,8 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
 			);
 		case "demo":
 			return <DemoOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
+		case "video":
+			return <VideoOutputCard output={data.result} />;
 		case "visual":
 			return <VisualOutputCard output={data.result} messageId={message.id} initialInverted={data.ui?.inverted ?? false} />;
 	}

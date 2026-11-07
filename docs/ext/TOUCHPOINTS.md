@@ -74,6 +74,19 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `components/confidence-rail.tsx` | the track and the ticks use the page tokens instead of `#141414` and `rgba(230,…)` | Light theme |
 | `components/lh-mark.tsx` | the logo's white fills use `--lh-hard-ink` | Light theme |
 | `tests/render-settings.test.tsx` | the Mode assertion pins the live select (it pinned the disabled "Coming soon" control) | Light theme |
+| `src/core/contracts/jobs.ts` | `JobKind` gains `"video"`; `VideoToolInput` and `VideoResult`; the result unions, the failure shape, and the steer and abort texts gain video | Video (Manim) |
+| `src/core/pending.ts` | `TOGGLEABLE_TOOLS` gains `"video"` (the settings switch) | Video (Manim) |
+| `src/agent/subagents/runner.ts` | the video runner `runVideoJob` (kind→role `video` = `demoBuilder`, the kind table, the refusal shape), `JobRunnerDeps.videoRender?`, the widened input union | Video (Manim) |
+| `src/agent/tools.ts` | `createTeacherTools` spreads `videoJobTools(...)`, the one registration point (teach phase only); the spawn types accept `VideoInput`; one import | Video (Manim) |
+| `src/server/chat-handler.ts` | one import of `renderJobVideo` and the job runner's `videoRender` dependency | Video (Manim) |
+| `src/store/jobs.ts` | `deleteJobsForChat` also removes the job's `.mp4` (`removeJobVideo`, store/ext/job-video.ts); one import | Video (Manim) |
+| `components/artifacts/index.ts` | the `video` renderer (`VideoCard`) in the artifact registry; one import | Video (Manim) |
+| `components/artifacts/steer-card.tsx` | the `video` case renders `VideoOutputCard`; one import | Video (Manim) |
+| `components/artifacts/dispatch-card.tsx` | `KIND_LABEL` gains `video` ("Video builder") | Video (Manim) |
+| `components/activity-dock.tsx` | `KIND_ICON` gains `video`; the dock label "Video builder"; one import (`FilmIcon`) | Video (Manim) |
+| `components/settings/agent-section.tsx` | `TOGGLE_TOOLS` gains `"video"` (the Tool · video switch) | Video (Manim) |
+| `tests/question-tools.test.ts` | the pinned `TOGGLEABLE_TOOLS` list includes `video` | Video (Manim) |
+| `tests/tool-toggles-bridge.test.ts` | the pinned supported-tools message includes `video` | Video (Manim) |
 
 Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 

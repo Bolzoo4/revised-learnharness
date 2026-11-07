@@ -29,6 +29,7 @@ export const EXT_PROMPT_IDS = [
 	"debrief-style",
 	"explanation-style",
 	"session-notes",
+	"video-builder",
 ] as const;
 
 export type ExtPromptId = (typeof EXT_PROMPT_IDS)[number];
@@ -117,6 +118,12 @@ export const EXT_PROMPT_CATALOG: readonly ExtPromptEntry[] = [
 		label: "Session notes",
 		description: "Reads the learner's own messages from one stretch of a study session and updates the note on how they want to study that session's material (intuition or formulas, kinds of example).",
 		warning: "Must call submit_session_note exactly once with update (true or false) and note (the whole new note when update is true). The learner's messages are appended by the code after this text.",
+	},
+	{
+		id: "video-builder",
+		label: "Video builder",
+		description: "Writes one short Manim scene from the brief, renders it in the sandbox, and fixes it from the render's output (up to the render limit).",
+		warning: "Keeps the rules the code relies on: the scene must define `class Scene(Scene):` (the renderer asks for that class), the sandbox rules (no network, no files outside its folder), and the write_scene and render_video tool names. The render itself is run by code.",
 	},
 ];
 
