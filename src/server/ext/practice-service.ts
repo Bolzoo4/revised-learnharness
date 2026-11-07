@@ -64,6 +64,8 @@ export interface PracticeServiceDeps {
 	nodes(ids: readonly string[]): ExerciseNode[];
 	trust(nodeIds: readonly string[]): Map<string, TrustLevel>;
 	writeExerciseSet(input: ExerciseWriteInput): Promise<Exercise[]>;
+	/** The study-preferences block for the nodes a focus text links (session notes); "" when none. Optional. */
+	studyNotesFor?(focus: string): string;
 	/** The personal layer's applyExerciseResult. */
 	applyExerciseResult(input: { goalId: string; results: Array<{ nodeId: string; outcome: NodeOutcome }> }): { reached: boolean };
 	now?: () => string;
@@ -232,7 +234,17 @@ export function createPracticeService(deps: PracticeServiceDeps) {
 	}
 
 	function toolContext(chatId: string, chatStore: OfficeHoursToolContext["chatStore"]): OfficeHoursToolContext {
-		return { chatId, chatStore, source: () => sourceOf(chatId), focus: () => focusOf(chatId), submitVerdict: (items, work) => submitVerdict(chatId, items, work) };
+		return {
+			chatId,
+			chatStore,
+			source: () => sourceOf(chatId),
+			focus: () => focusOf(chatId),
+			studyNotes: () => {
+				const focus = focusOf(chatId);
+				return focus === null ? "" : (deps.studyNotesFor?.(focus) ?? "");
+			},
+			submitVerdict: (items, work) => submitVerdict(chatId, items, work),
+		};
 	}
 
 	return {

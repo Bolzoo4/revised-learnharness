@@ -61,6 +61,9 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `components/activity-dock.tsx` | the "Open session" link renders only when the id is a chat id (`chat_…`): an extraction of an imported source carries the source id, which has no session and led to a 404 | Navigation fixes |
 | `app/not-found.tsx` (new root file) | a 404 page with a link home (the default one has no way back inside the desktop app) | Navigation fixes |
 | `components/graph-view.tsx` | one import of `NodeMarkControl` and one `<NodeMarkControl />` line under `<TrustBadge />` in the node detail card: the node's research mark (expand / hold / stop / clear) (REQ-rs-18) | Research page rework |
+| `src/agent/subagents/extraction.ts` | `ExtractionPipelineDeps.onBatchMerged?`, one call after a chat batch merges, with that batch's messages (session notes read the learner's words, REQ-sn-02) | Session study notes |
+| `src/server/chat-handler.ts` | imports `sessionNotesAfterBatch` from the ext barrel and one `onBatchMerged` line in the extraction pipeline deps | Session study notes |
+| `app/api/chats/route.ts` | the Practice session's graph-context message goes through `withStudyNotes` (the picked nodes' study preferences ahead of the context, REQ-sn-05) | Session study notes |
 | `app/layout.tsx` | the theme bootstrap `<script>` in `<head>` (a cached light mode drops the `dark` class before paint) and `suppressHydrationWarning` on `<html>` | Light theme |
 | `app/globals.css` | the light palette (`:root:not(.dark)`), the `--lh-hard-ink` token, light overrides of the white strokes and borders and of the status text colours | Light theme |
 | `components/settings/appearance.tsx` | the provider sets the `dark` class on `<html>` (layout effect, once the saved record has loaded) and caches the mode; a stored background applies in dark only | Light theme |

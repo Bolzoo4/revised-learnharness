@@ -28,6 +28,7 @@ export const EXT_PROMPT_IDS = [
 	"office-hours",
 	"debrief-style",
 	"explanation-style",
+	"session-notes",
 ] as const;
 
 export type ExtPromptId = (typeof EXT_PROMPT_IDS)[number];
@@ -110,6 +111,12 @@ export const EXT_PROMPT_CATALOG: readonly ExtPromptEntry[] = [
 		label: "Explanation style",
 		description: "The style guide for node explanations: tone, depth and examples.",
 		warning: "The structure (intuition, explanation, why it holds, example, common confusions) and the [[id]] link rule are fixed in code and appended after this guide.",
+	},
+	{
+		id: "session-notes",
+		label: "Session notes",
+		description: "Reads the learner's own messages from one stretch of a study session and updates the note on how they want to study that session's material (intuition or formulas, kinds of example).",
+		warning: "Must call submit_session_note exactly once with update (true or false) and note (the whole new note when update is true). The learner's messages are appended by the code after this text.",
 	},
 ];
 

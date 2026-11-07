@@ -157,6 +157,16 @@ export function NodePanel({ request, onClose }: { request: PanelRequest; onClose
 			onDecide={(decision) =>
 				void guarded(() => post(nodeId, "explanation", { action: decision === "approved" ? "approve" : "reject" }))
 			}
+			onSaveStudyNote={(chatId, text) =>
+				void guarded(() => api(`/api/ext/session-notes/${encodeURIComponent(chatId)}`, {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ text }),
+				}))
+			}
+			onClearStudyNote={(chatId) =>
+				void guarded(() => api(`/api/ext/session-notes/${encodeURIComponent(chatId)}`, { method: "DELETE" }))
+			}
 			renderBody={(markdown) => <MessageResponse>{markdown}</MessageResponse>}
 		/>
 	);

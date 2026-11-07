@@ -57,7 +57,7 @@ import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
-import { verifyAfterMerge, withPostMerge } from "./ext/index.ts";
+import { sessionNotesAfterBatch, verifyAfterMerge, withPostMerge } from "./ext/index.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens } from "./compaction.ts";
@@ -143,6 +143,8 @@ export const extraction = withPostMerge(createExtractionPipeline({
 	// refuses BEFORE any batch runs (the typed throw), never mid-run.
 	providerKeyMissing: (provider, tier) =>
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
+	// Session notes (REQ-sn-02): the merged batch's learner words feed the chat's study note.
+	onBatchMerged: sessionNotesAfterBatch,
 }), verifyAfterMerge);
 
 

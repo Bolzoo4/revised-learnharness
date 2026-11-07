@@ -742,6 +742,9 @@ export interface ExtractionModels {
 }
 
 export interface ExtractionPipelineDeps extends GraphDeps, ExtractionModels {
+	/** Called once a chat batch has merged, with that batch's messages (session notes read its learner words,
+	 *  REQ-sn-02). Fire-and-forget: the merge never waits for it, and the hook must not throw. */
+	onBatchMerged?: (chatId: string, messages: readonly LhMessage[]) => void;
 	/** The chunk budget — the transcript-token share of the extractor's
 	 *  context; batches fill to it (the trigger fires on the same number,
 	 *  read fresh per turn by the composition root). OPTIONAL with the
@@ -1220,6 +1223,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 								console.info(
 									`[extraction ${jobKey}] merged: ${batchStats.nodes} nodes, ${batchStats.chains ?? 0} chains`,
 								);
+								deps.onBatchMerged?.(chatId, messages);
 								return batchStats;
 							});
 						}),

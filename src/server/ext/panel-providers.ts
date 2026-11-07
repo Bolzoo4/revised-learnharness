@@ -16,12 +16,14 @@ import { sourcesOfNode } from "../../core/ext/study/links.ts";
 import type { PanelSources } from "../../core/ext/node-panel-types.ts";
 import type { NodeActionHandlers } from "./node-knowledge.ts";
 import { personalPanel } from "./personal-panel.ts";
+import { studyNotesOfNode } from "./session-notes-live.ts";
 import { extStores } from "./stores.ts";
 import { trustViews, verifyNodesNow } from "./verification.ts";
 
 export const panelSources: PanelSources = {
 	...personalPanel.sources,
 	trust: (nodeId) => panelTrustOf(trustViews([nodeId])[0]),
+	studyNotes: (nodeId) => studyNotesOfNode(nodeId),
 	lecturesCiting: (nodeId) => citingLectures(nodeId, extStores.lecturesStore.list()).map((l) => ({ lectureId: l.id, title: l.title })),
 	studySources: (nodeId) => {
 		const docs = deriveDocuments(extStores.documentsLedger.readAll());

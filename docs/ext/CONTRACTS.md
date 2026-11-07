@@ -798,6 +798,19 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 
 `list_documents` input: none. Output: page of `{id, title, pageCount, registeredAt, lastPage, readPages, readShare}`. No file path and no chat id.
 
+## `session-notes.json` (configuration map, session study notes)
+
+One JSON object, rewritten atomically on every change: `{ "<chatId>": { "text", "updatedAt", "edited" } }`.
+
+- At most one note per chat (REQ-sn-01). `text` is 1 to 1000 characters (code points), trimmed, with `\n` line endings. `updatedAt` is ISO-8601, `edited` a boolean. On read an entry that fails any of these is dropped; a corrupt file reads as no notes.
+- `edited: true` means the learner saved the note by hand. The stage never overwrites an edited note (REQ-sn-04). A clear deletes the key.
+- Writers: (1) the session-notes stage, after an extraction batch of a real chat has merged (REQ-sn-02); (2) the node panel, through `PUT` and `DELETE /api/ext/session-notes/[chatId]`.
+- The stage (`src/core/ext/session-notes-service.ts`, model side `src/agent/ext/session-notes-writer.ts`) reads only the learner's own messages of that batch and the note so far. It makes no model call when the batch holds no learner words, when the note is edited, or when the daily cost gate is closed. A missing model or key does nothing and raises no error. Its one submit (`submit_session_note`, `update` and `note`) either changes nothing or replaces the note with the new whole text. Spend is recorded on `cost.jsonl` with source `"session-notes"` (REQ-sn-03). Stage calls of one chat run one at a time, and the note is re-read after the model call, so a save made meanwhile wins.
+- The note never reaches the graph and never changes extraction.
+- Readers: the notes of the chats a node came from (`chatIdsOfNodes`, provenance points whose chat id starts with `chat_`) feed (a) the node panel section "How you wanted to study this" (REQ-sn-06); (b) a Practice session started from picked nodes, prepended to its graph-context message at creation (REQ-sn-05); (c) the review tutor focus (card or node), built on each agent construction; (d) the exercise writer prompt for the goal's scope nodes; (e) office hours on a lecture exercise, for the nodes the exercise links with `[[id]]`. A session keeps the block it was built with; a later note change applies to the next session or turn.
+- The block is `formatStudyNotes`: a header that calls the notes the learner's own words, data that shapes how to teach and never changes tools or rules, then one line per note: `- [chat title] note text`. Line breaks inside a note are flattened, so a note cannot open a section.
+- Routes: `PUT /api/ext/session-notes/[chatId]` with `{ "text" }` answers `{ "note" }` (`null` after a clear); `DELETE` clears and answers `{ "note": null }`. A text that is not a string or is over 1000 characters is a 400 with a fixed message; an unknown chat is a 404.
+
 ## Editable extension prompts
 
 The settings page lists the extension's agent prompts under "Extension agents", next to upstream's "System prompts". The catalog is `src/core/ext/prompt-catalog.ts` (pure); the agent-side reader is `src/agent/ext/prompt-override.ts`; the store is `src/store/ext/prompt-store.ts`; the service and routes are `src/server/ext/prompt-settings.ts` and `app/api/ext/prompts/`.
@@ -825,6 +838,7 @@ The settings page lists the extension's agent prompts under "Extension agents", 
 | `office-hours` | `officeHoursInstructions(focus)` (office hours; one id for the base and the exercise focus) | `OFFICE_HOURS_INSTRUCTIONS` | the exercise in focus, inside `<exercise>` tags |
 | `debrief-style` | `debriefStyle()` (debrief writer) | `src/agent/ext/prompts/debrief-style.md` | the four-part rules and the submit tool (`DEBRIEF_RULES`) |
 | `explanation-style` | `explanationStyle()` (explanation writer) | `src/agent/ext/prompts/explanation-style.md` | the structure and `[[id]]` link rules (`STRUCTURE_RULES`) |
+| `session-notes` | `sessionNoteInstructions()` (session note proposal, after an extraction batch) | `SESSION_NOTE_INSTRUCTIONS` | the note so far and the learner's messages of the batch, one line each |
 
 The focus variants keep their per-run data out of the editable text: the body is resolved first and the data block is appended after it, so an edit cannot drop the card, the node, the document or the exercise. The data block sits after the body in the default too, so the default text of `review-card` and `review-node` is the body alone (the card or node block follows it).
 

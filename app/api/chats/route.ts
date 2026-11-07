@@ -1,6 +1,6 @@
 import { chainsForSelection, formatChainLine } from "@/src/core";
 import { newGraphContextMessage, type GraphContextPick } from "@/src/core";
-import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt, withTrustTags } from "@/src/server";
+import { compactionInFlight, createChat, isTurnRunning, listChats, readSettingsRecord, stores, titleFromPrompt, withStudyNotes, withTrustTags } from "@/src/server";
 import type { ChatListItem } from "@/src/core";
 
 /** The session picker's list: record-derived summaries (phase, pending
@@ -65,7 +65,8 @@ export async function POST(req: Request) {
 		const chainLines = chainsForSelection(pickedNodes, stores.graphStore.readChains()).map((c) =>
 			formatChainLine(c, Object.fromEntries(byId)),
 		);
-		stores.chatStore.saveMessages(chat.id, [newGraphContextMessage(withTrustTags(picks), chainLines)]);
+		// Study notes (session-notes spec, REQ-sn-05): the picked nodes' study preferences ride ahead of the session context.
+		stores.chatStore.saveMessages(chat.id, [withStudyNotes(newGraphContextMessage(withTrustTags(picks), chainLines), picks.map((p) => p.id))]);
 	}
 	return Response.json({ id: chat.id, title: chat.title });
 }

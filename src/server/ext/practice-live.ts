@@ -7,6 +7,7 @@
 
 import { writeExerciseSet } from "../../agent/ext/practice/exercise-writer.ts";
 import { getGraph } from "../../core/graph.ts";
+import { extractNodeLinks } from "../../core/ext/explanation-check.ts";
 import { goalScope, deriveGoals } from "../../core/ext/goals.ts";
 import { applyExerciseResult } from "../../core/ext/review-service.ts";
 import { stores } from "../stores.ts";
@@ -14,6 +15,7 @@ import { liveCostGate } from "./cost-live.ts";
 import { createPracticeService } from "./practice-service.ts";
 import { extStores } from "./stores.ts";
 import { writerDeps } from "./study-engine.ts";
+import { studyBlockFor } from "./session-notes-live.ts";
 import { trustViews } from "./verification.ts";
 
 export const practiceService = createPracticeService({
@@ -34,7 +36,9 @@ export const practiceService = createPracticeService({
 		return getGraph(stores.graphStore).nodes.filter((n) => want.has(n.id)).map((n) => ({ id: n.id, name: n.name, statement: n.statement }));
 	},
 	trust: (ids) => new Map(trustViews([...ids]).map((v) => [v.nodeId, v.level] as const)),
-	writeExerciseSet: (input) => writeExerciseSet(writerDeps(), input),
+	writeExerciseSet: (input) => writeExerciseSet(writerDeps(), { ...input, studyNotes: studyBlockFor(input.nodes.map((n) => n.id)) }),
+	// Office hours on a lecture exercise: the nodes the exercise links ([[id]]) carry their study preferences.
+	studyNotesFor: (focus) => studyBlockFor(extractNodeLinks(focus)),
 	applyExerciseResult: (input) =>
 		applyExerciseResult(input, {
 			graphStore: stores.graphStore,

@@ -13,6 +13,7 @@ import { GAP_RESEARCH_INSTRUCTIONS } from "./gap-research.ts";
 import { OFFICE_HOURS_INSTRUCTIONS } from "./practice/office-hours-instructions.ts";
 import { RESEARCH_INSTRUCTIONS } from "./research-instructions.ts";
 import { REVIEW_CARD_BODY, REVIEW_INSTRUCTIONS, REVIEW_NODE_BODY } from "./review-instructions.ts";
+import { SESSION_NOTE_INSTRUCTIONS } from "./session-notes-writer.ts";
 import { STUDY_INSTRUCTIONS } from "./study/study-instructions.ts";
 import { VERIFIER_INSTRUCTIONS } from "./verifier.ts";
 import { WATCH_CLASSIFY_INSTRUCTIONS } from "./watch-classify.ts";
@@ -29,6 +30,7 @@ export const EXT_PROMPT_DEFAULTS: Record<ExtPromptId, () => string> = {
 	"office-hours": () => OFFICE_HOURS_INSTRUCTIONS,
 	"debrief-style": () => loadDebriefStyle(),
 	"explanation-style": () => loadStyleGuide(),
+	"session-notes": () => SESSION_NOTE_INSTRUCTIONS,
 };
 
 /** The default text of one catalog prompt. */

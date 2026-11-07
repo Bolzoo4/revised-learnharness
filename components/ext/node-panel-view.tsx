@@ -36,6 +36,9 @@ export interface NodePanelViewProps {
 	onSaveEdit(body: string): void;
 	onCreateCard(question: string, answer: string): void;
 	onDecide(decision: "approved" | "rejected", version: number): void;
+	/** Save or clear the learner's study note of one source chat (session notes, REQ-sn-06). */
+	onSaveStudyNote?(chatId: string, text: string): void;
+	onClearStudyNote?(chatId: string): void;
 	renderBody?: (markdown: string) => ReactNode;
 }
 
@@ -57,6 +60,48 @@ function Section({ title, testId, children }: { title: string; testId?: string; 
 			<h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>
 			{children}
 		</section>
+	);
+}
+
+/** One source chat's study note: read, edit, or clear (REQ-sn-06). Functional markup only. */
+function StudyNote({ note, onSave, onClear }: { note: NodePanelData["studyNotes"][number]; onSave(text: string): void; onClear(): void }) {
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState(note.text);
+	return (
+		<div className="mb-2" data-testid="study-note">
+			<p className="text-xs text-muted-foreground">
+				{note.chatTitle}
+				{note.edited ? " (written by you)" : ""}
+			</p>
+			{editing ? (
+				<div>
+					<textarea
+						data-testid="study-note-input"
+						className="w-full rounded border p-1 text-sm"
+						rows={3}
+						maxLength={1000}
+						value={draft}
+						onChange={(e) => setDraft(e.target.value)}
+					/>
+					<button type="button" data-testid="study-note-save" className="mr-2 text-xs underline" onClick={() => { onSave(draft); setEditing(false); }}>
+						Save
+					</button>
+					<button type="button" className="text-xs underline" onClick={() => { setDraft(note.text); setEditing(false); }}>
+						Cancel
+					</button>
+				</div>
+			) : (
+				<>
+					<div className="whitespace-pre-wrap">{note.text}</div>
+					<button type="button" data-testid="study-note-edit" className="mr-2 text-xs underline" onClick={() => { setDraft(note.text); setEditing(true); }}>
+						Edit
+					</button>
+					<button type="button" data-testid="study-note-clear" className="text-xs underline" onClick={onClear}>
+						Clear
+					</button>
+				</>
+			)}
+		</div>
 	);
 }
 
@@ -219,6 +264,21 @@ export function NodePanelView(p: NodePanelViewProps) {
 
 			<Section title="Lectures that cite it" testId="panel-lectures">
 				{data.citingLectures.length === 0 ? <p className="text-muted-foreground">None.</p> : data.citingLectures.map((l) => <p key={l.lectureId}>{l.title}</p>)}
+			</Section>
+
+			<Section title="How you wanted to study this" testId="panel-study-notes">
+				{data.studyNotes.length === 0 ? (
+					<p className="text-muted-foreground">None.</p>
+				) : (
+					data.studyNotes.map((n) => (
+						<StudyNote
+							key={n.chatId}
+							note={n}
+							onSave={(text) => p.onSaveStudyNote?.(n.chatId, text)}
+							onClear={() => p.onClearStudyNote?.(n.chatId)}
+						/>
+					))
+				)}
 			</Section>
 
 			<Section title="Source in your documents" testId="panel-study-sources">

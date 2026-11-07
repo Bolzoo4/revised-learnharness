@@ -37,6 +37,7 @@ import {
 import { stores } from "../stores.ts";
 import { trustOfNode } from "./personal-trust.ts";
 import { extStores } from "./stores.ts";
+import { studyBlockFor } from "./session-notes-live.ts";
 import { startOfLocalDay } from "../../core/ext/local-day.ts";
 
 export { startOfLocalDay };
@@ -48,6 +49,8 @@ export interface PersonalLayerDeps extends QueryDeps {
 	focusLedger?: { append(event: FocusEvent): void; readAll(): FocusEvent[] };
 	/** The node explanations, read for a node-focused session. Optional: without it the tutor has no explanation to show. */
 	explanations?: { readEvents(): ExplanationEvent[] };
+	/** The study-preferences block of a node's chats (session notes), "" when none. Optional: without it a focused session has no notes. */
+	studyBlockFor?: (nodeId: string) => string;
 	dayStart?: () => string;
 }
 
@@ -65,6 +68,12 @@ function focusTargetFor(deps: PersonalLayerDeps, chatId: string): FocusTarget | 
 	return focusTargetOf(deps.focusLedger.readAll(), chatId);
 }
 
+/** The node's study-preferences block, as the focus field (absent when there is none). */
+function studyFieldOf(deps: PersonalLayerDeps, nodeId: string): { studyNotes?: string } {
+	const block = deps.studyBlockFor?.(nodeId) ?? "";
+	return block === "" ? {} : { studyNotes: block };
+}
+
 /** The card and its node a focused tutor chat is about, or null. */
 function cardFocusOf(deps: PersonalLayerDeps, cardId: string): ReviewFocus | null {
 	const card = deriveCards(deps.cardsStore.readEvents()).find((c) => c.id === cardId);
@@ -76,6 +85,7 @@ function cardFocusOf(deps: PersonalLayerDeps, cardId: string): ReviewFocus | nul
 		nodeStatement: node?.statement ?? "",
 		question: card.question,
 		answer: card.answer,
+		...studyFieldOf(deps, card.nodeId),
 	};
 }
 
@@ -84,7 +94,7 @@ function nodeFocusOf(deps: PersonalLayerDeps, nodeId: string): ReviewNodeFocus |
 	const node = deps.graphStore.readNodes().find((n) => n.id === nodeId);
 	if (node === undefined) return null;
 	const explanation = deps.explanations ? deriveExplanations(deps.explanations.readEvents()).get(nodeId)?.current?.body : undefined;
-	return { nodeId, nodeName: node.name, nodeStatement: node.statement, ...(explanation !== undefined ? { explanation } : {}) };
+	return { nodeId, nodeName: node.name, nodeStatement: node.statement, ...(explanation !== undefined ? { explanation } : {}), ...studyFieldOf(deps, nodeId) };
 }
 
 /** The focus fields of the tutor context: exactly one of them is set for a focused chat. */
@@ -234,4 +244,5 @@ export const personalLayer = createPersonalLayer({
 	createReviewChat: (title) => stores.chatStore.createChat(title, "review"),
 	focusLedger: extStores.reviewFocusLedger,
 	explanations: extStores.explanationsStore,
+	studyBlockFor: (nodeId) => studyBlockFor([nodeId]),
 });

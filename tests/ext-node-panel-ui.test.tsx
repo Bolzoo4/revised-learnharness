@@ -27,6 +27,7 @@ function data(over: Partial<NodePanelData> = {}): NodePanelData {
 		usedAsPremise: [{ chainId: "arg_3", coPremises: [], conclusion: { id: "n_d", name: "Delta" } }],
 		citingLectures: [{ lectureId: "l1", title: "Lecture One" }],
 		studySources: [{ documentId: "d".repeat(64), title: "Probability", page: 12 }],
+		studyNotes: [],
 		mentionedBy: [{ id: "n_d", name: "Delta" }],
 		cards: [{ cardId: "c1", question: "Why gamma?", status: "active" }],
 		review: { dueAt: null, reps: 2, pinned: false, retired: false },

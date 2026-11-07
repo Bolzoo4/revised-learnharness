@@ -24,6 +24,8 @@ export interface ExerciseWriteInput {
 	targetNodeIds: readonly string[];
 	count: number;
 	feedback: string | null;
+	/** The learner's study preferences for these nodes (session notes), already formatted; "" when none. */
+	studyNotes?: string;
 }
 
 export const EXERCISE_SYSTEM = `You write graded exercises for a learner studying a knowledge graph toward a goal. Submit them with the submit_exercises tool.
@@ -37,6 +39,7 @@ Rules: use only node ids from the list; every exercise combines at least 2 disti
 export function exercisePrompt(input: ExerciseWriteInput): string {
 	const nodes = input.nodes.map((n) => `- ${n.id} (${n.name}): ${n.statement}`).join("\n");
 	return [
+		...(input.studyNotes ? [input.studyNotes, ""] : []),
 		`Goal: ${input.goalTitle}`,
 		`Target nodes: ${input.targetNodeIds.join(", ")}`,
 		`Write ${input.count} exercises over these nodes:`,

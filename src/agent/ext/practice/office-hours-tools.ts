@@ -34,6 +34,8 @@ export interface OfficeHoursToolContext {
 	source(): { label: string; text: string } | null;
 	/** The exercise the session works on (a lecture's exercise), or null. Read once per turn when the agent is built. */
 	focus?(): string | null;
+	/** The learner's study preferences for the nodes the focus names (session notes), formatted; "" when none. Read once per turn. */
+	studyNotes?(): string;
 	/** Checks the items against the source and the work, records the verdict (and the grading of an exercise). */
 	submitVerdict(items: VerdictItem[], work: string): VerdictReport;
 }

@@ -20,6 +20,7 @@ import { createReviewStore } from "../../store/ext/review-store.ts";
 import { parseFocusEvent } from "../../core/ext/review-focus.ts";
 import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
+import { createSessionNotesStore } from "../../store/ext/session-notes-store.ts";
 import { createSourcesStore } from "../../store/ext/sources-store.ts";
 import { createVerificationStore } from "../../store/ext/verification-store.ts";
 import { parseActivityEvent } from "../../core/ext/debrief/activity.ts";
@@ -38,6 +39,8 @@ export const extStores = {
 	snapshotStore: createSnapshotStore(EXT_PATHS.dir),
 	verificationStore: createVerificationStore(EXT_PATHS.dir),
 	costStore: createCostStore(EXT_PATHS.dir),
+	/** The session study notes (data/ext/session-notes.json): one note per chat (session-notes spec). */
+	sessionNotesStore: createSessionNotesStore(EXT_PATHS.dir),
 	/** Spend on narration audio: its own ledger and its own ceiling (cost-live.ts), never mixed with the model spend. */
 	audioCostStore: createCostStore(EXT_PATHS.dir, "audio-cost.jsonl"),
 	lecturesStore: createLecturesStore(EXT_PATHS.dir),

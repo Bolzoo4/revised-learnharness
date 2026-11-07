@@ -60,6 +60,15 @@ export interface PanelStudySource {
 	page: number;
 }
 
+/** One session note of a chat the node came from (session-notes spec, REQ-sn-06). */
+export interface PanelStudyNote {
+	chatId: string;
+	chatTitle: string;
+	text: string;
+	edited: boolean;
+	updatedAt: string;
+}
+
 export interface PanelCard {
 	cardId: string;
 	question: string;
@@ -85,6 +94,7 @@ export interface PanelSources {
 	trust?(nodeId: string): PanelTrust;
 	lecturesCiting?(nodeId: string): PanelLecture[];
 	studySources?(nodeId: string): PanelStudySource[];
+	studyNotes?(nodeId: string): PanelStudyNote[];
 	cards?(nodeId: string): PanelCard[];
 	review?(nodeId: string): PanelReview | null;
 }
@@ -112,6 +122,8 @@ export interface NodePanelData {
 	citingLectures: PanelLecture[];
 	/** Where in the learner's documents the node came from (study-links), with the document's title. */
 	studySources: PanelStudySource[];
+	/** The study notes of the chats the node came from ("How you wanted to study this"). */
+	studyNotes: PanelStudyNote[];
 	/** Nodes whose current explanation links here (derived, never stored). */
 	mentionedBy: NodeRef[];
 	cards: PanelCard[];

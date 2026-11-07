@@ -56,6 +56,8 @@ export interface ReviewFocus {
 	nodeStatement: string;
 	question: string;
 	answer: string;
+	/** The node's study preferences (session notes), formatted; absent when none. */
+	studyNotes?: string;
 }
 
 /** The static body of the card tutor: everything except the card itself. */
@@ -76,6 +78,11 @@ Be brief and direct. Maths in LaTeX with $...$ and $$...$$. Do not praise by ref
  * loop: the tutor explains the concept and never rates or records. The card
  * block is appended after the (possibly overridden) body.
  */
+/** The study-preferences block after a focus block, with its own line break; "" when there is none. */
+function studyBlockSuffix(studyNotes: string | undefined): string {
+	return studyNotes ? `\n\n${studyNotes}` : "";
+}
+
 export function focusedReviewInstructions(focus: ReviewFocus): string {
 	const block = `The card (for you; the learner sees it in your explanation, not as a quiz):
 Node id: ${focus.nodeId}
@@ -83,7 +90,7 @@ Node: ${focus.nodeName}
 Statement: ${focus.nodeStatement}
 Card question: ${focus.question}
 Card answer: ${focus.answer}`;
-	return `${resolveExtPrompt("review-card", REVIEW_CARD_BODY)}\n\n${block}`;
+	return `${resolveExtPrompt("review-card", REVIEW_CARD_BODY)}\n\n${block}${studyBlockSuffix(focus.studyNotes)}`;
 }
 
 /** The node a focused tutor session is about: a node with no card yet ("With the tutor" on the Review page). */
@@ -93,6 +100,8 @@ export interface ReviewNodeFocus {
 	nodeStatement: string;
 	/** The node's current explanation, when one has been written. */
 	explanation?: string;
+	/** The node's study preferences (session notes), formatted; absent when none. */
+	studyNotes?: string;
 }
 
 /** The static body of the node tutor: everything except the node itself. */
@@ -119,5 +128,5 @@ Node id: ${focus.nodeId}
 Node: ${focus.nodeName}
 Statement: ${focus.nodeStatement}
 Explanation: ${focus.explanation !== undefined && focus.explanation !== "" ? focus.explanation : "none written yet"}`;
-	return `${resolveExtPrompt("review-node", REVIEW_NODE_BODY)}\n\n${block}`;
+	return `${resolveExtPrompt("review-node", REVIEW_NODE_BODY)}\n\n${block}${studyBlockSuffix(focus.studyNotes)}`;
 }
