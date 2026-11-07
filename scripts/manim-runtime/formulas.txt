@@ -1,0 +1,24 @@
+# One LaTeX formula per line, rendered by MathTex in verify.sh (REQ-vid-02).
+# Lines starting with # are comments. Keep each line self-contained.
+\frac{a+b}{c-d}
+\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}
+\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}
+\begin{pmatrix} a & b \\ c & d \end{pmatrix}
+\begin{bmatrix} 1 & 0 \\ 0 & 1 \end{bmatrix}
+\alpha \beta \gamma \delta \epsilon \varepsilon \zeta \eta \theta \vartheta \iota \kappa \lambda \mu \nu \xi \pi \rho \sigma \tau \upsilon \phi \varphi \chi \psi \omega \Gamma \Delta \Theta \Lambda \Xi \Pi \Sigma \Phi \Psi \Omega
+f(x) = \begin{cases} x^2 & x \geq 0 \\ -x & x < 0 \end{cases}
+e^{i\pi} + 1 = 0
+\nabla \times \vec{E} = -\frac{\partial \vec{B}}{\partial t}
+\mathbb{R} \to \mathbb{C}
+\lim_{x \to 0} \frac{\sin x}{x} = 1
+\sqrt[3]{x^2 + y^2}
+\bm{v} \cdot \bm{w} = \|\mathbf{v}\|^2
+\left( \frac{a}{b} \right)^{2}
+\underbrace{a+b}_{\text{sum}} \overset{\text{def}}{=} c
+\binom{n}{k} = \frac{n!}{k!(n-k)!}
+\dfrac{x}{y} \tfrac{x}{y}
+\mathcal{L}\{f\}(s) = \int_0^\infty e^{-st} f(t)\,dt
+\hat{x} \bar{y} \dot{z} \ddot{z}
+\partial_\mu \Phi \quad \forall x \in \mathbb{R}, \exists y
+\begin{aligned} a &= b + c \\ d &= e \end{aligned}
+\mathrm{d}x \mathsf{x} \mathtt{y}
