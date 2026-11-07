@@ -98,6 +98,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for an `exam` session | Exam session |
 | `tests/font-menu.test.tsx` | the ink-default count is 3 theme blocks (dark, `.dark`, light) | Light theme |
 | `tests/render-settings.test.tsx` | the pinned tool list includes `video` | Video (Manim) |
+| `electron-builder.yml` | the `publish` update feed points to the fork's repository (`Bolzoo4/revised-learnharness`) so a packaged build of the fork never updates itself to the original app | Fork distribution |
 
 Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 

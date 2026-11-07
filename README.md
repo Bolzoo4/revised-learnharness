@@ -54,7 +54,7 @@ The extension is tested with fakes (more than 3,000 extension tests, typecheck a
 <p align="center"><strong>An agent harness for learning.</strong></p>
 
 <p align="center">
-  <a href="https://learnharness.ai">Download</a> ·
+  <a href="https://learnharness.ai">Download (original)</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a> ·
@@ -88,19 +88,20 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 
 ![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)
 
-## Download and get started
+## Install
 
-**[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
+**This fork has no prebuilt downloads yet.** Run it from source, or build the macOS app yourself.
 
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+- **From source (any OS):** `npm ci`, then `npm run dev` and open http://localhost:3000. All extension pages are included.
+- **macOS app (Apple Silicon), unsigned local build:** install Node 26 and Xcode, run `npm ci`, then `scripts/ext-build-mac-local.sh --install`. It builds, ad-hoc signs and copies the app to `/Applications`; macOS may ask you to allow it. Without `--install` it only builds `dist/mac-arm64/LearnHarness.app`. `npm run desktop:dist` is the original maintainer's signed and notarized path and does not work without their Apple team and keychain profile.
+- **Video explanations (optional):** before the macOS build run `scripts/manim-runtime/build.sh` (needs `uv`, Homebrew `cairo`, `pango` and `ffmpeg`, a TeX installation and network on the build machine; see [`docs/ext/MANIM-RUNTIME.md`](docs/ext/MANIM-RUNTIME.md)). It adds about 340 MB to the app. Without it the video tool is not offered and everything else works.
+- **Updates:** this fork's builds look for updates in this repository's releases, which do not exist yet, so there are no automatic updates. The feed was changed on purpose: the original feed would replace this app with the original LearnHarness.
+
+The prebuilt downloads of the **original** app (without any of the additions above) are at [learnharness.ai](https://learnharness.ai) and its [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases).
 
 Choose your models, then start a session with what you want to understand. You can use provider API keys, supported subscription connections in the desktop app, an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Optional dictation and web search use separate service keys. Web research can use a Tavily, Brave, Exa, Firecrawl, or Ollama key in Settings → Providers → Search. Ollama search uses its hosted service, not a local model server.
 
 See [Getting started](docs/getting-started.md) for model setup, dictation, files, and notes imports, and [context, caching, and costs](docs/compaction-accounting.md) for advanced cache preferences.
-
-All three platforms support in-app updates.
 
 ## Your keys, your data
 
