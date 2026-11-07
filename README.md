@@ -24,7 +24,7 @@ Each item is a page or a session kind in the app. Details and the open questions
 - All extension code lives under `src/*/ext/`, `components/ext/`, `app/api/ext/` and the new pages (`app/review`, `app/lectures`, `app/study`, `app/exams`, `app/research`, `app/journal`).
 - Upstream files are edited only at a closed list of touchpoints, one row each with the reason, in [`docs/ext/TOUCHPOINTS.md`](docs/ext/TOUCHPOINTS.md). File formats and invariants are in [`docs/ext/CONTRACTS.md`](docs/ext/CONTRACTS.md).
 - The layering follows upstream: pure code in `core`, store adapters, agents that do not import stores, composition roots in `server`.
-- Every feature has a written design with numbered requirements in the parent repository's specs; the fork carries the contracts.
+- Every feature has a written design with numbered requirements (`REQ-<topic>-NN`) in [`docs/ext/design/specs/`](docs/ext/design/specs/) and an implementation plan in [`docs/ext/design/plans/`](docs/ext/design/plans/); the file formats are the contracts in `docs/ext/CONTRACTS.md`.
 
 ## Run it
 
