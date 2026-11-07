@@ -96,6 +96,8 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/store/chats.ts` | `createChat` type widened to the same kinds | Exam session |
 | `src/server/chat-handler.ts` | one import of `createExamAgent` and one of `examSessionService`; the `exam` agent branch (after study) with the cost gate and the visual jobs | Exam session |
 | `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for an `exam` session | Exam session |
+| `app/chat/[id]/page.tsx` | passes the bound exercise to `Chat` as `pinned` for an `exam` session | Exam session |
+| `components/chat.tsx` | optional `pinned` prop: a node rendered under the top bar (the exam session's exercise box) | Exam session |
 | `tests/font-menu.test.tsx` | the ink-default count is 3 theme blocks (dark, `.dark`, light) | Light theme |
 | `tests/render-settings.test.tsx` | the pinned tool list includes `video` | Video (Manim) |
 | `electron-builder.yml` | the `publish` update feed points to the fork's repository (`Bolzoo4/revised-learnharness`) so a packaged build of the fork never updates itself to the original app | Fork distribution |

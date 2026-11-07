@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
 import { slotsConfigured } from "@/src/core";
-import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
+import { pageSpan } from "@/components/ext/exams-logic";
+import { ExamExerciseBox } from "@/components/ext/exam-exercise-box";
+import { compactionInFlight, examSessionService, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,7 @@ export default async function ChatPage({
 	// over the settings record, server-read — the same gate home/new read. The
 	// server's 503 stays the truth; this only decides whether the pill rides.
 	const record = readSettingsRecord();
+	const exercise = chat.kind === "exam" ? examSessionService.exerciseOf(chat.id) : null;
 	return (
 		<Chat
 			key={chat.id}
@@ -36,6 +39,7 @@ export default async function ChatPage({
 			// attach (busy shimmer + poll), never resurrect the stale record.
 			initiallyInFlight={isTurnRunning(chat.id)}
 			initiallyCompacting={compactionInFlight(chat.id)}
+			pinned={exercise === null ? undefined : <ExamExerciseBox order={exercise.order} pages={pageSpan(exercise)} text={exercise.text} />}
 		/>
 	);
 }

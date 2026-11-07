@@ -37,6 +37,15 @@ const expectError = (fn: () => unknown, status: number, message: string) => {
 	assert.fail("expected a throw");
 };
 
+describe("exerciseOf (the pinned exercise box)", () => {
+	it("returns the bound exercise of a session, and null for an unbound chat", () => {
+		const { service } = fixture();
+		const { chatId } = service.start({ collectionId: "col1", exerciseId: "ex1" });
+		assert.deepEqual(service.exerciseOf(chatId), EX);
+		assert.equal(service.exerciseOf("chat_unknown"), null);
+	});
+});
+
 describe("start (REQ-ex-07, REQ-ex-03)", () => {
 	it("creates a session on a reviewed exercise and binds it once", () => {
 		const { service, bindings, sessions } = fixture();
