@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (strict, `noUncheckedIndexedAccess`, `verbatimModuleSyntax`), Node 26, `node:test` via `tsx`, TypeBox (`typebox`, existing), `pdfjs-dist` legacy build (existing, through upstream's `pdf-ops`), Next.js 16 app router, React 19, browser `speechSynthesis` in Electron. No new dependency.
 
-**Spec:** `docs/superpowers/specs/2026-11-04-lecture-office-hours-exercises-design.md` (REQ-lec-01 to REQ-lec-19; parent REQ-cost-01, REQ-port-01, REQ-int-01 to 04, REQ-pl-14). Umbrella: `2026-11-04-learning-platform-integration-design.md`. Prior art: `/Users/riccardobolzonello/Developer/Codice/teacher` (lecture doctrine, chapter detection, office-hours rules).
+**Spec:** `docs/superpowers/specs/2026-11-04-lecture-office-hours-exercises-design.md` (REQ-lec-01 to REQ-lec-19; parent REQ-cost-01, REQ-port-01, REQ-int-01 to 04, REQ-pl-14). Umbrella: `2026-11-04-learning-platform-integration-design.md`. Prior art: `<local>/teacher` (lecture doctrine, chapter detection, office-hours rules).
 
 **Working directory for every command:** `<repo>` (the fork, branch `ext`). Never run `git commit` outside the steps that say so.
 
