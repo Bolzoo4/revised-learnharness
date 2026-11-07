@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import type { Exercise, ExamDoc } from "./exams-types.ts";
+import type { ExamExercise as Exercise, ExamDoc } from "@/src/core";
 import { editExercise, listExercises, markReviewed, startPractice, type ExerciseOp } from "./exams-api.ts";
 import { canMergeWithNext, pageSpan, practiceEnabled, splitChoice } from "./exams-logic.ts";
 

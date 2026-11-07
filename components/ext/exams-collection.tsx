@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ExamDoc, MaterialDoc } from "./exams-types.ts";
+import type { ExamDoc, MaterialDoc } from "@/src/core";
 import { ExamReview } from "./exams-review.tsx";
 import { getCollection, uploadExam, uploadMaterial, type CollectionDetail } from "./exams-api.ts";
 import { PdfChooser } from "./pdf-chooser.tsx";

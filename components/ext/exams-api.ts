@@ -11,7 +11,7 @@
  * object itself.
  */
 
-import type { Collection, Exercise, ExamDoc, MaterialDoc } from "./exams-types.ts";
+import type { ExamCollection as Collection, ExamExercise as Exercise, ExamDoc, MaterialDoc } from "@/src/core";
 import { buildPdfUploadForm, failureText } from "./pdf-upload.ts";
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };

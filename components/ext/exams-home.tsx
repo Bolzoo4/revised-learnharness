@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { Collection } from "./exams-types.ts";
+import type { ExamCollection as Collection } from "@/src/core";
 import { createCollection, listCollections } from "./exams-api.ts";
 import { collectionTitleValid } from "./exams-logic.ts";
 

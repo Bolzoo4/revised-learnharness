@@ -41,3 +41,13 @@ export {
 	type AudioManifest,
 	type CharRange,
 } from "./lecture/audio.ts";
+
+// Exam training records (read by the Exams pages through the core barrel).
+export type {
+	Collection as ExamCollection,
+	ExamDoc,
+	Exercise as ExamExercise,
+	MaterialDoc,
+	SearchHit as MaterialSearchHit,
+	SolutionStatus,
+} from "./exams/types.ts";
