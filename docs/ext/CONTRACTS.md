@@ -265,6 +265,46 @@ A rejected lecture is regenerated with the list of violations as feedback, at mo
 
 For every lecture: one special node `{id: lectureId, title, kind: "lecture"}`; for every node id the lecture cites (block `nodeIds` and slide links) that exists in the graph, one edge `{from: lectureId, to: nodeId, type: "cites"}`. Back-links of a node: the lectures whose citations include it, ordered by lecture id. No lecture is written to `nodes.jsonl` or `chains.jsonl`.
 
+## Lecture ingest run state (`lecture-runs.json`)
+
+One JSON document, `<data>/ext/lecture-runs.json`, rewritten atomically on every change of a book or chapter. `{"version": 1, "books": [...]}`, newest book first. Pure rules: `src/core/ext/lecture/run-record.ts`; the file: `src/store/ext/lecture-runs-store.ts`. A missing, unreadable or corrupt file reads as empty (never a crash); a record that does not validate is dropped, the rest is kept. A file stamped by a newer build is refused on save.
+
+- Book: `bookId` (`b` + 8 hex, as in `lecture.json`), `title` (at most 300 characters), `pdfPath` (the stable locator the run reads: the content-addressed copy of an upload, never a temp path; absolute, `.pdf`), `phase` (`detecting` | `running` | `done` | `failed` | `interrupted`), `chapters`, `error` (optional, at most 2000 characters), `startedAt`, `updatedAt` (optional).
+- Chapter: `chapter` (`{index, title, pageStart, pageEnd}`), `state`, `stage` (optional: the last working stage, `graph` | `outline` | `writing`), `lectures`, `uncovered`, `error` (optional, the explained text), `importedParts` (optional: graph parts imported and checkpointed, see below), `startedAt`, `updatedAt` (optional).
+- Bounds: at most 50 books (every running book is kept; the newest of the others fill up) and 500 chapters per book.
+
+### Chapter states
+
+`queued` | `graph` | `outline` | `writing` (working) and `done` | `failed` | `stopped_cost` | `stopped_provider` | `interrupted` (final). `interrupted` is set on start for every chapter, and every book, that was in a working state when the app closed; its `error` is the fixed text `interrupted when the app was closed`. The conversion is saved, so it happens (and is logged) once per run.
+
+### Graph checkpoints
+
+The chapter graph is imported in parts of at most 8000 characters (`splitForGraphImport`: blank-line paragraphs packed up to the limit, a longer paragraph cut at a space). Each part is one `importChapterGraph` call; when it completes, `importedParts` is saved. A retry imports only the parts after the checkpoint and never re-imports a finished one. A chapter with no checkpoint on its first run keeps the earlier rule: if its graph already exists it is not imported again. A part interrupted half-way is re-extracted by the next run; its merged chunks are kept by the notes pipeline, and the auditor links identities to nodes already in the graph.
+
+### Explained errors
+
+A chapter's `error` is passed through `explainChapterError` (`src/core/ext/lecture/explain-error.ts`) before it is stored or logged: `;`-separated parts are shown once, with a count (`the extractor never submitted findings (x6)`), and a text matching `never submitted` or `ended without calling` gets the plain hint once: `The model stopped before calling the tool. This usually means it ran out of output space: lower the thinking level or choose a model with a larger output limit in Settings.` The states are not changed by this.
+
+### Chapter log line
+
+Written to stdout (`console.log`, which the desktop app captures into its `main.log`) once per chapter that reaches a final state, and once per chapter converted to `interrupted` on start:
+
+`[lectures] book <bookId> chapter <index> "<title>" <state>[: <explained error>] (stage <stage|queued>[, <seconds>s])`
+
+Only ids, the chapter index and title, the state, the explained error, the stage and the duration. Never the PDF path or any text of the book. The line is one line: whitespace in the error is collapsed.
+
+### `POST /api/ext/lectures/[id]/retry`
+
+The path segment is the book id. Body: `{chapterIndex?: number}`, a JSON object. Absent `chapterIndex` = every chapter in `failed`, `interrupted`, `stopped_cost` or `stopped_provider`; a number = that chapter. The chapters re-run through the same pipeline and limits as the first run (`MAX_PARALLEL_CHAPTERS`, the cost gate, the provider pause), in the background. Answers:
+
+- `202` `{bookId, chapters: [index, ...]}`: started.
+- `400` a `chapterIndex` that is not a whole number of 1 or more, or not a chapter of the book (`unknown chapter`).
+- `404` `unknown book`.
+- `409` with a fixed text: `the book is still being made; retry when it finishes`, `that chapter is already running`, `that chapter does not need a retry`, `no chapter needs a retry`, `the book PDF is no longer stored`.
+- `429` the daily ceiling is spent (the provider-limit text when the provider paused the work).
+
+The book's phase is `running` while a retry runs, and `done` or `failed` again when every chapter has a final state. The retried chapters are queued at once, so a second retry meanwhile is refused.
+
 ## `office-hours.jsonl` (ledger, keyed by chat id)
 
 Event `designated`: `{type:"designated", chatId, label, sha256, exercise?, focus?, at}`. `sha256` is 64 lowercase hex, the name of a file `snapshots/<sha256>.txt`; `exercise`, when present, is `{setId, exerciseId}`. The latest `designated` event of a chat is its designated source.
