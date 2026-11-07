@@ -8,7 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { createExtractionPipeline } from "../../agent/subagents/extraction.ts";
+import { createExtractionPipeline, extractionStatuses } from "../../agent/subagents/extraction.ts";
 import { readBookmarks, readChapterText, readPageTexts } from "../../agent/ext/lecture/pdf-facts.ts";
 import { sourceIdForPath, type GraphNodeView, type StagedChapterGraph } from "../../agent/ext/lecture/chapter-run.ts";
 import { detectChaptersWithLlm, writeLectureDraft, writeOutline } from "../../agent/ext/lecture/writers.ts";
@@ -27,6 +27,7 @@ import { liveAudioGate, liveCostGate } from "./cost-live.ts";
 import { extractionModelDeps } from "./extraction-deps.ts";
 import { createLectureAudio } from "./lecture-audio.ts";
 import { bookIdFor, createLectureService, type BookRunStatus } from "./lecture-service.ts";
+import { createLectureCleanup } from "./lecture-cleanup.ts";
 import { createLectureOfficeHours } from "./lecture-office-hours.ts";
 import { practiceService } from "./practice-live.ts";
 import { keepStagedPdf } from "./pdf-upload.ts";
@@ -147,4 +148,13 @@ export const lectureOfficeHours = createLectureOfficeHours({
 	},
 	readChapterText,
 	startSession: (input) => practiceService.startSession(input),
+});
+
+/** Leftovers of chapters that did not finish before staging (lecture-cleanup.ts). */
+export const lectureCleanup = createLectureCleanup({
+	graphStore: stores.graphStore,
+	organization: stores.sourceOrganizationStore,
+	books: () => lectureService.runStatuses(),
+	lectures: () => extStores.lecturesStore.list(),
+	extractionRunning: () => extractionStatuses().length > 0,
 });
