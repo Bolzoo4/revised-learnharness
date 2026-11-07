@@ -11,18 +11,18 @@ Everything below is new; the original agents, graph and extraction pipeline are 
 | Addition | Where in the app | Design | Status |
 |---|---|---|---|
 | Spaced repetition (FSRS per node), daily plan, flashcards, tutor from a card or node | Review | [personal layer](docs/ext/design/specs/2026-11-04-personal-layer-spaced-repetition-design.md) | tested, tried |
-| Trust levels for propositions (`unverified`, `sourced`, `contested`, `refuted`), quotations confirmed by code | node card, node panel | [source verification](docs/ext/design/specs/2026-11-04-source-verification-design.md) | tested |
-| Node panel: explanation, trust, neighbours, citing lectures, cards, review state | any view | [node knowledge](docs/ext/design/specs/2026-11-04-node-knowledge-design.md) | tested |
+| Trust levels for propositions (`unverified`, `sourced`, `contested`, `refuted`), quotations confirmed by code | node card, node panel | [source verification](docs/ext/design/specs/2026-11-04-source-verification-design.md) | tested, tried |
+| Node panel: explanation, trust, neighbours, citing lectures, cards, review state | any view | [node knowledge](docs/ext/design/specs/2026-11-04-node-knowledge-design.md) | tested, tried |
 | Narrated lectures, office hours, graded exercises; a chapter's nodes join the graph only after its lectures are written | Lectures | [lectures](docs/ext/design/specs/2026-11-04-lecture-office-hours-exercises-design.md) | tested, tried |
 | PDF reading next to a chat that knows the page; cards from questions, selections and answers | Study | [assisted study](docs/ext/design/specs/2026-11-04-assisted-study-design.md) | tested, tried |
 | Exam collections, splitting exams into exercises, guided solving with material first and web second, solution status | Exams | [exam training](docs/ext/design/specs/2026-11-07-exam-training-design.md) | tested; splitter not run with a real model |
 | Background research loop: marks from the graph, research goal, progress reports, notes | Research | [research loop](docs/ext/design/specs/2026-11-04-research-loop-design.md) | tested |
 | Interactive demos, drawings and Manim videos in teaching, review, study, office hours, lectures | in chat | [video](docs/ext/design/specs/2026-11-07-manim-video-design.md) | tested; render tried on one Mac |
-| Study notes per session, passed to the sessions that work on its nodes | node panel | [session notes](docs/ext/design/specs/2026-11-07-session-notes-design.md) | tested |
+| Study notes per session, passed to the sessions that work on its nodes | node panel | [session notes](docs/ext/design/specs/2026-11-07-session-notes-design.md) | tested, tried |
 | Debriefs and journal | Journal | [debriefs](docs/ext/design/specs/2026-11-04-session-debriefs-design.md) | tested, tried |
 | Read-only MCP server for other local agents | `scripts/ext-mcp.ts` | [MCP](docs/ext/design/specs/2026-11-04-external-access-mcp-design.md) | tested |
 | Daily cost gate and provider usage-limit pauses | all background work | [umbrella spec](docs/ext/design/specs/2026-11-04-learning-platform-integration-design.md) | tested |
-| Light theme | Settings, Appearance | commit message `feat(ext): light theme` | tested |
+| Light theme | Settings, Appearance | commit message `feat(ext): light theme` | tested, tried |
 
 To see exactly which original files were touched and why, read [`docs/ext/TOUCHPOINTS.md`](docs/ext/TOUCHPOINTS.md); the file formats are in [`docs/ext/CONTRACTS.md`](docs/ext/CONTRACTS.md); the overview written for the original author is [`docs/ext/OVERVIEW.md`](docs/ext/OVERVIEW.md).
 
