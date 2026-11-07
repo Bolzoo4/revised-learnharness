@@ -270,16 +270,25 @@ For every lecture: one special node `{id: lectureId, title, kind: "lecture"}`; f
 One JSON document, `<data>/ext/lecture-runs.json`, rewritten atomically on every change of a book or chapter. `{"version": 1, "books": [...]}`, newest book first. Pure rules: `src/core/ext/lecture/run-record.ts`; the file: `src/store/ext/lecture-runs-store.ts`. A missing, unreadable or corrupt file reads as empty (never a crash); a record that does not validate is dropped, the rest is kept. A file stamped by a newer build is refused on save.
 
 - Book: `bookId` (`b` + 8 hex, as in `lecture.json`), `title` (at most 300 characters), `pdfPath` (the stable locator the run reads: the content-addressed copy of an upload, never a temp path; absolute, `.pdf`), `phase` (`detecting` | `running` | `done` | `failed` | `interrupted`), `chapters`, `error` (optional, at most 2000 characters), `startedAt`, `updatedAt` (optional).
-- Chapter: `chapter` (`{index, title, pageStart, pageEnd}`), `state`, `stage` (optional: the last working stage, `graph` | `outline` | `writing`), `lectures`, `uncovered`, `error` (optional, the explained text), `importedParts` (optional: graph parts imported and checkpointed, see below), `startedAt`, `updatedAt` (optional).
+- Chapter: `chapter` (`{index, title, pageStart, pageEnd}`), `state`, `stage` (optional: the last working stage, `graph` | `outline` | `writing`), `lectures`, `uncovered`, `error` (optional, the explained text), `startedAt`, `updatedAt` (optional).
 - Bounds: at most 50 books (every running book is kept; the newest of the others fill up) and 500 chapters per book.
 
 ### Chapter states
 
-`queued` | `graph` | `outline` | `writing` (working) and `done` | `failed` | `stopped_cost` | `stopped_provider` | `interrupted` (final). `interrupted` is set on start for every chapter, and every book, that was in a working state when the app closed; its `error` is the fixed text `interrupted when the app was closed`. The conversion is saved, so it happens (and is logged) once per run.
+`queued` | `graph` | `outline` | `writing` (working) and `done` | `failed` | `stopped_cost` | `stopped_provider` | `interrupted` (final). `interrupted` is set on start for every chapter, and every book, that was in a working state when the app closed; its `error` is the fixed text `interrupted when the app was closed`. The conversion is saved, so it happens (and is logged) once per run. A record written before staging may carry an `importedParts` field: it is ignored.
 
-### Graph checkpoints
+### Staged chapter graph
 
-The chapter graph is imported in parts of at most 8000 characters (`splitForGraphImport`: blank-line paragraphs packed up to the limit, a longer paragraph cut at a space). Each part is one `importChapterGraph` call; when it completes, `importedParts` is saved. A retry imports only the parts after the checkpoint and never re-imports a finished one. A chapter with no checkpoint on its first run keeps the earlier rule: if its graph already exists it is not imported again. A part interrupted half-way is re-extracted by the next run; its merged chunks are kept by the notes pipeline, and the auditor links identities to nodes already in the graph.
+A chapter's graph is extracted from the chapter text, in one import, into a staging overlay of the real graph (`src/server/ext/staged-graph-store.ts`). Upstream's notes pipeline runs unchanged over the overlay, which reads the real graph plus the chapter's own writes, so the import dedupes and links against existing nodes. Writes go to memory only:
+
+- **Invisible until commit.** Nothing the chapter adds is shown in the graph, read by the teacher context, the MCP server, research, verification, the personal layer, or another extraction run, until the chapter commits.
+- **Writing and validating the lectures.** The outline and the lecture writers read the real nodes plus the chapter's staged nodes (the same view the validator uses). The drafts are held in memory.
+- **Commit, then save.** When every lecture of the chapter is valid, the staged writes are replayed into the real store once, in the order sources, usage, nodes, chains, coverage, checkpoints. Then the lectures are saved. After the commit the layout is settled, the source is listed in the library, `sources-changed` is emitted, and the post-merge verification runs (the live pipeline does these after a merge; a staging run does them after the commit).
+- **Discard.** A chapter that fails, is stopped by the cost or provider limit, is aborted, or whose app closes before the commit discards its staging. Nothing reached the real store, so the real graph is unchanged. A Retry (or a book run) starts the chapter from scratch: no duplicates. Discarded, never written: the staged nodes, links, coverage, source record and its usage log, and the staged layout.
+- **Links to existing nodes.** A link line to a node already in the real graph stays staged until the commit. The real node line is never changed, and the merged view adds its phrasings as it does for any two lines of one id.
+- **Not staged.** `deleteSources` throws (a chapter never removes a source). A rewrite other than the chains throws. A chain rewrite (the simplification pass) may drop staged chain lines, never a real one, so a chapter cannot hide what already exists.
+- **A chapter whose graph is active.** A chapter whose source record is in the real store and whose lectures are stored is done and is skipped (no import). Any other chapter is rebuilt from scratch.
+- **Known windows.** A commit that fails part-way leaves the replayed part in the real store; the chapter fails with the explained error, and the next run finds no lectures and rebuilds (the auditor links the nodes already there). A crash between the commit and the last lecture save leaves active nodes without their lectures: the next run rebuilds the chapter the same way, and the cleanup below lists it until then. Another extraction run may add a node that duplicates a staged one, because the audit does not wait for the staging.
 
 ### Explained errors
 
@@ -292,6 +301,26 @@ Written to stdout (`console.log`, which the desktop app captures into its `main.
 `[lectures] book <bookId> chapter <index> "<title>" <state>[: <explained error>] (stage <stage|queued>[, <seconds>s])`
 
 Only ids, the chapter index and title, the state, the explained error, the stage and the duration. Never the PDF path or any text of the book. The line is one line: whitespace in the error is collapsed.
+
+## Stale chapter leftovers
+
+Before staging, a chapter that failed, was stopped or was interrupted could leave its nodes and links in the real graph. Their leftovers are found by provenance and removed through upstream's own removal seam (`deleteSourcesTraces` in `src/core/graph-deletion.ts`, the one a source deletion uses). Code: `src/server/ext/lecture-cleanup.ts`.
+
+- **A leftover chapter**: a chapter of a book that is not running, in state `failed`, `interrupted`, `stopped_cost` or `stopped_provider`, with no stored lecture, whose chapter source id (`src_` + the first 12 hex of the SHA-256 of the chapter label, as in a lecture's `chapterSourceId`) has a source record, a node or a link in the real graph.
+- **Counts**: `nodes` (the nodes removal would delete: every point of theirs is this chapter's), `chains` (the links it would delete), `kept` (the nodes that stay because another source, chapter, lecture or chat also refers to them; this chapter's points on them go).
+- **Removal**: `deleteSourcesTraces` with `delete-nodes`, then the source record is deleted, then the source's place in the library is dropped.
+
+### `GET /api/ext/lectures/stale`
+
+Read only. `200` `{chapters: [{bookId, bookTitle, chapterIndex, chapterTitle, state, nodes, chains, kept}]}`.
+
+### `POST /api/ext/lectures/[id]/purge`
+
+The path segment is the book id. Body `{chapterIndex}`. `200` `{nodesRemoved, chainsRemoved, nodesKept}`. Refusals, each a fixed `error` text:
+
+- `400`: `chapterIndex must be a whole number, 1 or more`, or `unknown chapter`.
+- `404`: `unknown book`.
+- `409`: `the book is still being made; retry when it finishes`, `that chapter is still running`, `that chapter has no leftovers to remove`, `that chapter has lectures, so its leftovers are kept`, `an extraction is running; try again when it finishes`.
 
 ### `POST /api/ext/lectures/[id]/retry`
 
