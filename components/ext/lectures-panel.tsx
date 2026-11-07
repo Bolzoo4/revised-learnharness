@@ -3,16 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LecturesTree } from "./lectures-tree.tsx";
-import { buildLectureTree, type LectureRow, type RunRow, type TreeBook } from "./lectures-tree.ts";
+import { buildLectureTree, type LeftoverRow, type LectureRow, type RunRow, type TreeBook } from "./lectures-tree.ts";
 import { PdfChooser } from "./pdf-chooser.tsx";
 import { failureText, uploadPdf } from "./pdf-upload.ts";
 
 const UPLOAD_REJECTED = "Could not start the ingest. Choose a PDF file and try again.";
 
 /** The tree with navigation: a child component, so the router is read only when there is a tree to show. */
-function NavigatingTree({ books }: { books: TreeBook[] }) {
+function NavigatingTree({ books, onChanged }: { books: TreeBook[]; onChanged: () => void }) {
 	const router = useRouter();
-	return <LecturesTree books={books} onStarted={(chatId) => router.push(`/chat/${chatId}`)} />;
+	return <LecturesTree books={books} onStarted={(chatId) => router.push(`/chat/${chatId}`)} onChanged={onChanged} />;
 }
 
 /** Lectures page: ingest a book PDF, follow the per-chapter progress, and open lectures and their exercises (REQ-lec-01 to 08). */
@@ -22,6 +22,7 @@ export function LecturesPanel() {
 	const [busy, setBusy] = useState(false);
 	const [runs, setRuns] = useState<RunRow[]>([]);
 	const [lectures, setLectures] = useState<LectureRow[]>([]);
+	const [leftovers, setLeftovers] = useState<LeftoverRow[]>([]);
 
 	const refresh = useCallback(async () => {
 		const res = await fetch("/api/ext/lectures");
@@ -29,6 +30,9 @@ export function LecturesPanel() {
 		const body = (await res.json()) as { runs: RunRow[]; lectures: LectureRow[] };
 		setRuns(body.runs);
 		setLectures(body.lectures);
+		// The leftovers of earlier attempts: a read-only list, refreshed with the rest (a failure keeps the last list).
+		const stale = await fetch("/api/ext/lectures/stale").catch(() => null);
+		if (stale?.ok) setLeftovers(((await stale.json()) as { chapters: LeftoverRow[] }).chapters);
 	}, []);
 	useEffect(() => {
 		void refresh();
@@ -63,7 +67,7 @@ export function LecturesPanel() {
 		}
 	}
 
-	const books = buildLectureTree(runs, lectures);
+	const books = buildLectureTree(runs, lectures, leftovers);
 
 	return (
 		<div className="flex flex-col gap-6">
@@ -85,7 +89,7 @@ export function LecturesPanel() {
 				{books.length === 0 ? (
 					<p className="text-sm text-muted-foreground">No lectures yet. Choose a book above to make them; each chapter's lectures and exercises will appear here.</p>
 				) : (
-					<NavigatingTree books={books} />
+					<NavigatingTree books={books} onChanged={() => void refresh()} />
 				)}
 			</section>
 		</div>

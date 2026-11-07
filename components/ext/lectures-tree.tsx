@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { ExerciseList } from "./exercise-list.tsx";
 import { startLectureAudio } from "./lecture-audio-client.ts";
+import { removeLeftovers } from "./lecture-leftovers-client.ts";
 import { startLectureRetry } from "./lecture-retry-client.ts";
-import { audioLineText, canGenerateAudioLine, type TreeBook, type TreeLecture } from "./lectures-tree.ts";
+import { audioLineText, canGenerateAudioLine, leftoverConfirmText, leftoversText, type TreeBook, type TreeChapter, type TreeLecture, type TreeLeftovers } from "./lectures-tree.ts";
 
 /** Book > chapter > lecture > exercise. Each exercise can open office hours on its chapter (ExerciseList). */
-export function LecturesTree({ books, onStarted }: { books: TreeBook[]; onStarted: (chatId: string) => void }) {
+export function LecturesTree({ books, onStarted, onChanged }: { books: TreeBook[]; onStarted: (chatId: string) => void; onChanged?: () => void }) {
 	return (
 		<div className="flex flex-col gap-4">
 			{books.map((book) => (
@@ -31,6 +32,9 @@ export function LecturesTree({ books, onStarted }: { books: TreeBook[]; onStarte
 									</span>
 								</h3>
 								{chapter.retryable ? <RetryControl bookId={book.bookId} chapterIndex={chapter.index} label="Retry" disabled={book.making} /> : null}
+								{chapter.leftovers !== undefined ? (
+									<LeftoverControl bookId={book.bookId} chapter={chapter} leftovers={chapter.leftovers} disabled={book.making} onChanged={onChanged} />
+								) : null}
 								{chapter.error ? <p className="whitespace-pre-wrap break-words text-sm text-destructive">{chapter.error}</p> : null}
 								{chapter.lectures.length === 0 ? <p className="text-sm text-muted-foreground">No lectures for this chapter yet.</p> : null}
 								<ul className="flex flex-col gap-3 pl-3">
@@ -73,6 +77,44 @@ function LectureAudioLine({ lecture }: { lecture: TreeLecture }) {
 					{pending ? "Starting…" : "Generate audio"}
 				</button>
 			) : null}
+			{note !== null ? <span role="status">{note}</span> : null}
+		</div>
+	);
+}
+
+/** An earlier attempt's leftovers: the note, and "Remove them" with a confirm step that shows the numbers first. */
+function LeftoverControl({ bookId, chapter, leftovers, disabled, onChanged }: { bookId: string; chapter: TreeChapter; leftovers: TreeLeftovers; disabled: boolean; onChanged?: () => void }) {
+	const [confirming, setConfirming] = useState(false);
+	const [pending, setPending] = useState(false);
+	const [note, setNote] = useState<string | null>(null);
+	async function remove() {
+		setPending(true);
+		const failure = await removeLeftovers(bookId, chapter.index);
+		setPending(false);
+		setConfirming(false);
+		setNote(failure ?? "Removed.");
+		if (failure === null) onChanged?.();
+	}
+	return (
+		<div className="flex flex-col gap-1 text-xs text-muted-foreground">
+			<p>{leftoversText(leftovers)}.</p>
+			{confirming ? (
+				<div className="flex flex-wrap items-center gap-2">
+					<span>{leftoverConfirmText(leftovers)}</span>
+					<button type="button" className="rounded border px-2 py-0.5" disabled={pending} onClick={() => void remove()}>
+						{pending ? "Removing…" : "Remove"}
+					</button>
+					<button type="button" className="rounded border px-2 py-0.5" disabled={pending} onClick={() => setConfirming(false)}>
+						Cancel
+					</button>
+				</div>
+			) : (
+				<div>
+					<button type="button" className="rounded border px-2 py-0.5" disabled={disabled} onClick={() => setConfirming(true)}>
+						Remove them
+					</button>
+				</div>
+			)}
 			{note !== null ? <span role="status">{note}</span> : null}
 		</div>
 	);

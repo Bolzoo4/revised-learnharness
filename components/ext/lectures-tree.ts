@@ -32,6 +32,20 @@ export interface LectureRow {
 }
 
 export type TreeLecture = LectureRow;
+
+/** A chapter of an earlier attempt that left something in the graph (GET /api/ext/lectures/stale). */
+export interface LeftoverRow {
+	bookId: string;
+	chapterIndex: number;
+	nodes: number;
+	chains: number;
+	kept: number;
+}
+export interface TreeLeftovers {
+	nodes: number;
+	chains: number;
+	kept: number;
+}
 export interface TreeChapter {
 	index: number;
 	title: string;
@@ -44,6 +58,8 @@ export interface TreeChapter {
 	/** Chapter nodes no lecture covers yet, when the chapter's run is known. */
 	uncovered: number;
 	error?: string;
+	/** What an earlier attempt of this chapter left in the graph, when it did (and it has no lecture). */
+	leftovers?: TreeLeftovers;
 	lectures: TreeLecture[];
 }
 export interface TreeBook {
@@ -103,8 +119,26 @@ export function bookPhaseText(phase: string): string {
 	return BOOK_PHASES[phase] ?? phase;
 }
 
+/** "1 node", "2 nodes": the count with its noun. */
+function counted(n: number, noun: string): string {
+	return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+/** The note under a chapter that left something behind: the nodes (or links) of an earlier attempt, in plain words. */
+export function leftoversText(l: TreeLeftovers): string {
+	if (l.nodes > 0) return `${counted(l.nodes, "node")} from an earlier attempt ${l.nodes === 1 ? "is" : "are"} still in your graph`;
+	if (l.chains > 0) return `${counted(l.chains, "link")} from an earlier attempt ${l.chains === 1 ? "is" : "are"} still in your graph`;
+	return "An earlier attempt left its source in your library";
+}
+
+/** The confirm step before a removal: the numbers first, and what stays. */
+export function leftoverConfirmText(l: TreeLeftovers): string {
+	const removed = `Remove ${counted(l.nodes, "node")} and ${counted(l.chains, "link")} from your graph?`;
+	return l.kept > 0 ? `${removed} ${counted(l.kept, "node")} that other chapters, lectures or chats also use stay.` : removed;
+}
+
 /** Groups runs and lectures by book, then chapter (by index), then lecture (by order). Books keep their first-seen order. */
-export function buildLectureTree(runs: readonly RunRow[], lectures: readonly LectureRow[]): TreeBook[] {
+export function buildLectureTree(runs: readonly RunRow[], lectures: readonly LectureRow[], leftovers: readonly LeftoverRow[] = []): TreeBook[] {
 	const books = new Map<string, TreeBook & { chapterMap: Map<number, TreeChapter> }>();
 	const bookOf = (bookId: string, title: string) => {
 		let book = books.get(bookId);
@@ -143,6 +177,13 @@ export function buildLectureTree(runs: readonly RunRow[], lectures: readonly Lec
 		const book = bookOf(lecture.bookId, lecture.bookTitle);
 		const chapter = chapterOf(book, lecture.chapter.index, lecture.chapter.title);
 		chapter.lectures.push(lecture);
+	}
+
+	for (const row of leftovers) {
+		const book = books.get(row.bookId);
+		const chapter = book?.chapterMap.get(row.chapterIndex);
+		// A chapter with lectures is never a leftover (the server guarantees it; the tree keeps the lectures' view).
+		if (chapter !== undefined && chapter.lectures.length === 0) chapter.leftovers = { nodes: row.nodes, chains: row.chains, kept: row.kept };
 	}
 
 	return [...books.values()].map(({ chapterMap, ...book }) => ({
