@@ -170,3 +170,43 @@ it("Goal and review opens the panel with the goal form and the review checkbox",
 	assert.ok(panel!.textContent?.includes("Add to my review"));
 	assert.ok(panel!.textContent?.includes("Start a goal from this document"));
 });
+
+it("the card form shows Question and Answer; Proposition sits in a collapsed Advanced section", async () => {
+	await mount();
+	await act(async () => byLabel("Write a card")!.click());
+	const form = q('[data-testid="study-card-form"]');
+	assert.ok(form, "card form open");
+	const advanced = form!.querySelector("details");
+	assert.ok(advanced, "advanced section present");
+	assert.equal(advanced!.hasAttribute("open"), false, "collapsed by default");
+	assert.equal(advanced!.querySelector("summary")?.textContent, "Advanced: the statement added to your graph");
+	assert.ok(advanced!.querySelector("textarea"), "proposition field inside Advanced");
+	assert.ok(advanced!.textContent?.includes("Left empty, your answer is used."), "one line explains it");
+	const visibleLabels = [...form!.querySelectorAll(":scope > label")].map((l) => l.textContent?.trim());
+	assert.deepEqual(visibleLabels, ["Question", "Answer"]);
+	assert.ok(form!.textContent?.includes("Edit the question and answer, then confirm to add the card to your graph."));
+	assert.ok(!form!.textContent?.includes("Edit, then confirm"));
+});
+
+it("confirm sends the answer as the proposition when the Advanced proposition is left empty", async () => {
+	const sent: Array<Record<string, unknown>> = [];
+	globalThis.fetch = ((url: string, init?: RequestInit) => {
+		if (String(url).includes("/api/ext/study/cards")) {
+			const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+			sent.push(body);
+			if (body.action === "draft") return Promise.resolve(Response.json({ proposition: "", question: "What is a sigma algebra?", answer: "A family closed under complement and countable union." }));
+			return Promise.resolve(Response.json({ cardId: "c1", nodeIds: ["n1"] }));
+		}
+		if (String(url).includes("/drafts")) return Promise.resolve(Response.json({ drafts: [] }));
+		return Promise.resolve(new Response(null, { status: 404 }));
+	}) as typeof fetch;
+	await mount();
+	await act(async () => byLabel("Card from page")!.click());
+	const form = q('[data-testid="study-card-form"]')!;
+	assert.equal(form.querySelector<HTMLTextAreaElement>("details textarea")!.value, "", "the proposition is left empty");
+	await act(async () => [...form.querySelectorAll("button")].find((b) => b.textContent === "Confirm")!.click());
+	const body = sent.at(-1)!;
+	assert.equal(body.action, "confirm");
+	assert.equal(body.proposition, "A family closed under complement and countable union.");
+	assert.equal(body.question, "What is a sigma algebra?");
+});

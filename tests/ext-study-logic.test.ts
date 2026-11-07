@@ -1,7 +1,7 @@
 // tests/ext-study-logic.test.ts
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { afterSettled, draftsOf, pageFromInput, postJson, REQUEST_FAILED } from "../components/ext/study-logic.ts";
+import { afterSettled, cardPropositionOf, draftsOf, pageFromInput, postJson, REQUEST_FAILED } from "../components/ext/study-logic.ts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -127,5 +127,15 @@ describe("afterSettled (one page draw at a time, the viewer's canvas guard)", ()
 	it("a previous job that never rejects also hands over, and the chained promise never rejects by itself", async () => {
 		const p = afterSettled(Promise.reject(new Error("earlier")), async () => {});
 		await assert.doesNotReject(p);
+	});
+});
+
+describe("cardPropositionOf (the proposition sent on confirm; empty falls back to the answer)", () => {
+	it("keeps a written proposition as it is", () => {
+		assert.equal(cardPropositionOf({ proposition: "A sigma algebra is closed under complement.", answer: "Yes." }), "A sigma algebra is closed under complement.");
+	});
+	it("uses the answer when the proposition is empty or only spaces", () => {
+		assert.equal(cardPropositionOf({ proposition: "", answer: "Yes." }), "Yes.");
+		assert.equal(cardPropositionOf({ proposition: "  \n ", answer: "Yes." }), "Yes.");
 	});
 });

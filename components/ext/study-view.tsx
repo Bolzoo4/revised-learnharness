@@ -8,6 +8,7 @@ import { pageFromPoint } from "./citation-click";
 import { openNodePanel } from "./open-node";
 import { PdfViewer } from "./pdf-viewer";
 import {
+	cardPropositionOf,
 	clampRatio,
 	DEFAULT_LAYOUT,
 	DEFAULT_SPLIT_RATIO,
@@ -232,7 +233,7 @@ export function StudyView({
 		if (form === null) return;
 		setBusy(true);
 		setMessage(null);
-		const r = await post("/api/ext/study/cards", { action: "confirm", documentId: doc.id, ...form, pin });
+		const r = await post("/api/ext/study/cards", { action: "confirm", documentId: doc.id, ...form, proposition: cardPropositionOf(form), pin });
 		setBusy(false);
 		if (!r.ok) return showError(REQUEST_FAILED);
 		setForm(null);
@@ -416,10 +417,14 @@ export function StudyView({
 							<label className="flex items-center gap-2"><input type="checkbox" checked={pin} onChange={(e) => setPin(e.target.checked)} /> Add to my review</label>
 							{form !== null ? (
 								<div className="flex flex-col gap-1" data-testid="study-card-form">
-									<p className="text-muted-foreground">Card for page {form.page}. Edit, then confirm: the proposition is added to your graph.</p>
-									<label>Proposition<textarea className={field} rows={2} value={form.proposition} onChange={(e) => setForm({ ...form, proposition: e.target.value })} /></label>
+									<p className="text-muted-foreground">Card for page {form.page}. Edit the question and answer, then confirm to add the card to your graph.</p>
 									<label>Question<textarea className={field} rows={2} value={form.question} onChange={(e) => setForm({ ...form, question: e.target.value })} /></label>
 									<label>Answer<textarea className={field} rows={2} value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} /></label>
+									<details>
+										<summary className="cursor-pointer">Advanced: the statement added to your graph</summary>
+										<p className="mt-1 text-muted-foreground">The statement this card is about, kept as a node in your graph. Left empty, your answer is used.</p>
+										<label className="mt-1 flex flex-col gap-1">Proposition<textarea className={field} rows={2} value={form.proposition} onChange={(e) => setForm({ ...form, proposition: e.target.value })} /></label>
+									</details>
 									<div className="flex gap-2">
 										<button type="button" className="rounded border px-3 py-1" disabled={busy} onClick={() => void confirmCard()}>Confirm</button>
 										<button type="button" className="rounded border px-3 py-1" onClick={() => setForm(null)}>Cancel</button>

@@ -30,6 +30,14 @@ export async function postJson(fetcher: Fetcher, url: string, body: unknown): Pr
 	return { ok: res.ok, json };
 }
 
+/**
+ * The proposition a confirmed card is sent with. The learner may leave the Advanced proposition empty;
+ * then the answer stands in for it (the server refuses an empty proposition).
+ */
+export function cardPropositionOf(form: { proposition: string; answer: string }): string {
+	return form.proposition.trim() !== "" ? form.proposition : form.answer;
+}
+
 /** The page the viewer shows for a typed value, clamped to 1..pageCount; null when the text is not a page number. */
 export function pageFromInput(text: string, pageCount: number): number | null {
 	const t = text.trim();
