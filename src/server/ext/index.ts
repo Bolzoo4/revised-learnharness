@@ -56,3 +56,6 @@ export { outcomeResponse, parseLectureActivity, parseListQuery } from "./debrief
 export { videoResponse } from "./video-serve.ts";
 
 export { visualJobTools, visualJobInstructions, withVisualJobInstructions, VISUAL_JOB_NAMES, type VisualJobDeps } from "../../agent/ext/visual-job-tools.ts";
+
+export { examsService, uploadExamPdf } from "./exams-live.ts";
+export { ExamsError } from "./exams-service.ts";

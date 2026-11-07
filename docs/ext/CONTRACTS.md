@@ -911,3 +911,49 @@ Beside the job record (`data/jobs/`, upstream's JobStore is unchanged):
 ### The card
 
 - `components/ext/video-card.tsx`: while the call runs, the dispatch card (`video` → "Video builder"); when delivered, the title, a native `<video controls>` on the route above, and "Show scene" for the Manim source. A failed result shows its notes and no player. The steer card routes `kind: "video"` to it. Light and dark themes use the page tokens.
+
+## Exam collections (`data/ext/exams/<collectionId>/`, REQ-ex-01..06)
+
+A collection holds exams (old papers, split into exercises) and material (notes, books, slides). The PDFs themselves are kept in the documents store (`data/ext/documents/<sha256>.pdf` and `.pages.json`, shared with study); the files below hold the records.
+
+| File | Content |
+|---|---|
+| `collection.json` | one `Collection` |
+| `exams.json` | `ExamDoc[]` |
+| `exercises-<examId>.json` | `Exercise[]` in `order` (1..n) |
+| `materials.json` | `MaterialDoc[]` |
+| `chunks-<materialId>.jsonl` | one `{index, page, text}` per line: a chunk stays on one page |
+
+Every id that becomes a path must match `^[A-Za-z0-9_-]{1,64}$`; anything else reads as absent and is refused on write. Types: `src/core/ext/exams/types.ts`; the storage port: `src/core/ext/exams/ports.ts`; the adapter: `src/store/ext/exams-store.ts`.
+
+### Loading (REQ-ex-02, REQ-ex-04)
+
+- A PDF is refused with a fixed message when it is larger than 500 MB or does not start with `%PDF-`.
+- Its text layer is read first. A layer with fewer than 100 non-space characters is refused as a scan ("no text layer"): phase 1 reads only selectable text.
+- An exam whose text is over 60 000 characters is refused as too long for one split pass.
+- The exercises come from one call of the `exercise-splitter` prompt (role `extractor`, gated on the daily cost ceiling, source `exams`). The result is validated by `parseSplitResult`: page spans inside the exam, non-empty text, `origin: "exam"` exactly when a solution came with the exercise.
+- The same bytes already in a collection give the same exam or material record: an exam is not split twice, a material is not indexed twice.
+- Nothing is stored when a refusal happens: the text is read before the PDF is kept.
+
+### Editing and review (REQ-ex-03)
+
+`PATCH` ops: `merge` (with the next exercise; keeps the first id, widens the page span), `split` (at a character offset; the second half gets a new id), `delete`, `edit` (new text). A merge or a split drops the solution and its origin; an edit keeps them. Every change renumbers the list. Any change sets the exam back to unreviewed. The exam is marked reviewed with `POST {action: "reviewed"}`; an exam with no exercises cannot be marked.
+
+### Search (REQ-ex-05)
+
+`searchMaterial(collectionId, query, {k, maxTokens})`: BM25 over a Unicode-normalising tokenizer (accents removed, letters and digits only, no stop-word list). K defaults to 5 and is clamped to 1..10; the token cap defaults to 1500 and is clamped to 1..3000. The token estimate is characters divided by three, rounded up. A hit that does not fit the remaining budget is cut to fit, then the scan stops. No match gives an empty array.
+
+### Routes (`app/api/ext/exams/`)
+
+| Route | Body and answer |
+|---|---|
+| `GET collections` | `{collections}` |
+| `POST collections` `{title}` | 201, the collection |
+| `GET collections/[id]` | `{collection, exams, materials}`; 404 |
+| `POST collections/[id]/exams` (multipart `file`, `title?`) | 201, the exam |
+| `POST collections/[id]/materials` (multipart `file`, `title?`) | 201, the material |
+| `GET [examId]/exercises` | `{exercises}` |
+| `PATCH [examId]/exercises` (an edit op) | `{exercises}` |
+| `POST [examId]/exercises` `{action: "reviewed"}` | the exam |
+
+The exercise routes are at `/api/ext/exams/<examId>/exercises`, the URL the exams client (`components/ext/exams-api.ts`) calls. The plan's written path, `exams/[examId]/exercises`, would put a second `exams` segment into the URL; the client and its tests were built on the shorter one. Errors are `{error}` with a fixed message.

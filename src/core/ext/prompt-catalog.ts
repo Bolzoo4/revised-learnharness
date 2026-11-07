@@ -31,6 +31,7 @@ export const EXT_PROMPT_IDS = [
 	"explanation-style",
 	"session-notes",
 	"video-builder",
+	"exercise-splitter",
 ] as const;
 
 export type ExtPromptId = (typeof EXT_PROMPT_IDS)[number];
@@ -131,6 +132,12 @@ export const EXT_PROMPT_CATALOG: readonly ExtPromptEntry[] = [
 		label: "Video builder",
 		description: "Writes one short Manim scene from the brief, renders it in the sandbox, and fixes it from the render's output (up to the render limit).",
 		warning: "Keeps the rules the code relies on: the scene must define `class Scene(Scene):` (the renderer asks for that class), the sandbox rules (no network, no files outside its folder), and the write_scene and render_video tool names. The render itself is run by code.",
+	},
+	{
+		id: "exercise-splitter",
+		label: "Exercise splitter",
+		description: "Splits one old exam into its exercises (statement, page span, and the solution only when the exam itself carries one), for the exam training collections.",
+		warning: "Must call submit_exercises exactly once with exercises, each with pageStart, pageEnd, text and an optional solution. The page headers (--- Page N ---) of the exam text are appended by the code after this text.",
 	},
 ];
 

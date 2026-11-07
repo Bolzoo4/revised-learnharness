@@ -30,6 +30,7 @@ import { parseDraftEvent } from "../../core/ext/study/drafts.ts";
 import { parseStudyLinkEvent } from "../../core/ext/study/links.ts";
 import { parseReadingEvent } from "../../core/ext/study/reading.ts";
 import { createDocumentFiles } from "../../store/ext/documents-store.ts";
+import { createExamsStore } from "../../store/ext/exams-store.ts";
 
 export const extStores = {
 	goalsStore: createGoalsStore(EXT_PATHS.dir),
@@ -61,6 +62,8 @@ export const extStores = {
 	documentFiles: createDocumentFiles(EXT_PATHS.dir),
 	journalLedger: createLedger(EXT_PATHS.dir, "journal.jsonl", parseJournalEvent),
 	activityLedger: createLedger(EXT_PATHS.dir, "activity.jsonl", parseActivityEvent),
+	/** Exam collections, exams, exercises and material indexes (data/ext/exams/<collectionId>/). */
+	examsStore: createExamsStore(EXT_PATHS.dir),
 };
 
 export type ExtStores = typeof extStores;
