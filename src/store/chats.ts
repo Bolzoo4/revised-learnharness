@@ -34,7 +34,7 @@ function chatFile(id: string): string {
  *  phase, busy, pendingQuestion) is already announced by turn-started /
  *  turn-settled, which the sidebar refetches on. Silence here is law,
  *  not oversight. */
-function createChat(title: string, kind?: "practice" | "review" | "office_hours" | "research" | "study"): ChatRecord {
+function createChat(title: string, kind?: "practice" | "review" | "office_hours" | "research" | "study" | "exam"): ChatRecord {
 	const now = new Date().toISOString();
 	const record: ChatRecord = {
 		id: `chat_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`,

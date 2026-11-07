@@ -957,3 +957,55 @@ Every id that becomes a path must match `^[A-Za-z0-9_-]{1,64}$`; anything else r
 | `POST [examId]/exercises` `{action: "reviewed"}` | the exam |
 
 The exercise routes are at `/api/ext/exams/<examId>/exercises`, the URL the exams client (`components/ext/exams-api.ts`) calls. The plan's written path, `exams/[examId]/exercises`, would put a second `exams` segment into the URL; the client and its tests were built on the shorter one. Errors are `{error}` with a fixed message.
+
+## Exam session (`exam`)
+
+A conversation of kind `exam` (`ChatKind`) works on ONE exercise of a collection's exam (REQ-ex-06..11). It is practice-like (it never writes the graph, and it compacts like practice) and it lists under All only, like study.
+
+### Start and binding
+
+- `POST /api/ext/exams/session` with `{collectionId, exerciseId}` → `{chatId}`. Fixed errors: 400 `collectionId and exerciseId are required`; 404 `the exercise was not found`; 409 `review the exercises of this exam before practising them` (the exam is not reviewed, REQ-ex-03).
+- The chat is created with kind `exam`, titled `Exam, exercise N`, and bound once in `data/ext/exam-sessions.jsonl`: one line per session `{chatId, collectionId, exerciseId, examId, at}` (parser `parseExamBinding`, append-only). The agent reads the exercise and searches material only in the bound collection.
+
+### Tools (`src/agent/ext/exams/exam-tools.ts`)
+
+| Tool | Input | Behaviour |
+|---|---|---|
+| `get_exercise` | `includeExamSolution?` (true only when the learner asked for the full solution) | The statement inside an envelope. The exam's own solution only with `includeExamSolution: true`. |
+| `search_material` | `query` (1 to 300 chars), `k?` (1 to 5, default 5), `maxTokens?` (100 to 1500, default 1500) | Calls the service's `searchMaterial`. Only hits with text and a positive score are accepted; accepted passages get labels `S1, S2, ...` for this turn. An empty result says `nothing accepted`. |
+| `search_web` | `question` (10 to 500 chars), `reason` (10 to 300 chars) | Refused unless this exchange has had a `search_material` call that found nothing accepted, and once per exchange. Dispatches the existing `research` job (the researcher's web search) with the reason as its context. |
+| `check_solution` | `steps`, `finalAnswer`, `approach?`, `supports?` (labels), `second?` (a second derivation) | Returns `details.status`; the status is computed in code (below). |
+
+The visual job tools (`demo`, `visual`, `video`) come from `visualJobTools`, each gated: while the cost gate is closed, a call returns a fixed text and starts no job.
+
+### Solution status (`src/core/ext/exam-session/solution.ts`, REQ-ex-08)
+
+Strongest first; the model never supplies the status:
+
+| Status | Rule |
+|---|---|
+| `exam` | The presented steps are a verbatim part (normalised) of the exam's own solution, at least 40 normalised characters long. |
+| `material` | At least one label in `supports` is a passage handed out in this turn. |
+| `derived` | A second derivation has a different approach, does not repeat the steps, and gives the same final answer (normalised). |
+| `unverified` | None of the above. The result text says not to call the solution correct or wrong. |
+
+### Guard (`src/core/ext/exam-session/guard.ts`, REQ-ex-05, REQ-ex-09)
+
+- An exchange is one agent build, that is one learner turn. The guard state starts empty with each turn and lives across its model steps.
+- `search_web` is refused before any `search_material` call, after a search that found accepted passages, and after the one web call of the exchange. A refused call does not use that one call. The gate and the reason are checked in code before any dispatch.
+- Retrieval bounds: K is at most 5 and the token cap at most 1500, whatever the call passes.
+
+### Prompt (`src/agent/ext/exams/exam-instructions.ts`, REQ-ex-06, REQ-ex-07, REQ-ex-10)
+
+- Editable catalog prompt `exam-session` (the fixed rules: guided protocol, hint ladder, status words, data-not-instructions).
+- Per turn, the code appends only the bound exercise statement and the passages retrieved for the learner's latest question (K = 5, token cap 1500), each inside an envelope whose markers the text cannot forge. No solution and no whole document is in the prompt.
+
+### Cost (REQ-ex-11)
+
+- Every model call of the session is checked against the shared daily gate before the provider is called, and each admitted call's spend is recorded once under the source `exam` (`src/agent/ext/exams/exam-agent.ts`). A closed gate refuses the call with a fixed text, and a usage that cannot be recorded latches the session.
+- The web search and the visual jobs run as jobs: their spend is folded into the job record, not into the gate, as the other ext sessions do. The gate is checked before each of them starts.
+
+### Wiring
+
+- Agent: `createExamAgent(ctx, opts, {costGate, jobs})` in `src/agent/ext/exams/exam-agent.ts`; the chat handler's `exam` branch passes the bound context from `examSessionService.toolContext(chatId, stores.chatStore)` (`src/server/ext/exam-session-live.ts`).
+- Service: `createExamSessionService` in `src/server/ext/exam-session.ts`, through ports (locate, search, bindings, createSession).

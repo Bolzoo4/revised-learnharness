@@ -3,11 +3,11 @@ import type { ChatKind } from "../../contracts/chat.ts";
 
 /**
  * Sessions that write nothing to the graph and compact like practice:
- * `practice` plus the extension's `review`, `office_hours`, `research` and `study` kinds.
+ * `practice` plus the extension's `review`, `office_hours`, `research`, `study` and `exam` kinds.
  * The single definition; layers import it instead of re-testing the kinds.
  */
 export const isPracticeLike = (kind: ChatKind | string | undefined): boolean =>
-	kind === "practice" || kind === "review" || kind === "office_hours" || kind === "research" || kind === "study";
+	kind === "practice" || kind === "review" || kind === "office_hours" || kind === "research" || kind === "study" || kind === "exam";
 
 export type SessionListFilter = "teach" | "all" | "practice";
 
@@ -15,7 +15,7 @@ export type SessionListFilter = "teach" | "all" | "practice";
  * Which sessions the sidebar lists under each filter. A research session is a
  * background-agent conversation: it is never listed, not even under "all". A study
  * session is a reading companion for the learner's own PDF, not a conversation to
- * browse: it lists only under "all". Review and office-hours sessions list under
+ * browse: it lists only under "all". An exam session is the same: one exercise, under "all" only. Review and office-hours sessions list under
  * "practice"; plain teaching sessions under "teach".
  */
 export function sessionMatchesFilter(kind: ChatKind | string | undefined, filter: SessionListFilter): boolean {
@@ -23,5 +23,5 @@ export function sessionMatchesFilter(kind: ChatKind | string | undefined, filter
 	if (k === "research") return false;
 	if (filter === "all") return true;
 	if (filter === "teach") return k === "teach";
-	return isPracticeLike(k) && k !== "study";
+	return isPracticeLike(k) && k !== "study" && k !== "exam";
 }
