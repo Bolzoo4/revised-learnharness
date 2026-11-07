@@ -17,6 +17,9 @@ import type { Chapter } from "../../../core/ext/lecture/chapters.ts";
 import { parseLecture, type Lecture } from "../../../core/ext/lecture/lecture.ts";
 import { generateWithFeedback } from "../../../core/ext/lecture/retry.ts";
 import { splitOutline, type OutlineBlock } from "../../../core/ext/lecture/split.ts";
+import { explainChapterError } from "../../../core/ext/lecture/explain-error.ts";
+import { splitForGraphImport } from "../../../core/ext/lecture/graph-parts.ts";
+import type { ChapterState } from "../../../core/ext/lecture/run-record.ts";
 import { feedbackFromErrors, uncoveredChapterNodes, validateLecture } from "../../../core/ext/lecture/validate.ts";
 import type { LecturesStore } from "../../../core/ext/study-ports.ts";
 import { PROVIDER_LIMIT_MESSAGE } from "../../../core/ext/provider-limit.ts";
@@ -25,7 +28,7 @@ import type { LectureWriteInput } from "./writers.ts";
 
 export const MAX_LECTURE_RETRIES = 2;
 
-export type ChapterState = "queued" | "graph" | "outline" | "writing" | "done" | "failed" | "stopped_cost" | "stopped_provider";
+export type { ChapterState };
 
 export interface ChapterProgress {
 	chapter: Chapter;
@@ -58,6 +61,13 @@ export interface ChapterRunDeps {
 	/** The merged graph's nodes (getGraph(...).nodes). */
 	readNodes(): ReadonlyArray<Pick<GraphNode, "id" | "name" | "statement" | "provenance">>;
 	readChapterText(chapter: Chapter): Promise<string>;
+	/**
+	 * Graph parts already imported by an earlier run of this chapter (a checkpoint). Absent = no record:
+	 * a chapter whose graph already exists is then not imported again (the first-run rule).
+	 */
+	importedParts?: number;
+	/** Called after each graph part is imported, with the number of parts done. */
+	onImported?(parts: number): void;
 	writeOutline(chapter: Chapter, chapterText: string): Promise<OutlineBlock[]>;
 	writeLecture(input: LectureWriteInput): Promise<LectureDraft>;
 	now(): string;
@@ -74,7 +84,8 @@ export async function runChapter(book: BookRef, chapter: Chapter, deps: ChapterR
 	let uncovered: string[] = [];
 	const report = (state: ChapterState, error?: string): void =>
 		deps.onProgress?.({ chapter, state, lectures: saved.length, uncovered: uncovered.length, ...(error ? { error } : {}) });
-	const result = (state: ChapterResult["state"], error?: string): ChapterResult => {
+	const result = (state: ChapterResult["state"], rawError?: string): ChapterResult => {
+		const error = rawError === undefined ? undefined : explainChapterError(rawError);
 		report(state, error);
 		return { state, lectureIds: saved.map((l) => l.id), uncoveredNodeIds: uncovered, ...(error ? { error } : {}) };
 	};
@@ -84,16 +95,21 @@ export async function runChapter(book: BookRef, chapter: Chapter, deps: ChapterR
 		assertWithinCeiling(deps.gate);
 		const chapterText = await deps.readChapterText(chapter);
 
-		// 1. the chapter graph, from the chapter text
+		// 1. the chapter graph, from the chapter text, imported part by part; a part is checkpointed when done,
+		//    so a retry imports only the parts that are not yet covered
 		report("graph");
 		const filePath = chapterSourcePath(book, chapter);
 		const nodesOf = (sourceId: string) => deps.readNodes().filter((n) => n.provenance.some((p) => p.chatId === sourceId));
+		const parts = splitForGraphImport(chapterText);
 		let sourceId = deps.findSourceId(filePath);
-		if (sourceId === null || nodesOf(sourceId).length === 0) {
+		let imported =
+			deps.importedParts !== undefined ? deps.importedParts : sourceId !== null && nodesOf(sourceId).length > 0 ? parts.length : 0;
+		for (; imported < parts.length; imported++) {
 			assertWithinCeiling(deps.gate);
-			await deps.importChapterGraph({ filePath, text: chapterText });
-			sourceId = deps.findSourceId(filePath);
+			await deps.importChapterGraph({ filePath, text: parts[imported]! });
+			deps.onImported?.(imported + 1);
 		}
+		sourceId = deps.findSourceId(filePath);
 		if (sourceId === null) return result("failed", "the chapter graph import left no source record");
 		const chapterNodes = nodesOf(sourceId);
 		if (chapterNodes.length === 0) return result("failed", "the chapter graph is empty: no node was extracted from the chapter text");

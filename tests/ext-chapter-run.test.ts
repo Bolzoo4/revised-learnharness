@@ -187,3 +187,65 @@ describe("runChapter", () => {
 		assert.deepEqual(h.store.get("lec_b0123abcd_c02_l01"), buildLecture(draft, meta));
 	});
 });
+
+describe("runChapter: graph parts are checkpointed, and a retry imports only the rest", () => {
+	// Three paragraphs of 5000 characters: three graph parts (each paragraph alone fits a part, two do not).
+	const chapterText = [`P1 ${"a".repeat(5000)}`, `P2 ${"b".repeat(5000)}`, `P3 ${"c".repeat(5000)}`].join("\n\n");
+
+	/** A fake notes pipeline: each import adds its part's node once (a second import of a part would show as a duplicate id). */
+	function fakePipeline(failAtCall?: number, alreadyImported = false) {
+		const texts: string[] = [];
+		const nodeIds: string[] = [];
+		let ready = alreadyImported;
+		const deps: Partial<ChapterRunDeps> = {
+			importChapterGraph: async ({ text }) => {
+				texts.push(text);
+				if (failAtCall !== undefined && texts.length === failAtCall) throw new Error("model down");
+				nodeIds.push(`n_${text.slice(0, 2)}`);
+				ready = true;
+			},
+			findSourceId: () => (ready ? SRC : null),
+			readNodes: () => [...nodeIds.map(node), node(NODE_A), node(NODE_B)],
+			readChapterText: async () => chapterText,
+		};
+		return { texts, nodeIds, deps };
+	}
+
+	it("a run that fails after the first part resumes from the checkpoint and imports only the uncovered rest", async () => {
+		const pipe = fakePipeline(2);
+		const checkpoints: number[] = [];
+		const first = harness({ ...pipe.deps, onImported: undefined });
+		first.deps.onImported = (n) => void checkpoints.push(n);
+		const r1 = await runChapter(book, chapter, first.deps);
+		assert.equal(r1.state, "failed");
+		assert.match(r1.error!, /model down/);
+		assert.deepEqual(checkpoints, [1], "part 1 is checkpointed, part 2 failed before its checkpoint");
+		assert.deepEqual(pipe.texts.map((t) => t.slice(0, 2)), ["P1", "P2"]);
+
+		// the retry: the failing call is past, the stored checkpoint is 1
+		const second = harness({ ...pipe.deps, importedParts: 1, onImported: (n) => void checkpoints.push(n) });
+		const r2 = await runChapter(book, chapter, second.deps);
+		assert.equal(r2.state, "done");
+		assert.deepEqual(pipe.texts.slice(2).map((t) => t.slice(0, 2)), ["P2", "P3"], "only parts 2 and 3 are imported again");
+		assert.deepEqual(checkpoints, [1, 2, 3]);
+		assert.deepEqual(pipe.nodeIds, ["n_P1", "n_P2", "n_P3"], "no node is imported twice");
+	});
+	it("a chapter whose checkpoint covers every part imports nothing", async () => {
+		const pipe = fakePipeline(undefined, true);
+		const h = harness({ ...pipe.deps, importedParts: 3 });
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "done");
+		assert.equal(pipe.texts.length, 0);
+	});
+	it("explains the stored error text: a repeated part once with its count, and the hint for a stop before the submit tool", async () => {
+		const repeated = Array.from({ length: 6 }, () => "the extractor never submitted findings").join("; ");
+		const h = harness({ writeOutline: async () => { throw new Error(repeated); } });
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /^the extractor never submitted findings \(x6\)\. The model stopped before calling the tool/);
+		assert.equal(r.error!.split("never submitted").length - 1, 1);
+		const outline = harness({ writeOutline: async () => { throw new Error("the model ended without calling submit_outline"); } });
+		const r2 = await runChapter(book, chapter, outline.deps);
+		assert.equal(r2.error!.split("The model stopped before calling the tool").length - 1, 1);
+	});
+});
