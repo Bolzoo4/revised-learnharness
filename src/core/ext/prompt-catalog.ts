@@ -32,6 +32,7 @@ export const EXT_PROMPT_IDS = [
 	"session-notes",
 	"video-builder",
 	"exercise-splitter",
+	"exam-session",
 ] as const;
 
 export type ExtPromptId = (typeof EXT_PROMPT_IDS)[number];
@@ -138,6 +139,12 @@ export const EXT_PROMPT_CATALOG: readonly ExtPromptEntry[] = [
 		label: "Exercise splitter",
 		description: "Splits one old exam into its exercises (statement, page span, and the solution only when the exam itself carries one), for the exam training collections.",
 		warning: "Must call submit_exercises exactly once with exercises, each with pageStart, pageEnd, text and an optional solution. The page headers (--- Page N ---) of the exam text are appended by the code after this text.",
+	},
+	{
+		id: "exam-session",
+		label: "Exam session",
+		description: "Guides the learner through one exercise of an old exam: what they tried, one hint at a time, the full solution only on request, and the status of every solution.",
+		warning: "Keep the tool names get_exercise, search_material, search_web and check_solution, the hint ladder, the status words exam, material, derived and unverified, and the rule that unverified is never called correct. The exercise in focus and the passages retrieved for the latest question are appended by the code after this text.",
 	},
 ];
 

@@ -11,6 +11,7 @@ import { loadDebriefStyle } from "./debrief-writer.ts";
 import { loadStyleGuide } from "./explanation-writer.ts";
 import { GAP_RESEARCH_INSTRUCTIONS } from "./gap-research.ts";
 import { EXERCISE_SPLITTER_INSTRUCTIONS } from "./exams/exercise-splitter.ts";
+import { EXAM_INSTRUCTIONS } from "./exams/exam-instructions.ts";
 import { OFFICE_HOURS_INSTRUCTIONS } from "./practice/office-hours-instructions.ts";
 import { RESEARCH_INSTRUCTIONS } from "./research-instructions.ts";
 import { REVIEW_CARD_BODY, REVIEW_INSTRUCTIONS, REVIEW_NODE_BODY } from "./review-instructions.ts";
@@ -37,6 +38,7 @@ export const EXT_PROMPT_DEFAULTS: Record<ExtPromptId, () => string> = {
 	"session-notes": () => SESSION_NOTE_INSTRUCTIONS,
 	"video-builder": () => VIDEO_BUILDER_INSTRUCTIONS,
 	"exercise-splitter": () => EXERCISE_SPLITTER_INSTRUCTIONS,
+	"exam-session": () => EXAM_INSTRUCTIONS,
 };
 
 /** The default text of one catalog prompt. */
