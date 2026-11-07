@@ -87,6 +87,7 @@ export const lectureService = createLectureService({
 		writeLecture: (input) => writeLectureDraft(writerDeps(), input),
 	},
 	runs,
+	runStore: extStores.lectureRunStore,
 });
 
 /** An uploaded book's staged copy, kept in the documents store: the stable path the ingest reads (same bytes, same path). */
