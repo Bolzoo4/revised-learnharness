@@ -190,11 +190,15 @@ function ExerciseCard({
 				<span className="sr-only">Text of exercise {index + 1}</span>
 				<textarea
 					ref={textRef}
-					className="w-full rounded border bg-transparent px-2 py-1 text-sm"
-					rows={6}
-					readOnly={!editing}
+					className="field-sizing-content max-h-[28rem] min-h-[3.5rem] w-full resize-none rounded border bg-transparent px-2 py-1 text-sm caret-foreground"
 					value={editing ? draft : exercise.text}
-					onChange={(e) => setDraft(e.target.value)}
+					onChange={(e) => editing && setDraft(e.target.value)}
+					// Not readOnly: a read-only field shows no caret, and the caret is how the cut is chosen.
+					// Outside edit mode every text change is refused instead.
+					onBeforeInput={(e) => !editing && e.preventDefault()}
+					onPaste={(e) => !editing && e.preventDefault()}
+					onCut={(e) => !editing && e.preventDefault()}
+					onDrop={(e) => !editing && e.preventDefault()}
 				/>
 			</label>
 			{note !== null ? <p className="text-sm text-destructive">{note}</p> : null}

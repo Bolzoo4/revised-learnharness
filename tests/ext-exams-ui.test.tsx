@@ -56,9 +56,10 @@ describe("the review list of an exam (REQ-ex-03)", () => {
 		assert.match(merges[1]!, /disabled=""/, "the last one has nothing to merge with");
 	});
 
-	it("the exercise text is read-only until Edit is chosen", () => {
+	it("the exercise text is not readOnly (a read-only field shows no caret, and the caret picks the cut)", () => {
 		const html = cards();
-		assert.match(html, /<textarea[^>]*readOnly=""/);
+		assert.doesNotMatch(html, /<textarea[^>]*readOnly/);
+		assert.match(html, /<textarea[^>]*field-sizing-content/, "the box fits its text, so a short exercise gets a short box");
 	});
 
 	it("says in plain words when an exam has no exercises", () => {
