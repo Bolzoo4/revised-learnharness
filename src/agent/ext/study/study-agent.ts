@@ -5,13 +5,21 @@
  * turn. Same seam as the review and office-hours agents.
  */
 
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createPracticeAgent, type AgentBuildOptions } from "../../teacher-agent.ts";
+import { visualJobTools, withVisualJobInstructions, type VisualJobDeps } from "../visual-job-tools.ts";
 import { studyPrompt } from "./study-instructions.ts";
 import { studyTools, type StudyToolContext } from "./study-tools.ts";
 
-export function createStudyAgent(ctx: StudyToolContext, opts: AgentBuildOptions = {}) {
+/** `jobs` is the teacher's job wiring (demo, visual, video); absent = no job tools (tests). */
+export function createStudyAgent(ctx: StudyToolContext, opts: AgentBuildOptions = {}, jobs?: VisualJobDeps) {
+	const jobTools: Record<string, AgentTool<any>> = jobs ? visualJobTools(jobs, opts.toolToggles) : {};
 	return createPracticeAgent(
 		{ chatId: ctx.chatId, chatStore: ctx.chatStore },
-		{ ...opts, tools: studyTools(ctx), instructions: studyPrompt(ctx) },
+		{
+			...opts,
+			tools: { ...studyTools(ctx), ...jobTools },
+			instructions: withVisualJobInstructions(studyPrompt(ctx), jobTools),
+		},
 	);
 }

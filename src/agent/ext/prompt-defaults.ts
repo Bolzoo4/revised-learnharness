@@ -17,6 +17,7 @@ import { SESSION_NOTE_INSTRUCTIONS } from "./session-notes-writer.ts";
 import { STUDY_INSTRUCTIONS } from "./study/study-instructions.ts";
 import { VERIFIER_INSTRUCTIONS } from "./verifier.ts";
 import { VIDEO_BUILDER_INSTRUCTIONS } from "./video-builder.ts";
+import { VISUAL_JOB_INSTRUCTIONS } from "./visual-job-tools.ts";
 import { WATCH_CLASSIFY_INSTRUCTIONS } from "./watch-classify.ts";
 
 export const EXT_PROMPT_DEFAULTS: Record<ExtPromptId, () => string> = {
@@ -29,6 +30,7 @@ export const EXT_PROMPT_DEFAULTS: Record<ExtPromptId, () => string> = {
 	"review-node": () => REVIEW_NODE_BODY,
 	"study-assistant": () => STUDY_INSTRUCTIONS,
 	"office-hours": () => OFFICE_HOURS_INSTRUCTIONS,
+	"visual-jobs": () => VISUAL_JOB_INSTRUCTIONS,
 	"debrief-style": () => loadDebriefStyle(),
 	"explanation-style": () => loadStyleGuide(),
 	"session-notes": () => SESSION_NOTE_INSTRUCTIONS,

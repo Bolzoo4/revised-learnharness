@@ -840,6 +840,7 @@ The settings page lists the extension's agent prompts under "Extension agents", 
 | `explanation-style` | `explanationStyle()` (explanation writer) | `src/agent/ext/prompts/explanation-style.md` | the structure and `[[id]]` link rules (`STRUCTURE_RULES`) |
 | `session-notes` | `sessionNoteInstructions()` (session note proposal, after an extraction batch) | `SESSION_NOTE_INSTRUCTIONS` | the note so far and the learner's messages of the batch, one line each |
 | `video-builder` | `runVideoBuilder()` (video job, the Manim scene writer) | `VIDEO_BUILDER_INSTRUCTIONS` | nothing (the scene rules and the render tool names are in the text; see "Video") |
+| `visual-jobs` | `withVisualJobInstructions(instructions, tools)` (review, office hours, lecture sessions, study; appended only when `demo`, `visual` or `video` is offered) | `VISUAL_JOB_INSTRUCTIONS` | nothing (the three tool names and the rule for video are in the text) |
 
 The focus variants keep their per-run data out of the editable text: the body is resolved first and the data block is appended after it, so an edit cannot drop the card, the node, the document or the exercise. The data block sits after the body in the default too, so the default text of `review-card` and `review-node` is the body alone (the card or node block follows it).
 

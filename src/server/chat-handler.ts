@@ -11,6 +11,7 @@ import { createOfficeHoursAgent } from "../agent/ext/practice/office-hours-agent
 import { createReviewAgent } from "../agent/ext/review-agent.ts";
 import { createResearchAgent } from "../agent/ext/research-agent.ts";
 import { createStudyAgent } from "../agent/ext/study/study-agent.ts";
+import type { VisualJobDeps } from "../agent/ext/visual-job-tools.ts";
 import { connectionBackgroundAllowed as subscriptionBackgroundAllowed, connectionScopeCurrent, isSubscriptionProvider } from "../agent/subscription-connections.ts";
 import { nativeSubscriptionError } from "../agent/subscription-stream.ts";
 import { chatGPTStreamError } from "../agent/chatgpt-stream.ts";
@@ -130,6 +131,11 @@ const jobRunner = createJobRunner({
 	// same signal so keyless servers never see the research tool at all.
 	searchProvider,
 });
+/** The job wiring the ext sessions reuse for demo / visual / video (docs/ext/TOUCHPOINTS.md): the teacher's
+ *  job store and the same runner's spawn seam, so the ext cards, the job feed, abort and usage are the teacher's. */
+function extJobs(chatId: string): VisualJobDeps {
+	return { chatId, jobStore: stores.jobStore, spawn: (job, input) => void jobRunner.runJob(job.id, input) };
+}
 /** The app's ONE extraction pipeline instance — both front doors share it:
  *  quiz-triggered session runs (turn-service) and notes imports
  *  (/api/graph/import) hit the same single-flight registry. */
@@ -498,11 +504,11 @@ export async function handleChatInput(
 	const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
 		: record.kind === "office_hours"
-			? createOfficeHoursAgent(practiceService.toolContext(chatId, stores.chatStore), agentOpts)
+			? createOfficeHoursAgent(practiceService.toolContext(chatId, stores.chatStore), agentOpts, extJobs(chatId))
 		: record.kind === "study"
-			? createStudyAgent(studyService.toolContext(chatId, stores.chatStore), agentOpts)
+			? createStudyAgent(studyService.toolContext(chatId, stores.chatStore), agentOpts, extJobs(chatId))
 		: record.kind === "review"
-			? createReviewAgent(personalLayer.reviewToolContext(chatId, stores.chatStore), agentOpts)
+			? createReviewAgent(personalLayer.reviewToolContext(chatId, stores.chatStore), agentOpts, extJobs(chatId))
 		: record.kind === "research"
 			? createResearchAgent(researchToolContext(chatId), agentOpts, { costGate: liveCostGate })
 		: record.kind === "practice"

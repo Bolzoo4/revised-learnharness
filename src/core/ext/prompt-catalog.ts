@@ -26,6 +26,7 @@ export const EXT_PROMPT_IDS = [
 	"review-node",
 	"study-assistant",
 	"office-hours",
+	"visual-jobs",
 	"debrief-style",
 	"explanation-style",
 	"session-notes",
@@ -100,6 +101,12 @@ export const EXT_PROMPT_CATALOG: readonly ExtPromptEntry[] = [
 		label: "Office hours",
 		description: "Reviews the learner's own work through questions and hints. It never writes the solution and gives a verdict only on the /verdict command.",
 		warning: "The verdict tool needs quotations copied exactly from the texts. Keep the tool names and the rule about /verdict. An exercise in focus is appended by the code after this text.",
+	},
+	{
+		id: "visual-jobs",
+		label: "Demos, figures and videos",
+		description: "Tells the tutor when to build a Manim video, an interactive demo or a precise figure for the learner (when they ask to see something, or a verbal explanation has not worked). Used by review, office hours, lecture sessions and study.",
+		warning: "Names the tools demo, visual and video and how to write their briefs. The code appends the paragraph only when one of those tools is offered, and video only where the Manim runtime exists. Keep the tool names exactly as they are.",
 	},
 	{
 		id: "debrief-style",

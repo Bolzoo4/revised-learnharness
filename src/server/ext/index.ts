@@ -54,3 +54,5 @@ export { providerPauseStatus } from "./provider-pause.ts";
 export { outcomeResponse, parseLectureActivity, parseListQuery } from "./debrief-input.ts";
 
 export { videoResponse } from "./video-serve.ts";
+
+export { visualJobTools, visualJobInstructions, withVisualJobInstructions, VISUAL_JOB_NAMES, type VisualJobDeps } from "../../agent/ext/visual-job-tools.ts";
