@@ -52,6 +52,8 @@ export interface ExamSessionService {
 	/** Starts a session on one exercise: validates the ids, checks the exam is reviewed, creates the chat and binds it. */
 	start(input: unknown): { chatId: string };
 	/** The agent's view of a session: its exercise and the material search, bound to its collection. */
+	/** The exercise a session is bound to, or null when the chat has no binding or the exercise is gone. */
+	exerciseOf(chatId: string): Exercise | null;
 	toolContext(chatId: string, chatStore: ExamAgentContext["chatStore"]): ExamAgentContext;
 }
 
@@ -82,6 +84,10 @@ export function createExamSessionService(deps: ExamSessionDeps): ExamSessionServ
 			const session = deps.createSession(`Exam, exercise ${found.exercise.order}`);
 			deps.bindings.append({ chatId: session.id, collectionId, exerciseId, examId: found.exercise.examId, at: now() });
 			return { chatId: session.id };
+		},
+		exerciseOf(chatId) {
+			const binding = boundTo(deps.bindings, chatId);
+			return binding === null ? null : (deps.locate(binding.collectionId, binding.exerciseId)?.exercise ?? null);
 		},
 		toolContext(chatId, chatStore) {
 			const binding = boundTo(deps.bindings, chatId);
