@@ -1,3 +1,41 @@
+# LearnHarness v2
+
+**An unofficial extension fork of [LearnHarness](https://github.com/amosblomqvist/learnharness) by Amos Blomqvist, maintained by Riccardo Bolzonello.** It is not endorsed by or affiliated with the original project. The name only says that this fork builds on top of it; everything below the line is the original README. Licence: AGPL-3.0, the original copyright notices are kept.
+
+LearnHarness teaches with an agent and a knowledge graph. This fork turns it into a longer-running study system: spaced repetition, checked sources, narrated lectures, exam training and a background research loop. Its three starting points were personal tools (a flashcard app with FSRS, a PDF lecture pipeline, a knowledge-graph research prototype) that were merged here instead of growing apart.
+
+## What changes
+
+Each item is a page or a session kind in the app. Details and the open questions are in [`docs/ext/OVERVIEW.md`](docs/ext/OVERVIEW.md).
+
+- **Review**: spaced repetition (FSRS) per graph node, a daily plan bounded by time, flashcards, and a tutor you can open from a card or a node.
+- **Source checking**: every proposition gets a trust level (`unverified`, `sourced`, `contested`, `refuted`); "sourced" needs a quotation that code confirms in a stored copy of the source.
+- **Lectures**: chapters of a PDF become narrated lectures with slides, exercises and office hours; a chapter's nodes join the graph only after all its lectures are written.
+- **Study**: read a PDF next to a chat that knows the page and the selection; make cards from questions, selections and answers.
+- **Exams**: a space where you load old exams and course material; the agent splits exams into exercises, searches your material first and the web second, and guides you without giving the solution. Phase 2 (recurring exercise types, study plan) is designed, not built.
+- **Research**: a periodic loop that fills gaps in the graph, with marks set from the graph (expand, hold, stop), a research goal you write, progress reports while it runs, and notes you can leave it.
+- **Visual explanations**: interactive demos, drawings and Manim videos in the teaching, review, study, office-hours and lecture sessions. The macOS app ships its own Manim runtime.
+- **Session study notes**: a short note on how you want to study something, kept per session and passed to the sessions that work on its nodes.
+- **Debriefs and journal**, a read-only **MCP server** for other local agents, a shared daily **cost gate** and **provider usage-limit** pauses.
+- **Light theme** (Settings, Appearance, Mode).
+
+## How it is built
+
+- All extension code lives under `src/*/ext/`, `components/ext/`, `app/api/ext/` and the new pages (`app/review`, `app/lectures`, `app/study`, `app/exams`, `app/research`, `app/journal`).
+- Upstream files are edited only at a closed list of touchpoints, one row each with the reason, in [`docs/ext/TOUCHPOINTS.md`](docs/ext/TOUCHPOINTS.md). File formats and invariants are in [`docs/ext/CONTRACTS.md`](docs/ext/CONTRACTS.md).
+- The layering follows upstream: pure code in `core`, store adapters, agents that do not import stores, composition roots in `server`.
+- Every feature has a written design with numbered requirements in the parent repository's specs; the fork carries the contracts.
+
+## Run it
+
+Same as upstream: see [`docs/getting-started.md`](docs/getting-started.md). Extension tests: `NODE_ENV=test npx tsx --test tests/ext-*.test.ts tests/ext-*.test.tsx`. To ship video in a packaged macOS app, run `scripts/manim-runtime/build.sh` first ([`docs/ext/MANIM-RUNTIME.md`](docs/ext/MANIM-RUNTIME.md)); without the runtime the video tool is simply not offered.
+
+## Status, honestly
+
+The extension is tested with fakes (more than 3,000 extension tests, typecheck and lint clean), a local unsigned macOS build was installed and used for first manual tries. **Not yet verified:** end-to-end runs of most features with real models, the exam splitter on real exams with a model, Manim on a second Mac, and a signed or notarized build. Three upstream tests fail on a machine that has the `claude` CLI installed or for an unexamined loader reason. The Manim runtime includes an ffmpeg build that is GPL-licensed.
+
+---
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/lh_banner_dark.png">
