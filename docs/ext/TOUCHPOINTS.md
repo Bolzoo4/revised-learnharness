@@ -34,7 +34,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/core/ext/index.ts` | appended exports for the lecture player | Lectures |
 | `src/server/ext/panel-providers.ts` | `lecturesCiting` member (lecture back-links in a node's panel) | Lectures |
 | `src/core/source-organization.ts` | `chainSourceDirectory` hides every practice-like session (office hours, review) via `isPracticeLike` | Practice-like sessions |
-| `components/minimal-home.tsx` | home counts sessions with `sessionMatchesFilter`, as the sidebar lists them: study sessions count as teaching, review and office hours as practice, research not at all (the earlier row counted all practice-like kinds as practice) | Practice-like sessions |
+| `components/minimal-home.tsx` | home counts sessions with `sessionMatchesFilter`, as the sidebar lists them: study and research sessions are not counted, review and office hours count as practice (the earlier row counted all practice-like kinds as practice) | Practice-like sessions |
 | `components/chain-table.tsx` | chain filter hides sources of practice-like sessions | Practice-like sessions |
 | `src/agent/subagents/pi-run.ts` | `SubagentRunOptions.onAgent?`, one call after the `Agent` is built, so a running research cycle can be steered (REQ-rs-16) | Research loop |
 | `src/core/contracts/chat.ts` | `ChatKind` gains `"research"` (research sessions) | Research loop |
@@ -56,7 +56,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/server/chat-handler.ts` | research turn refused with a fixed 409 when the session is over the compaction threshold (research is never compacted, REQ-cost-01) | Research review fixes |
 | `instrumentation.ts` (new root file) | `register()` starts the debrief scheduler (REQ-deb-01, REQ-deb-02) and the research loop's scheduler (REQ-rs-01), each guarded so a failure cannot crash the server; inert under `NODE_ENV=test` | Session debriefs, Research loop |
 | `components/sidebar.tsx` | one import of `ExtNav` and one `<ExtNav />` line under the Teaching/Practice create buttons: the sidebar entries Review, Lectures, Study, Research, Journal (REQ-mode-01 navigation) | Navigation |
-| `components/sidebar.tsx` | the session filter uses `sessionMatchesFilter` (core barrel): review and office-hours sessions list under "Practice", study sessions under "Teaching", research sessions nowhere (not even "All") | Navigation fixes |
+| `components/sidebar.tsx` | the session filter uses `sessionMatchesFilter` (core barrel): review and office-hours sessions list under "Practice", study sessions only under "All", research sessions nowhere (not even "All") | Navigation fixes |
 | `components/settings/agent-section.tsx` | one import of `ExtPromptsSection` and one `<ExtPromptsSection />` line after the System prompts group: the "Extension agents" settings (editable extension prompts, docs/ext/CONTRACTS.md) | Editable extension prompts |
 | `components/activity-dock.tsx` | the "Open session" link renders only when the id is a chat id (`chat_…`): an extraction of an imported source carries the source id, which has no session and led to a 404 | Navigation fixes |
 | `app/not-found.tsx` (new root file) | a 404 page with a link home (the default one has no way back inside the desktop app) | Navigation fixes |

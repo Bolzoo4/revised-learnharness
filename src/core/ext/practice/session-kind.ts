@@ -14,13 +14,14 @@ export type SessionListFilter = "teach" | "all" | "practice";
 /**
  * Which sessions the sidebar lists under each filter. A research session is a
  * background-agent conversation: it is never listed, not even under "all". A study
- * session is a teaching conversation about the learner's own PDF, so it lists under
- * "teach"; review and office-hours sessions list under "practice".
+ * session is a reading companion for the learner's own PDF, not a conversation to
+ * browse: it lists only under "all". Review and office-hours sessions list under
+ * "practice"; plain teaching sessions under "teach".
  */
 export function sessionMatchesFilter(kind: ChatKind | string | undefined, filter: SessionListFilter): boolean {
 	const k = kind ?? "teach";
 	if (k === "research") return false;
 	if (filter === "all") return true;
-	if (filter === "teach") return k === "teach" || k === "study";
+	if (filter === "teach") return k === "teach";
 	return isPracticeLike(k) && k !== "study";
 }
