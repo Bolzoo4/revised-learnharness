@@ -15,11 +15,11 @@ function render(pathname: string | null): Document {
 const anchors = (doc: Document) => [...doc.querySelectorAll("nav[data-testid='ext-nav'] a")] as HTMLAnchorElement[];
 const link = (doc: Document, label: string) => anchors(doc).find((a) => a.textContent === label);
 
-it("renders the five learning pages as real links with the right hrefs", () => {
+it("renders the six learning pages as real links with the right hrefs", () => {
 	const doc = render("/");
 	assert.deepEqual(
 		anchors(doc).map((a) => [a.textContent, a.getAttribute("href")]),
-		[["Review", "/review"], ["Lectures", "/lectures"], ["Study", "/study"], ["Research", "/research"], ["Journal", "/journal"]],
+		[["Review", "/review"], ["Lectures", "/lectures"], ["Exams", "/exams"], ["Study", "/study"], ["Research", "/research"], ["Journal", "/journal"]],
 	);
 });
 

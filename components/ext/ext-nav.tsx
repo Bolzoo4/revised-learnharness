@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenIcon, LayersIcon, NotebookPenIcon, PresentationIcon, TelescopeIcon, type LucideIcon } from "lucide-react";
+import { BookOpenIcon, GraduationCapIcon, LayersIcon, NotebookPenIcon, PresentationIcon, TelescopeIcon, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 export const EXT_NAV_ITEMS: ReadonlyArray<{ href: string; label: string; icon: LucideIcon }> = [
 	{ href: "/review", label: "Review", icon: LayersIcon },
 	{ href: "/lectures", label: "Lectures", icon: PresentationIcon },
+	{ href: "/exams", label: "Exams", icon: GraduationCapIcon },
 	{ href: "/study", label: "Study", icon: BookOpenIcon },
 	{ href: "/research", label: "Research", icon: TelescopeIcon },
 	{ href: "/journal", label: "Journal", icon: NotebookPenIcon },
