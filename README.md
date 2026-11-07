@@ -1,23 +1,30 @@
-# LearnHarness v2
+# Revised LearnHarness
 
-**An unofficial extension fork of [LearnHarness](https://github.com/amosblomqvist/learnharness) by Amos Blomqvist, maintained by Riccardo Bolzonello.** It is not endorsed by or affiliated with the original project. The name only says that this fork builds on top of it; everything below the line is the original README. Licence: AGPL-3.0, the original copyright notices are kept.
+**An unofficial extension fork of [LearnHarness](https://github.com/amosblomqvist/learnharness) by Amos Blomqvist, maintained by Riccardo Bolzonello.** It is not endorsed by or affiliated with the original project. "Revised" only says that this fork builds on top of it; everything below the line is the original README. Licence: AGPL-3.0, the original copyright notices are kept.
 
 LearnHarness teaches with an agent and a knowledge graph. This fork turns it into a longer-running study system: spaced repetition, checked sources, narrated lectures, exam training and a background research loop. Its three starting points were personal tools (a flashcard app with FSRS, a PDF lecture pipeline, a knowledge-graph research prototype) that were merged here instead of growing apart.
 
-## What changes
+## What is added
 
-Each item is a page or a session kind in the app. Details and the open questions are in [`docs/ext/OVERVIEW.md`](docs/ext/OVERVIEW.md).
+Everything below is new; the original agents, graph and extraction pipeline are unchanged apart from the listed touchpoints. "Tested" means automated tests with fake models; "tried" means used by hand in the installed macOS app; nothing has had an end-to-end run with real models yet unless it says so.
 
-- **Review**: spaced repetition (FSRS) per graph node, a daily plan bounded by time, flashcards, and a tutor you can open from a card or a node.
-- **Source checking**: every proposition gets a trust level (`unverified`, `sourced`, `contested`, `refuted`); "sourced" needs a quotation that code confirms in a stored copy of the source.
-- **Lectures**: chapters of a PDF become narrated lectures with slides, exercises and office hours; a chapter's nodes join the graph only after all its lectures are written.
-- **Study**: read a PDF next to a chat that knows the page and the selection; make cards from questions, selections and answers.
-- **Exams**: a space where you load old exams and course material; the agent splits exams into exercises, searches your material first and the web second, and guides you without giving the solution. Phase 2 (recurring exercise types, study plan) is designed, not built.
-- **Research**: a periodic loop that fills gaps in the graph, with marks set from the graph (expand, hold, stop), a research goal you write, progress reports while it runs, and notes you can leave it.
-- **Visual explanations**: interactive demos, drawings and Manim videos in the teaching, review, study, office-hours and lecture sessions. The macOS app ships its own Manim runtime.
-- **Session study notes**: a short note on how you want to study something, kept per session and passed to the sessions that work on its nodes.
-- **Debriefs and journal**, a read-only **MCP server** for other local agents, a shared daily **cost gate** and **provider usage-limit** pauses.
-- **Light theme** (Settings, Appearance, Mode).
+| Addition | Where in the app | Design | Status |
+|---|---|---|---|
+| Spaced repetition (FSRS per node), daily plan, flashcards, tutor from a card or node | Review | [personal layer](docs/ext/design/specs/2026-11-04-personal-layer-spaced-repetition-design.md) | tested, tried |
+| Trust levels for propositions (`unverified`, `sourced`, `contested`, `refuted`), quotations confirmed by code | node card, node panel | [source verification](docs/ext/design/specs/2026-11-04-source-verification-design.md) | tested |
+| Node panel: explanation, trust, neighbours, citing lectures, cards, review state | any view | [node knowledge](docs/ext/design/specs/2026-11-04-node-knowledge-design.md) | tested |
+| Narrated lectures, office hours, graded exercises; a chapter's nodes join the graph only after its lectures are written | Lectures | [lectures](docs/ext/design/specs/2026-11-04-lecture-office-hours-exercises-design.md) | tested, tried |
+| PDF reading next to a chat that knows the page; cards from questions, selections and answers | Study | [assisted study](docs/ext/design/specs/2026-11-04-assisted-study-design.md) | tested, tried |
+| Exam collections, splitting exams into exercises, guided solving with material first and web second, solution status | Exams | [exam training](docs/ext/design/specs/2026-11-07-exam-training-design.md) | tested; splitter not run with a real model |
+| Background research loop: marks from the graph, research goal, progress reports, notes | Research | [research loop](docs/ext/design/specs/2026-11-04-research-loop-design.md) | tested |
+| Interactive demos, drawings and Manim videos in teaching, review, study, office hours, lectures | in chat | [video](docs/ext/design/specs/2026-11-07-manim-video-design.md) | tested; render tried on one Mac |
+| Study notes per session, passed to the sessions that work on its nodes | node panel | [session notes](docs/ext/design/specs/2026-11-07-session-notes-design.md) | tested |
+| Debriefs and journal | Journal | [debriefs](docs/ext/design/specs/2026-11-04-session-debriefs-design.md) | tested, tried |
+| Read-only MCP server for other local agents | `scripts/ext-mcp.ts` | [MCP](docs/ext/design/specs/2026-11-04-external-access-mcp-design.md) | tested |
+| Daily cost gate and provider usage-limit pauses | all background work | [umbrella spec](docs/ext/design/specs/2026-11-04-learning-platform-integration-design.md) | tested |
+| Light theme | Settings, Appearance | commit message `feat(ext): light theme` | tested |
+
+To see exactly which original files were touched and why, read [`docs/ext/TOUCHPOINTS.md`](docs/ext/TOUCHPOINTS.md); the file formats are in [`docs/ext/CONTRACTS.md`](docs/ext/CONTRACTS.md); the overview written for the original author is [`docs/ext/OVERVIEW.md`](docs/ext/OVERVIEW.md).
 
 ## How it is built
 
