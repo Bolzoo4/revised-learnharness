@@ -60,6 +60,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `components/settings/agent-section.tsx` | one import of `ExtPromptsSection` and one `<ExtPromptsSection />` line after the System prompts group: the "Extension agents" settings (editable extension prompts, docs/ext/CONTRACTS.md) | Editable extension prompts |
 | `components/activity-dock.tsx` | the "Open session" link renders only when the id is a chat id (`chat_…`): an extraction of an imported source carries the source id, which has no session and led to a 404 | Navigation fixes |
 | `app/not-found.tsx` (new root file) | a 404 page with a link home (the default one has no way back inside the desktop app) | Navigation fixes |
+| `components/graph-view.tsx` | one import of `NodeMarkControl` and one `<NodeMarkControl />` line under `<TrustBadge />` in the node detail card: the node's research mark (expand / hold / stop / clear) (REQ-rs-18) | Research page rework |
 
 Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 

@@ -77,6 +77,7 @@ import { MenuShell } from "@/components/menu-shell.tsx";
 import { DeleteNodeDialog } from "@/components/delete-node-dialog.tsx";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { TrustBadge } from "@/components/ext/trust-badge.tsx";
+import { NodeMarkControl } from "@/components/ext/node-mark-control.tsx";
 import { openNodePanel } from "@/components/ext/open-node";
 import { Hint } from "@/components/ui/hint";
 import {
@@ -1634,6 +1635,7 @@ export function GraphView({
 						Open node panel
 					</button>
 					<TrustBadge nodeId={selected.node.id} />
+					<NodeMarkControl nodeId={selected.node.id} />
 					{selected.sourceIds.length > 0 ? (
 						<div className="mt-3 flex flex-col gap-1">
 							<div className="text-xs text-muted-foreground">Sessions</div>
