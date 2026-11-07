@@ -96,6 +96,8 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `src/store/chats.ts` | `createChat` type widened to the same kinds | Exam session |
 | `src/server/chat-handler.ts` | one import of `createExamAgent` and one of `examSessionService`; the `exam` agent branch (after study) with the cost gate and the visual jobs | Exam session |
 | `app/chat/[id]/page.tsx` | passes `"teach"` to `Chat` for an `exam` session | Exam session |
+| `tests/font-menu.test.tsx` | the ink-default count is 3 theme blocks (dark, `.dark`, light) | Light theme |
+| `tests/render-settings.test.tsx` | the pinned tool list includes `video` | Video (Manim) |
 
 Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 
