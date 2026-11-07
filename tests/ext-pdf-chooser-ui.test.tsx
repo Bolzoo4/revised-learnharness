@@ -15,7 +15,7 @@ describe("the PDF chooser on the study and lectures pages", () => {
 		assert.match(html, /Drop a PDF here/);
 		assert.match(html, /type="file"/);
 		assert.match(html, /accept="application\/pdf,\.pdf"/);
-		assert.match(html, /Title \(optional\)/);
+		assert.match(html, /Title \(optional; the file name is used when empty\)/);
 	});
 
 	it("the study page keeps the typed path as a fallback under a details element", () => {

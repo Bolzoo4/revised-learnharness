@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { pickPdf } from "./pdf-upload.ts";
+import { pickPdf, titleFromFileName } from "./pdf-upload.ts";
 
 /**
  * The "choose or drop a PDF" control for the study and lectures pages. It checks
@@ -14,7 +14,7 @@ export function PdfChooser({ busy, onPick, onError }: { busy: boolean; onPick: (
 
 	function choose(files: ArrayLike<File>) {
 		const pick = pickPdf(files);
-		if (pick.ok) onPick(pick.file, title);
+		if (pick.ok) onPick(pick.file, title.trim() !== "" ? title : titleFromFileName(pick.file.name));
 		else onError(pick.error);
 	}
 
@@ -52,7 +52,7 @@ export function PdfChooser({ busy, onPick, onError }: { busy: boolean; onPick: (
 				</label>
 			</div>
 			<label className="flex flex-col gap-1 text-sm">
-				<span className="text-muted-foreground">Title (optional)</span>
+				<span className="text-muted-foreground">Title (optional; the file name is used when empty)</span>
 				<input className="rounded border px-2 py-1" value={title} onChange={(e) => setTitle(e.target.value)} />
 			</label>
 		</div>

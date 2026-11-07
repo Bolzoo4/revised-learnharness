@@ -2,8 +2,10 @@
 /**
  * Browser side of the PDF chooser, shared by the study and lectures pages. The
  * checks here are a convenience: the server checks the bytes again. Nothing
- * from the chosen file except its bytes and the optional title is sent; the
- * upload goes out under the fixed name "upload.pdf".
+ * from the chosen file except its bytes and a title is sent; the upload goes
+ * out under the fixed name "upload.pdf". The title is typed by the learner or,
+ * when left empty, derived from the file's name (titleFromFileName): it is
+ * display text only, never a path or a stored file name.
  */
 
 /** Same limit as the server (MAX_PDF_BYTES in src/server/ext/study-service.ts). */
@@ -13,6 +15,15 @@ export const NOT_A_PDF_TEXT = "Choose a PDF file.";
 export const EMPTY_FILE_TEXT = "That file is empty.";
 export const ONE_FILE_TEXT = "Choose one PDF at a time.";
 export const NO_FILE_TEXT = "No file was chosen.";
+
+const MAX_TITLE_CHARS = 200;
+
+/** A readable title from a chosen file's name: no folders, no ".pdf", no control characters, one line, bounded. "" when nothing is left. */
+export function titleFromFileName(name: string): string {
+	const base = name.split(/[\\/]/).pop() ?? "";
+	const clean = base.replace(/\.pdf$/i, "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+	return Array.from(clean).slice(0, MAX_TITLE_CHARS).join("");
+}
 
 export interface PickedFile {
 	name: string;

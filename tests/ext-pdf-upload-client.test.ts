@@ -7,6 +7,7 @@ import {
 	failureText,
 	MAX_PDF_UPLOAD_BYTES,
 	pickPdf,
+	titleFromFileName,
 	uploadPdf,
 } from "../components/ext/pdf-upload.ts";
 
@@ -84,5 +85,19 @@ describe("failureText", () => {
 		assert.equal(await failureText(new Response(JSON.stringify({ error: "that PDF has no pages" }), { status: 422 }), "fallback"), "that PDF has no pages");
 		assert.equal(await failureText(new Response("<html>", { status: 500 }), "fallback"), "fallback");
 		assert.equal(await failureText(new Response(JSON.stringify({ error: "" }), { status: 400 }), "fallback"), "fallback");
+	});
+});
+
+describe("titleFromFileName", () => {
+		it("titleFromFileName: the file name without folders and .pdf", () => {
+		assert.equal(titleFromFileName("Deep Learning Theory.pdf"), "Deep Learning Theory");
+		assert.equal(titleFromFileName("C:\\Books\\My Book.PDF"), "My Book");
+		assert.equal(titleFromFileName("/Users/x/Books/ml_notes.pdf"), "ml_notes");
+	});
+		it("titleFromFileName: one line, bounded, no control characters", () => {
+		assert.equal(titleFromFileName("a\n\tb\u0000c  d.pdf"), "a b c d");
+		assert.equal(Array.from(titleFromFileName("x".repeat(500) + ".pdf")).length, 200);
+		assert.equal(titleFromFileName(".pdf"), "");
+		assert.equal(titleFromFileName(""), "");
 	});
 });
