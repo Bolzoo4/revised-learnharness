@@ -7,6 +7,7 @@
  */
 
 import type { GapType } from "./research-config.ts";
+import { MAX_GOAL_CHARS, MAX_REPORTS, MAX_REPORT_CHARS } from "./cycle-control.ts";
 
 /** `skipped-active`: an active library source met in a source hunt (verification already uses it). */
 export type SourceOutcome = "ingested" | "inbox" | "skipped-rejected" | "skipped-seen" | "skipped-active" | "not-fetched" | "not-capturable" | "over-cap" | "failed";
@@ -51,9 +52,13 @@ export interface CycleLogEntry {
 	costUsd: number;
 	/** Steering messages the user sent while the cycle ran. */
 	steers: string[];
+	/** The research goal of a goal cycle (REQ-rs-19). Absent on a graph cycle; entries written before goals existed have none. */
+	goal?: string;
+	/** Progress reports the research agent wrote while the cycle ran, oldest first (REQ-rs-20). Absent when there were none. */
+	reports?: string[];
 }
 
-const GAP_TYPES = new Set<string>(["uncovered", "no-premises", "weak-premise", "unverified", "contested-no-primary"]);
+const GAP_TYPES = new Set<string>(["uncovered", "no-premises", "weak-premise", "unverified", "contested-no-primary", "goal"]);
 const STOPS = new Set<string>(["completed", "no-gaps", "ceiling", "provider-limit", "aborted", "error"]);
 const GAP_STOPS = new Set<string>(["confidence", "no-more-sources", "turn-limit"]);
 const OUTCOMES = new Set<string>(["ingested", "inbox", "skipped-rejected", "skipped-seen", "skipped-active", "not-fetched", "not-capturable", "over-cap", "failed"]);
@@ -127,7 +132,7 @@ export function parseCycleLogEntry(raw: unknown): CycleLogEntry | null {
 	const w = raw.watch;
 	if (!isObj(w) || !isCount(w.entries) || !isCount(w.items) || !isCount(w.ingested) || !isCount(w.inbox)) return null;
 	if (!isCount(raw.nodesAdded) || !isUsd(raw.costUsd) || !isStrArray(raw.steers)) return null;
-	return {
+	const out: CycleLogEntry = {
 		type: "cycle",
 		cycleId: raw.cycleId,
 		trigger: raw.trigger,
@@ -140,6 +145,13 @@ export function parseCycleLogEntry(raw: unknown): CycleLogEntry | null {
 		costUsd: raw.costUsd,
 		steers: raw.steers,
 	};
+	// Optional, informational: an invalid value is dropped and the entry (and its cost) is kept.
+	if (isNonEmpty(raw.goal) && raw.goal.length <= MAX_GOAL_CHARS) out.goal = raw.goal;
+	if (Array.isArray(raw.reports)) {
+		const reports = raw.reports.filter((r): r is string => isNonEmpty(r) && r.length <= MAX_REPORT_CHARS).slice(-MAX_REPORTS);
+		if (reports.length > 0) out.reports = reports;
+	}
+	return out;
 }
 
 /** USD spent per mark id: the sum of the cost of every gap that ran under that mark. */

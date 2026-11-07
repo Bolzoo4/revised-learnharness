@@ -10,11 +10,14 @@
  * Failure rules: `start` answers with a fixed reason and never carries an
  * error text. A CycleBusyError or CycleClockError from runCycle is handled
  * here and never leaves the service; any other failure goes to `onError`.
+ *
+ * A goal (REQ-rs-19) is checked before anything starts: a goal that is not text
+ * or is too long is a ResearchInputError (400), and a blank one is no goal.
  */
 
 import { MAX_STEER_CHARS } from "../../agent/ext/research-tools.ts";
-import { CycleBusyError, CycleClockError, isCycleRunning, runCycle, type CycleDeps } from "../../core/ext/cycle.ts";
-import { createCycleControl, type CycleControl } from "../../core/ext/cycle-control.ts";
+import { CycleBusyError, CycleClockError, isCycleRunning, runCycle, type CycleDeps, type CycleScope } from "../../core/ext/cycle.ts";
+import { cleanGoal, createCycleControl, type CycleControl } from "../../core/ext/cycle-control.ts";
 import { cycleDue, type CycleLogEntry } from "../../core/ext/research-log.ts";
 import type { EventLog } from "../../core/ext/research-ports.ts";
 import { ResearchInputError } from "./research-errors.ts";
@@ -31,7 +34,11 @@ export interface ResearchStatus {
 	running: boolean;
 	trigger?: RunTrigger;
 	startedAt?: string;
+	/** The running cycle's research goal, when it was started with one (REQ-rs-19). */
+	goal?: string;
 	steers: string[];
+	/** Progress reports of the running cycle, oldest first, at most 50 of at most 400 characters (REQ-rs-20). Empty when idle. */
+	reports: string[];
 	lastCycle: CycleLogEntry | null;
 	/** ISO time the provider usage-limit pause ends, while one is in force; null otherwise. */
 	providerPausedUntil: string | null;
@@ -53,7 +60,7 @@ export interface ResearchServiceDeps {
 	onError?(err: unknown): void;
 }
 
-interface Run {
+interface Run extends CycleScope {
 	control: CycleControl;
 	trigger: RunTrigger;
 	startedAt: string;
@@ -89,7 +96,9 @@ export function createResearchService(deps: ResearchServiceDeps) {
 		}
 	};
 
-	function start(trigger: RunTrigger): StartResult {
+	function start(trigger: RunTrigger, goal?: unknown): StartResult {
+		const cleaned = cleanGoal(goal);
+		if (!cleaned.ok) throw new ResearchInputError("the goal must be text of at most 500 characters");
 		if (current !== null || isCycleRunning(deps.store.log, deps.store.lockKey)) return { started: false, reason: "already-running" };
 		if (!deps.canRun()) return { started: false, reason: "not-configured" };
 		if (pausedUntil() !== null) return { started: false, reason: "provider-limit" };
@@ -114,6 +123,7 @@ export function createResearchService(deps: ResearchServiceDeps) {
 			onGapsDone: () => control.closeSteering(),
 			onError: (err) => report(err),
 			allSteers: () => control.allSteers(),
+			allReports: () => control.reports(),
 			// The live agent is attached per gap by the researcher; it is detached as soon as that gap settles.
 			researchGap: async (gap, opts) => {
 				try {
@@ -124,9 +134,10 @@ export function createResearchService(deps: ResearchServiceDeps) {
 			},
 		};
 
-		const run: Run = { control, trigger, startedAt, done: Promise.resolve() };
+		const scope: CycleScope = cleaned.goal !== undefined ? { goal: cleaned.goal } : {};
+		const run: Run = { control, trigger, startedAt, done: Promise.resolve(), ...scope };
 		current = run;
-		run.done = runCycle(cycleDeps, trigger)
+		run.done = runCycle(cycleDeps, trigger, scope)
 			.then(
 				() => undefined,
 				(err: unknown) => {
@@ -155,12 +166,14 @@ export function createResearchService(deps: ResearchServiceDeps) {
 			const log = deps.store.log.readAll();
 			const lastCycle = log.length === 0 ? null : log[log.length - 1]!;
 			const providerPausedUntil = pausedUntil();
-			if (current === null) return { running: false, steers: [], lastCycle, providerPausedUntil };
+			if (current === null) return { running: false, steers: [], reports: [], lastCycle, providerPausedUntil };
 			return {
 				running: true,
 				trigger: current.trigger,
 				startedAt: current.startedAt,
+				...(current.goal !== undefined ? { goal: current.goal } : {}),
 				steers: current.control.allSteers(),
+				reports: current.control.reports(),
 				lastCycle,
 				providerPausedUntil,
 			};

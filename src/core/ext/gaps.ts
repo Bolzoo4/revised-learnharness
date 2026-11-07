@@ -108,6 +108,14 @@ export function reachFromGoals(goals: readonly Goal[], chains: readonly ChainLit
 	return best;
 }
 
+/**
+ * The one gap of a goal cycle (REQ-rs-19): the learner's goal stands in for a node. It is not
+ * scored, so its score is 0; `id` is the cycle's own id, since there is no node or chat to key it.
+ */
+export function goalGap(goal: string, id: string): Gap {
+	return { id, type: "goal", class: GAP_CLASS.goal, label: goal, distance: 0, score: 0 };
+}
+
 export function findGaps(input: GapInput): Gap[] {
 	const { config } = input;
 	const reach = reachFromGoals(input.goals, input.chains, config.distanceBase);

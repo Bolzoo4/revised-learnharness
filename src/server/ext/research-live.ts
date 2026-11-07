@@ -76,7 +76,7 @@ export function makeResearchGap(deps: MakeResearchGapDeps) {
 		gap: Gap,
 		opts: { steers: string[]; sourceHunt: boolean; ref: string; maxTurns: number },
 	): Promise<GapFinding & { costUsd: number }> => {
-		if (gap.type !== "no-premises" && gap.type !== "weak-premise" && gap.type !== "contested-no-primary") {
+		if (gap.type !== "no-premises" && gap.type !== "weak-premise" && gap.type !== "contested-no-primary" && gap.type !== "goal") {
 			throw new Error(`cannot research gap of type ${gap.type}`);
 		}
 		const brief = await deps.briefFor(gap);
@@ -88,6 +88,9 @@ export function makeResearchGap(deps: MakeResearchGapDeps) {
 			maxSources: deps.config.maxSourcesPerGap,
 			takeSteers: () => deps.control.takeSteers(),
 			onAgent: (agent) => deps.control.attach(agent),
+			onProgress: (text) => {
+				deps.control.progress(text);
+			},
 		};
 		try {
 			return await deps.researcher.run(brief, opts.steers, hooks);
@@ -210,6 +213,9 @@ function activateLibraryEntry(entry: LibraryEntryInput): void {
 }
 
 function briefForGap(gap: Gap): GapBrief {
+	const activeLocators = extStores.sourcesStore.read().filter((e) => e.status === "active").map((e) => e.locator);
+	// A goal gap has no node: its statement is the learner's goal (REQ-rs-19).
+	if (gap.type === "goal") return { type: "goal", label: gap.label, statement: gap.label, premises: [], activeLocators };
 	const g = getGraph(stores.graphStore);
 	const node = g.nodes.find((n) => n.id === gap.nodeId);
 	const nodeMap = new Map(g.nodes.map((n) => [n.id, n]));
@@ -222,7 +228,6 @@ function briefForGap(gap: Gap): GapBrief {
 			}
 		}
 	}
-	const activeLocators = extStores.sourcesStore.read().filter((e) => e.status === "active").map((e) => e.locator);
 	return {
 		type: gap.type as GapBrief["type"],
 		label: gap.label,

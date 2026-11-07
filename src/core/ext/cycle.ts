@@ -33,11 +33,15 @@
  *    The raw error goes to `deps.onError` and nowhere else.
  *  - `deps.onGapsDone` runs once when the research-gap phase is over, before the
  *    watch: a steer after it has no gap left to reach and must be refused.
+ *  - A goal cycle (REQ-rs-19) researches the goal as its one gap, chosen instead of
+ *    the graph's gaps, and runs no watch. Its goal and the progress reports the
+ *    agent wrote (REQ-rs-20) are recorded in the log entry.
  */
 
 import type { CostGate } from "./cost-gate.ts";
 import { createMarkResolver, deriveMarks, frontierMode, modeAllows, type FrontierEvent } from "./frontier.ts";
-import { findGaps, type Gap } from "./gaps.ts";
+import { findGaps, goalGap, type Gap } from "./gaps.ts";
+import { cleanGoal, MAX_REPORTS, MAX_REPORT_CHARS } from "./cycle-control.ts";
 import { goalScope, type Goal } from "./goals.ts";
 import { ingestedEvent, normalizeLocator, triage, type InboxEvent } from "./inbox.ts";
 import { DEFAULT_RESEARCH_CONFIG, type ResearchConfig } from "./research-config.ts";
@@ -115,6 +119,8 @@ export interface CycleDeps {
 	/** Steering messages not yet delivered to a running agent (drained before each gap). */
 	takeSteers(): string[];
 	allSteers(): string[];
+	/** Progress reports of the run, oldest first (REQ-rs-20). Absent or throwing: the log carries none. */
+	allReports?(): string[];
 	isAborted(): boolean;
 	/** Called once when the research-gap phase is over (the last gap settled, or it was cut short). Its throws are ignored. */
 	onGapsDone?(): void;
@@ -178,13 +184,19 @@ function newGapLog(gap: Gap): GapLog {
 	};
 }
 
-export async function runCycle(deps: CycleDeps, trigger: CycleLogEntry["trigger"]): Promise<CycleLogEntry> {
+/** What a cycle is run for: a learner's research goal (REQ-rs-19), or nothing (the graph chooses). */
+export interface CycleScope {
+	/** Already trimmed and bounded (cleanGoal). Undefined: a graph cycle. */
+	goal?: string;
+}
+
+export async function runCycle(deps: CycleDeps, trigger: CycleLogEntry["trigger"], scope: CycleScope = {}): Promise<CycleLogEntry> {
 	const key = isStr(deps.lockKey) && deps.lockKey !== "" ? deps.lockKey : null;
 	if (running.has(deps.log) || (key !== null && runningKeys.has(key))) throw new CycleBusyError();
 	running.add(deps.log);
 	if (key !== null) runningKeys.add(key);
 	try {
-		return await runCycleUnguarded(deps, trigger);
+		return await runCycleUnguarded(deps, trigger, scope);
 	} finally {
 		running.delete(deps.log);
 		if (key !== null) runningKeys.delete(key);
@@ -197,8 +209,22 @@ export function isCycleRunning(log: object, lockKey?: string): boolean {
 	return running.has(log) || (key !== null && runningKeys.has(key));
 }
 
-async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigger"]): Promise<CycleLogEntry> {
+/** The progress reports the run gave, bounded like the handle keeps them; a failing hook gives none. */
+function readReports(read: CycleDeps["allReports"]): string[] {
+	try {
+		const list = read?.();
+		if (!Array.isArray(list)) return [];
+		return list.filter((r): r is string => isStr(r) && r.trim() !== "" && r.length <= MAX_REPORT_CHARS).slice(-MAX_REPORTS);
+	} catch {
+		return [];
+	}
+}
+
+async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigger"], scope: CycleScope): Promise<CycleLogEntry> {
 	const config = deps.config;
+	const goalParsed = cleanGoal(scope.goal);
+	if (!goalParsed.ok) throw new Error("invalid research goal");
+	const goal = goalParsed.goal;
 	const maxGaps = boundedInt(config.maxGapsPerCycle, 0, DEFAULT_RESEARCH_CONFIG.maxGapsPerCycle);
 	const maxTurns = boundedInt(config.maxTurnsPerGap, 1, DEFAULT_RESEARCH_CONFIG.maxTurnsPerGap);
 	const maxWatchEntries = boundedInt(config.maxWatchEntriesPerCycle, 0, DEFAULT_RESEARCH_CONFIG.maxWatchEntriesPerCycle);
@@ -515,17 +541,21 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 		} else {
 			const { nodes, chains } = deps.graph();
 			baseSpend = markSpendUsd(deps.log.readAll());
-			const gaps = findGaps({
-				goals: deps.goals(),
-				chains,
-				nodes,
-				trust: deps.verification.trustOf(nodes.map((n) => n.id)),
-				weakNodeIds: deps.weakNodeIds(),
-				uncovered: deps.uncovered(),
-				marks: deriveMarks(deps.frontier.readAll()),
-				markSpendUsd: baseSpend,
-				config,
-			}).slice(0, maxGaps);
+			// A goal cycle researches only its goal (REQ-rs-19); a graph cycle chooses the best gaps (REQ-rs-02).
+			const gaps: Gap[] =
+				goal !== undefined
+					? [goalGap(goal, `goal:${cycleId}`)]
+					: findGaps({
+							goals: deps.goals(),
+							chains,
+							nodes,
+							trust: deps.verification.trustOf(nodes.map((n) => n.id)),
+							weakNodeIds: deps.weakNodeIds(),
+							uncovered: deps.uncovered(),
+							marks: deriveMarks(deps.frontier.readAll()),
+							markSpendUsd: baseSpend,
+							config,
+						}).slice(0, maxGaps);
 			if (gaps.length === 0) stoppedBy = "no-gaps";
 			for (const gap of gaps) {
 				const stop = stopReason();
@@ -556,7 +586,8 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 				}
 			}
 			finishGaps();
-			if (stoppedBy === "completed" || stoppedBy === "no-gaps") {
+			// A goal cycle has no watch: its one gap is the whole run.
+			if ((stoppedBy === "completed" || stoppedBy === "no-gaps") && goal === undefined) {
 				try {
 					await runWatch();
 					const stop = stopReason();
@@ -583,6 +614,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 		/* the log simply carries no steers */
 	}
 	const endedAt = stamp();
+	const reports = readReports(deps.allReports);
 	const entry: CycleLogEntry = {
 		type: "cycle",
 		cycleId,
@@ -595,6 +627,8 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 		nodesAdded: gapLogs.reduce((n, g) => n + g.nodesAdded, 0) + watchNodesAdded,
 		costUsd: gapLogs.reduce((n, g) => n + g.costUsd, 0) + watchCostUsd,
 		steers,
+		...(goal !== undefined ? { goal } : {}),
+		...(reports.length > 0 ? { reports } : {}),
 	};
 	try {
 		deps.log.append(entry);
@@ -615,6 +649,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 					...(g.error !== undefined ? { error: g.error } : {}),
 				})),
 				steers: [],
+				reports: [],
 			});
 		} catch {
 			/* the log is unwritable: the caller still gets the entry */

@@ -516,14 +516,14 @@ Authority constraints:
 
 Records every completed or terminated research cycle (REQ-rs-10).
 
-Event `cycle`: `{type:"cycle", cycleId, trigger, startedAt, endedAt, stoppedBy, gaps, watch, nodesAdded, costUsd, steers}`
+Event `cycle`: `{type:"cycle", cycleId, trigger, startedAt, endedAt, stoppedBy, gaps, watch, nodesAdded, costUsd, steers, goal?, reports?}`
 - `cycleId`: non-empty string.
 - `trigger`: `schedule` | `manual`.
 - `startedAt`, `endedAt`: ISO-8601 timestamps.
 - `stoppedBy`: `completed` | `no-gaps` | `ceiling` | `provider-limit` | `aborted` | `error` (`provider-limit`: a provider usage limit paused the cycle, see "Provider limits").
 - `gaps`: array of `GapLog` entries:
   - `gapId`: string.
-  - `type`: `uncovered` | `no-premises` | `weak-premise` | `unverified` | `contested-no-primary`.
+  - `type`: `uncovered` | `no-premises` | `weak-premise` | `unverified` | `contested-no-primary` | `goal` (the one gap of a goal cycle, see below).
   - `nodeId?`, `chatId?`, `markId?`: optional strings.
   - `questions`: array of question strings.
   - `confidence?`: optional number in [0, 1].
@@ -538,6 +538,10 @@ Event `cycle`: `{type:"cycle", cycleId, trigger, startedAt, endedAt, stoppedBy, 
 - `nodesAdded`: total nodes added across all gaps in the cycle.
 - `costUsd`: total USD cost incurred by the cycle.
 - `steers`: array of user steering messages accepted during the cycle.
+- `goal?`: the research goal of a goal cycle (REQ-rs-19), a trimmed string of at most 500 characters. Absent on a graph cycle and on every entry written before goals existed.
+- `reports?`: progress reports the research agent wrote while the cycle ran (REQ-rs-20), oldest first, at most 50 of at most 400 characters. Absent when there were none.
+
+Entries written before `goal` and `reports` existed stay valid: the parser drops an invalid optional field and keeps the entry and its cost.
 
 Error label invariants:
 To prevent leakage of internal system details, network errors, or stack traces, `research-log.jsonl` only stores fixed error labels:
@@ -584,6 +588,11 @@ Derivations:
   - Between gaps, no agent is attached: steer messages are queued in `takeSteers()` and delivered at the start of the next gap prompt (returning `"queued"`).
   - When all research gaps complete (`onGapsDone()`), steering is closed (`closeSteering()`). Any subsequent steer attempt returns `"closed"` and is rejected with `ResearchInputError("the cycle has no gap left to steer")`.
   - Max 50 steering messages per cycle; max 2000 characters per message.
+- **Goal cycles (REQ-rs-19):** `runCycle(deps, trigger, { goal })` researches the goal as its one gap (`goalGap`, type `goal`, label = the goal) instead of the graph's gaps, and runs no watch. Without a goal the cycle is unchanged. A goal is trimmed; blank is no goal; a non-string or one over 500 characters is refused with a 400 (`POST /api/ext/research/cycle` with `action: "start"`, field `goal`), and nothing starts. The daily cost gate applies as before.
+- **Progress reports (REQ-rs-20):** the gap researcher's `report_progress({text})` tool (text trimmed, 1 to 400 characters, refused otherwise) hands each report to the cycle through `CycleControl.progress(text)`. The handle keeps the newest 50 (`reports()`). A report makes no model call and does not end the research. The reports are written to the cycle's log entry (`reports`).
+- **Notes (REQ-rs-21):** a steer that arrives during a gap is delivered as a user message starting "Steering from the learner:". The agent reads it before its next `report_progress` call and changes direction after that report. Steering is not rewritten by this addendum; the UI presents it as a note.
+- **Status (`GET /api/ext/research/cycle`):** `goal?` (the running cycle's goal, when it has one) and `reports` (the running cycle's reports, oldest first; `[]` when idle), in addition to the fields above.
+
 - **Runner seam (`onAgent`):**
   - Upstream `runSubagent` accepts `opts.onAgent?: (agent: Agent) => void` and calls it immediately after agent instantiation.
   - The gap researcher wires `onAgent` to attach the agent to `CycleControl`. On settlement of the gap, the agent is detached (`attach(null)`).

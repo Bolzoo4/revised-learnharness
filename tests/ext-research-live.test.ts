@@ -318,3 +318,19 @@ describe("one research store and the learner-named approval", () => {
 	});
 });
 
+
+describe("the gap adapter: progress reports (REQ-rs-20)", () => {
+	it("a progress report from the researcher lands on the cycle's control handle", async () => {
+		const control = createCycleControl();
+		const { gate } = recordingGate();
+		const researcher = {
+			run: async (_b: GapBrief, _s: string[], hooks: GapResearchHooks) => {
+				hooks.onProgress?.("reading the survey");
+				return { ...finding, costUsd: 0 };
+			},
+		};
+		const adapter = live.makeResearchGap({ researcher, briefFor: () => brief, costGate: gate, control, config });
+		await adapter(gap, { steers: [], sourceHunt: false, ref: "c:g", maxTurns: 3 });
+		assert.deepEqual(control.reports(), ["reading the survey"]);
+	});
+});

@@ -18,7 +18,7 @@ export async function GET() {
 	}
 }
 
-/** POST { action: "start" | "steer" | "abort", trigger?: string, message?: string } */
+/** POST { action: "start" | "steer" | "abort", trigger?: string, goal?: string, message?: string }. A goal is trimmed; blank is no goal; a non-string or one over 500 characters is 400 (REQ-rs-19). */
 export async function POST(req: Request) {
 	try {
 		const body = await readJsonObject(req);
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
 		if (action === "start") {
 			const trigger = body.trigger ?? "manual";
 			if (trigger !== "manual" && trigger !== "schedule") throw new HttpError(400, "a trigger is manual or schedule");
-			const result = researchService.start(trigger as RunTrigger);
+			const result = researchService.start(trigger as RunTrigger, body.goal);
 			return Response.json(result);
 		}
 		if (action === "steer") {

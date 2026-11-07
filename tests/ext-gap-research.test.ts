@@ -679,3 +679,51 @@ describe("review fixes: gap researcher", () => {
 		assert.equal(faux.state.callCount, 1);
 	});
 });
+
+describe("goal brief and progress reports (REQ-rs-14, REQ-rs-19, REQ-rs-20, REQ-rs-21)", () => {
+	const goalBrief: GapBrief = { type: "goal", label: "Renormalisation", statement: "Renormalisation in quantum field theory", premises: [], activeLocators: [] };
+
+	it("a goal brief states the goal, asks to start from basic knowledge and move to the state of the art, and names the three sources", () => {
+		const p = buildGapPrompt(goalBrief, 0.8, []);
+		assert.ok(p.includes("Renormalisation in quantum field theory"));
+		assert.match(p, /basic knowledge/);
+		assert.match(p, /state of the art/);
+		assert.match(p, /web search and fetch, PDF reading, and arXiv/);
+		assert.equal(p.includes("Node:"), false, "a goal has no node");
+	});
+
+	it("the instructions ask for a short progress report every few tool uses and say how notes are read", () => {
+		assert.match(GAP_RESEARCH_INSTRUCTIONS, /report_progress/);
+		assert.match(GAP_RESEARCH_INSTRUCTIONS, /every few tool uses/i);
+		assert.match(GAP_RESEARCH_INSTRUCTIONS, /400 characters/);
+		assert.match(GAP_RESEARCH_INSTRUCTIONS, /note/i);
+		assert.match(GAP_RESEARCH_INSTRUCTIONS, /change direction after that report/);
+	});
+
+	it("report_progress hands the trimmed text to the caller; an over-long report is refused and not forwarded", async () => {
+		const seen: string[] = [];
+		const { researcher } = setup([
+			() =>
+				fauxAssistantMessage(
+					[
+						fauxToolCall("report_progress", { text: "  reading the survey  " }, { id: "p1" }),
+						fauxToolCall("report_progress", { text: "x".repeat(401) }, { id: "p2" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			() => fauxAssistantMessage([report({ sources: [] })], { stopReason: "toolUse" }),
+		]);
+		const out = await researcher.run(goalBrief, [], hooks({ onProgress: (t) => void seen.push(t) }));
+		assert.deepEqual(seen, ["reading the survey"]);
+		assert.equal(out.stoppedBy, "confidence");
+	});
+
+	it("a progress report does not end the run: the agent keeps working and reports findings after it", async () => {
+		const { researcher } = setup([
+			() => fauxAssistantMessage([fauxToolCall("report_progress", { text: "checking arXiv" }, { id: "p1" })], { stopReason: "toolUse" }),
+			() => fauxAssistantMessage([report({ sources: [] })], { stopReason: "toolUse" }),
+		]);
+		const out = await researcher.run(goalBrief, [], hooks({ onProgress: () => {} }));
+		assert.equal(out.stoppedBy, "confidence");
+	});
+});

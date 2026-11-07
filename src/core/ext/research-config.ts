@@ -5,7 +5,8 @@
  * variables; there is no config file (nothing here needs more than a number).
  */
 
-export type GapType = "uncovered" | "no-premises" | "weak-premise" | "unverified" | "contested-no-primary";
+/** `goal`: the one synthetic gap of a goal cycle (REQ-rs-19); it is never scored from the graph. */
+export type GapType = "uncovered" | "no-premises" | "weak-premise" | "unverified" | "contested-no-primary" | "goal";
 
 /** Expansion adds knowledge to the graph; verification only checks what is there (a `hold` mark allows only the latter). */
 export type GapClass = "expansion" | "verification";
@@ -16,12 +17,13 @@ export const GAP_CLASS: Record<GapType, GapClass> = {
 	"weak-premise": "expansion",
 	unverified: "verification",
 	"contested-no-primary": "verification",
+	goal: "expansion",
 };
 
 export interface ResearchConfig {
 	/** Hours between scheduled cycles while the app is open. */
 	cycleHours: number;
-	/** Gap-type weights (REQ-rs-03). */
+	/** Gap-type weights (REQ-rs-03). `goal` is required by the type but unused: a goal cycle's gap is not scored. */
 	weights: Record<GapType, number>;
 	/** score = priority x weight x distanceBase^distance. */
 	distanceBase: number;
@@ -45,7 +47,7 @@ export interface ResearchConfig {
 
 export const DEFAULT_RESEARCH_CONFIG: ResearchConfig = {
 	cycleHours: 6,
-	weights: { "no-premises": 1, "contested-no-primary": 0.9, "weak-premise": 0.8, uncovered: 0.7, unverified: 0.6 },
+	weights: { "no-premises": 1, "contested-no-primary": 0.9, "weak-premise": 0.8, uncovered: 0.7, unverified: 0.6, goal: 1 },
 	distanceBase: 0.5,
 	expandBoost: 2,
 	defaultMaxDepth: 2,

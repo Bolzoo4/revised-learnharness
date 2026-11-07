@@ -61,7 +61,7 @@ export const EXT_PROMPT_CATALOG: readonly ExtPromptEntry[] = [
 		id: "gap-researcher",
 		label: "Gap researcher",
 		description: "The background agent that searches sources to fill one gap in the graph and reports what it found.",
-		warning: "It must finish by calling report_findings once, with questions, confidence, rationale, stopped_by and sources. The code checks that report and the confidence threshold.",
+		warning: "It must finish by calling report_findings once, with questions, confidence, rationale, stopped_by and sources, and send progress with report_progress (text, at most 400 characters). The code checks both and the confidence threshold.",
 	},
 	{
 		id: "watch-classifier",
