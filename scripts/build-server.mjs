@@ -69,7 +69,9 @@ for (const secret of ["auth.json", ...subscriptionSecrets, ".env", ".env.local"]
 // generic dist/** earlier broke pi-ai / pi-agent-core's runtime dist/.
 // Never touch ROOT/dist or ROOT/node_modules/electron (the running app
 // and the build runtime); native canvas/resvg packages stay untouched.
-for (const extra of ["dist", path.join("node_modules", "electron")]) {
+// The Manim runtime (build/manim-runtime, ~350 MB) ships as an electron-builder
+// extraResource, not inside the server: drop the traced copies of it.
+for (const extra of ["dist", path.join("node_modules", "electron"), path.join("build", "manim-runtime"), path.join("scripts", "manim-runtime")]) {
 	const target = path.join(STANDALONE, extra);
 	if (exists(target)) {
 		fs.rmSync(target, { recursive: true, force: true });

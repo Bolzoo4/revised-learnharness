@@ -89,6 +89,7 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `tests/tool-toggles-bridge.test.ts` | the pinned supported-tools message includes `video` | Video (Manim) |
 | `electron-builder.yml` | `extraResources` entry copies `build/manim-runtime` to `manim-runtime` (Manim video runtime) | Manim runtime |
 | `.gitignore` | ignores `build/manim-runtime/` and `build/manim-runtime-work/` (runtime output and build scratch) | Manim runtime |
+| `scripts/build-server.mjs` | the post-trace curation also removes the traced copies of `build/manim-runtime` and `scripts/manim-runtime` from the standalone server (the runtime ships as an extraResource) | Manim runtime |
 
 Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 
