@@ -6,10 +6,11 @@
  *
  * Why variables and not className swaps: every seam the settings touch was
  * built token-first (--font-prose, --lh-prose-size, --lh-ink-strong, …),
- * so application is setProperty and nothing re-renders. The ONE thing the
- * variables can't reach — the mode — is dark-only this wave (the light
- * palette is designed in the later design wave; <html class="dark"> is
- * static in app/layout.tsx).
+ * so application is setProperty and nothing re-renders. The mode is the
+ * one exception that is a class: the `dark` class on <html> (light = the
+ * class removed; app/globals.css carries both palettes). The class is set
+ * in a layout effect, so the chart and graph effects that read the palette
+ * run after it.
  *
  * The provider is mounted at the ROOT LAYOUT level (like ActivityProvider):
  * every page picks appearance up on load. The settings page writes a
@@ -19,8 +20,8 @@
  * with the other navigations — mod+, pushes /settings from anywhere.)
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { applyThemeClass, FACTORY_SETTINGS, resolveThemeMode, THEME_CACHE_KEY, type AppearanceSettings } from "@/src/core";
 
 /** The resolved, fully-concrete appearance view (delta + factory merged). */
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
@@ -76,7 +77,9 @@ export function derivedPalette(background: string): Record<string, string> {
  *  exported for tests. */
 export function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
 	const vars: Record<string, string> = {};
-	if (a.background !== null) Object.assign(vars, derivedPalette(a.background));
+	// The derived palette is the DARK curve (raised = lighter). Light has its
+	// own palette in globals.css, so a stored background applies in dark only.
+	if (a.background !== null && a.mode === "dark") Object.assign(vars, derivedPalette(a.background));
 	if (a.fontFamily !== null) {
 		vars["--font-prose"] = `"${a.fontFamily}", var(--font-sans3), ui-sans-serif, system-ui, sans-serif`;
 	}
@@ -125,7 +128,25 @@ export function useAppearance() {
 
 export function AppearanceProvider({ children }: { children: React.ReactNode }) {
 	const [delta, setDelta] = useState<AppearanceSettings | undefined>(undefined);
+	// The saved record has arrived (or the user just changed it). Until then
+	// the server-rendered class and the pre-paint cache stand, so a light
+	// user never sees the factory dark flash while the fetch is in flight.
+	const [loaded, setLoaded] = useState(false);
 	const appliedRef = useRef<string>("");
+	const mode = resolveThemeMode(resolveAppearance(delta).mode);
+
+	// The mode: the dark class on <html>, mirrored into a cache the pre-paint
+	// bootstrap reads on the next load. Layout effect: the palette-reading
+	// effects (graph, mermaid) run after this, in the same commit.
+	useLayoutEffect(() => {
+		if (!loaded) return;
+		applyThemeClass(document.documentElement.classList, mode);
+		try {
+			localStorage.setItem(THEME_CACHE_KEY, mode);
+		} catch {
+			// Storage denied: the record is still the truth, the cache is a hint.
+		}
+	}, [loaded, mode]);
 
 	// The vars apply on every change — stringified as the change signal.
 	const vars = useMemo(() => appearanceVars(resolveAppearance(delta)), [delta]);
@@ -166,6 +187,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 				setDelta(
 					appearance && typeof appearance === "object" ? (appearance as AppearanceSettings) : undefined,
 				);
+				setLoaded(true);
 			})
 			.catch(() => {/* settings stay factory — not worth a crash */});
 		return () => {
@@ -175,6 +197,7 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 
 	const onAppearanceChange = useCallback((next: AppearanceSettings | undefined) => {
 		setDelta(next);
+		setLoaded(true);
 	}, []);
 
 	const value = useMemo(

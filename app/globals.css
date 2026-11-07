@@ -28,9 +28,15 @@
 }
 
 /* Palette (owner's hexes): main #141414, raised #1C1C1C, edges #434343.
-   Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif. */
+   Mono chrome = JetBrains Mono; prose = Source Sans 3; titles = CMU Serif.
+   The DARK palette is the default (server render, no class). The LIGHT
+   palette is the block below, active when <html> lacks the `dark` class
+   (core/ext/theme.ts). Every colour token must be stated in both. */
 :root {
 	color-scheme: dark;
+	/* The "hard" ink: pure white on dark, the plan diagram's outlines and
+	   the callout border. Light flips it (see the overrides below). */
+	--lh-hard-ink: #ffffff;
 	--radius: 8px;
 	--background: #141414;
 	--foreground: #e6e6e6;
@@ -70,6 +76,7 @@
 /* The app is always dark (<html class="dark">); mirror the same values so
    the block stays coherent under Tailwind's variant. */
 .dark {
+	--lh-hard-ink: #ffffff;
 	--background: #141414;
 	--foreground: #e6e6e6;
 	--card: #1c1c1c;
@@ -100,6 +107,61 @@
 	--lh-prose-leading: 1.5;
 	/* Markdown heading weight (appearance settings; 900 = the Black cut). */
 	--lh-heading-weight: 900;
+}
+
+/* LIGHT palette (dark-on-light, the family's request): a soft off-white
+   page, dark grey text, never pure white or black. Active when <html>
+   lacks the `dark` class. Restates every colour token of the dark block
+   (a test pins that, and the contrast floors). */
+:root:not(.dark) {
+	color-scheme: light;
+	--lh-hard-ink: #1c1c1c;
+	--background: #f6f4ef;
+	--foreground: #2a2a28;
+	--card: #fbfaf7;
+	--card-foreground: #2a2a28;
+	--popover: #fbfaf7;
+	--popover-foreground: #2a2a28;
+	--primary: #2a2a28;
+	--primary-foreground: #f6f4ef;
+	--secondary: #eceae3;
+	--secondary-foreground: #2a2a28;
+	--muted: #eceae3;
+	--muted-foreground: #6b6862;
+	--accent: #e4e1d8;
+	--accent-foreground: #2a2a28;
+	--destructive: oklch(0.577 0.245 27.325);
+	--border: #d6d1c6;
+	--input: #d6d1c6;
+	--ring: #8a857b;
+	--lh-ink-strong: var(--foreground);
+	--lh-ink-italic: var(--foreground);
+}
+
+/* Light: the Tailwind white utilities that are white ON DARK (the plan
+   diagram's outlines and text, the callout border) flip to the hard ink.
+   Surfaces that are white on purpose (figure and PDF paper, the demo card)
+   use bg-white and stay white. */
+:root:not(.dark) .stroke-white,
+:root:not(.dark) .border-white {
+	stroke: var(--lh-hard-ink);
+	border-color: var(--lh-hard-ink);
+}
+:root:not(.dark) .fill-white {
+	fill: var(--lh-hard-ink);
+}
+
+/* Light: the status colours at their 400/500 steps are too pale on the
+   off-white page; the same hues, one step deeper, carry the text. */
+:root:not(.dark) .text-red-400,
+:root:not(.dark) .text-red-500 {
+	color: #b42318;
+}
+:root:not(.dark) .text-green-500 {
+	color: #15803d;
+}
+:root:not(.dark) .text-amber-500 {
+	color: #b45309;
 }
 
 /* CMU Serif bold (titles) — bundled local file, no CDN dependency. */

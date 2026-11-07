@@ -80,6 +80,7 @@ import { TrustBadge } from "@/components/ext/trust-badge.tsx";
 import { NodeMarkControl } from "@/components/ext/node-mark-control.tsx";
 import { openNodePanel } from "@/components/ext/open-node";
 import { Hint } from "@/components/ui/hint";
+import { useAppearance } from "@/components/settings/appearance.tsx";
 import {
 	ARROW_LENGTH_LADDER,
 	CHARGE_RANGE,
@@ -1383,6 +1384,11 @@ export function GraphView({
 		};
 	}, [isEmpty]);
 
+	// The resolved mode: the palette tokens are read from the page at feed
+	// time, so a mode change re-feeds the renderer (the provider sets the
+	// class in a layout effect, which runs before this passive effect).
+	const { appearance: themed } = useAppearance();
+
 	// Feed #1 — data: positions + edges + clusters + resolved colors. Runs
 	// after the layout effect (same commit, declaration order) and after
 	// the construct effect, so the renderer exists and positions are fresh.
@@ -1406,11 +1412,13 @@ export function GraphView({
 				edge: tokenHex("--ring"),
 				label: tokenHex("--muted-foreground"),
 				hoverText: tokenHex("--foreground"),
+				// Region labels: pale on dark, deep on light (same hue either way).
+				regionLightness: themed.mode === "light" ? 34 : 78,
 			},
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
-	}, [snapshot, isEmpty]);
+	}, [snapshot, isEmpty, themed.mode]);
 
 	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
 	// re-layout, no camera touch (the whole point of the new renderer).

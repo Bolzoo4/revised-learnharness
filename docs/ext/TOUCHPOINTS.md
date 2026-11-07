@@ -61,6 +61,16 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `components/activity-dock.tsx` | the "Open session" link renders only when the id is a chat id (`chat_…`): an extraction of an imported source carries the source id, which has no session and led to a 404 | Navigation fixes |
 | `app/not-found.tsx` (new root file) | a 404 page with a link home (the default one has no way back inside the desktop app) | Navigation fixes |
 | `components/graph-view.tsx` | one import of `NodeMarkControl` and one `<NodeMarkControl />` line under `<TrustBadge />` in the node detail card: the node's research mark (expand / hold / stop / clear) (REQ-rs-18) | Research page rework |
+| `app/layout.tsx` | the theme bootstrap `<script>` in `<head>` (a cached light mode drops the `dark` class before paint) and `suppressHydrationWarning` on `<html>` | Light theme |
+| `app/globals.css` | the light palette (`:root:not(.dark)`), the `--lh-hard-ink` token, light overrides of the white strokes and borders and of the status text colours | Light theme |
+| `components/settings/appearance.tsx` | the provider sets the `dark` class on `<html>` (layout effect, once the saved record has loaded) and caches the mode; a stored background applies in dark only | Light theme |
+| `components/settings/appearance-section.tsx` | Mode is a live Dark / Light select (was disabled); the background row dims in light | Light theme |
+| `components/graph-canvas.ts` | `CanvasColors.regionLightness`: the cluster label lightness per mode | Light theme |
+| `components/graph-view.tsx` | resolves `regionLightness` per mode and re-feeds the canvas when the mode changes | Light theme |
+| `components/mermaid-render.ts` | `mermaidThemeFor(light)`: diagrams render in mermaid's default theme on the light page | Light theme |
+| `components/confidence-rail.tsx` | the track and the ticks use the page tokens instead of `#141414` and `rgba(230,…)` | Light theme |
+| `components/lh-mark.tsx` | the logo's white fills use `--lh-hard-ink` | Light theme |
+| `tests/render-settings.test.tsx` | the Mode assertion pins the live select (it pinned the disabled "Coming soon" control) | Light theme |
 
 Session debriefs add one upstream file to the closed list: `instrumentation.ts` (the row above, shared with the Research loop). Everything else they touch, including `src/server/ext/stores.ts` and `src/server/ext/index.ts`, is an extension file.
 
