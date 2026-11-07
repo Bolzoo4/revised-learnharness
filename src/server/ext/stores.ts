@@ -13,6 +13,7 @@ import { parseExerciseEvent } from "../../core/ext/practice/exercises.ts";
 import { parseOfficeHoursEvent } from "../../core/ext/practice/office-hours.ts";
 import { createGoalsStore } from "../../store/ext/goals-store.ts";
 import { createLecturesStore } from "../../store/ext/lectures-store.ts";
+import { createLectureRunStore } from "../../store/ext/lecture-runs-store.ts";
 import { createLedger } from "../../store/ext/ledger.ts";
 import { createResearchStore } from "../../store/ext/research-store.ts";
 import { createReviewStore } from "../../store/ext/review-store.ts";
@@ -40,6 +41,8 @@ export const extStores = {
 	/** Spend on narration audio: its own ledger and its own ceiling (cost-live.ts), never mixed with the model spend. */
 	audioCostStore: createCostStore(EXT_PATHS.dir, "audio-cost.jsonl"),
 	lecturesStore: createLecturesStore(EXT_PATHS.dir),
+	/** The lecture ingests' run state (data/ext/lecture-runs.json): restored on start, so a restart keeps the books and chapters. */
+	lectureRunStore: createLectureRunStore(EXT_PATHS.dir),
 	snapshotReader: createSnapshotReader(EXT_PATHS.dir),
 	/** Which card a tutor chat is focused on ("Ask the tutor"). */
 	reviewFocusLedger: createLedger(EXT_PATHS.dir, "review-focus.jsonl", parseFocusEvent),
