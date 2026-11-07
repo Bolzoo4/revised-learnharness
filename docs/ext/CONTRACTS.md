@@ -589,7 +589,7 @@ Stored files, content-addressed under `documents/`: `<documentId>.pdf` (a byte c
 
 ## `reading.jsonl` (ledger)
 
-Event `visit`: `{type:"visit", documentId, page, at}` (page a positive integer). Event `close`: `{type:"close", documentId, at}`.
+Event `visit`: `{type:"visit", documentId, page, at}` (page a positive integer). Event `close`: `{type:"close", documentId, at}`. The viewer saves the PRIMARY page only (the page with the largest visible share), after the learner has stayed on it for a moment; the other pages on screen are not recorded as visits.
 
 Derivation (`deriveReading(events, documentId, {dwellSeconds = 5, pageCount})`): replay the document's events in file order. A visit lasts until the next event of the same document (a visit or a close). A page is READ when some visit to it lasted at least `dwellSeconds`. The newest visit has no end and counts only once a later event follows. `lastPage` is the page of the newest visit. Pages greater than `pageCount` (when given) are ignored. `readPages` is ascending and distinct.
 
@@ -613,7 +613,11 @@ The proposition text alone is imported as a notes source with the pseudo-path `s
 
 ## The study message context line
 
-A user message in a `study` session is `[study-context] <JSON>` + `\n` + the learner's text. `<JSON>` is `{"documentId": string, "page": positive integer, "selection": string}`; the selection is cut to 2000 characters; `JSON.stringify` escapes newlines so the first line ends at the first `\n`. A message without a valid first line has no context. The agent's prompt for a turn is composed from the NEWEST user message's context (and no earlier one) plus the text of that page.
+A user message in a `study` session is `[study-context] <JSON>` + `\n` + the learner's text. `<JSON>` is `{"documentId": string, "page": positive integer, "selection": string, "pages"?: integer[]}`; the selection is cut to 2000 characters; `JSON.stringify` escapes newlines so the first line ends at the first `\n`. A message without a valid first line has no context. A message without `pages` (every message written before it existed) has no other pages.
+
+`page` is the primary page (the page with the largest visible share of the viewer). `pages` lists the other pages partly on screen, ascending, at most 2, never the primary page: `extraPages` drops anything else (non-integers, out of range, duplicates, the primary) and keeps the lowest two. `visiblePages(rects, viewport)` (`components/ext/study-logic.ts`) decides them: the primary is the page with the most visible pixels (a tie goes to the lower page); another page counts when at least 20% of its height or of the viewport is visible; at most three pages in all. A card made from the page uses the primary page, and a card made from a selection uses the page the selection is on.
+
+The agent's prompt for a turn is composed from the NEWEST user message's context (and no earlier one) plus the text of the primary page. The other pages are named in the prompt without their text (`The learner also sees part of pages 3, 5.`): the tutor reads them with `read_page`, and only pages within the document's page count are named.
 
 `pageCitations(text)` finds every `(p. N)` (regex `\(p\.\s*(\d{1,5})\)`, N at least 1) with its start and end offsets; `citationAt(text, offset)` returns the page of the citation covering `offset`, if any.
 
@@ -779,7 +783,7 @@ The settings page lists the extension's agent prompts under "Extension agents", 
 | `review-daily` | `reviewDailyInstructions()` (daily review) | `REVIEW_INSTRUCTIONS` | nothing |
 | `review-card` | `focusedReviewInstructions(focus)` (card tutor) | `REVIEW_CARD_BODY` | the card block: node id, name, statement, question, answer |
 | `review-node` | `focusedNodeReviewInstructions(focus)` (node tutor) | `REVIEW_NODE_BODY` | the node block: node id, name, statement, explanation |
-| `study-assistant` | `studyPrompt(ctx)` (study session, per turn) | `STUDY_INSTRUCTIONS` | the document title and page count, the current page, the selection |
+| `study-assistant` | `studyPrompt(ctx)` (study session, per turn) | `STUDY_INSTRUCTIONS` | the document title and page count, the current page, the other pages in view, the selection |
 | `office-hours` | `officeHoursInstructions(focus)` (office hours; one id for the base and the exercise focus) | `OFFICE_HOURS_INSTRUCTIONS` | the exercise in focus, inside `<exercise>` tags |
 | `debrief-style` | `debriefStyle()` (debrief writer) | `src/agent/ext/prompts/debrief-style.md` | the four-part rules and the submit tool (`DEBRIEF_RULES`) |
 | `explanation-style` | `explanationStyle()` (explanation writer) | `src/agent/ext/prompts/explanation-style.md` | the structure and `[[id]]` link rules (`STRUCTURE_RULES`) |

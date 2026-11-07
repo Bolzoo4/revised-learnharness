@@ -18,12 +18,30 @@ export const MAX_SELECTION_CHARS = 2000;
 /** Longest context line accepted by the parser; a longer first line is refused before JSON.parse. */
 export const MAX_CONTEXT_LINE_CHARS = 64 * 1024;
 
+/** Most extra visible pages a message names (the primary page is not counted). */
+export const MAX_EXTRA_PAGES = 2;
+
 export interface StudyContext {
 	documentId: string;
-	/** 1-based page the learner is looking at. */
+	/** 1-based primary page: the page with the largest visible share of the viewer. */
 	page: number;
 	/** Text the learner selected (empty when none). */
 	selection: string;
+	/**
+	 * Other pages the learner also sees in part, ascending, at most MAX_EXTRA_PAGES, never the primary page.
+	 * Absent when there are none, so messages written before this field existed parse to the same value.
+	 */
+	pages?: number[];
+}
+
+/** Ascending, distinct, valid page numbers other than `primary`, at most MAX_EXTRA_PAGES of them; anything else is dropped. */
+export function extraPages(primary: number, pages: unknown): number[] {
+	if (!Array.isArray(pages)) return [];
+	const seen = new Set<number>();
+	for (const p of pages) {
+		if (typeof p === "number" && Number.isInteger(p) && p >= 1 && p <= MAX_PAGE && p !== primary) seen.add(p);
+	}
+	return [...seen].sort((a, b) => a - b).slice(0, MAX_EXTRA_PAGES);
 }
 
 /** The first MAX_SELECTION_CHARS UTF-16 units, stopping before a code point that would not fit. */
@@ -37,8 +55,9 @@ function clip(selection: string): string {
 }
 
 /** The text to send: the context line, then the learner's own text. */
-export function encodeStudyContext(ctx: { documentId: string; page: number; selection?: string }, text: string): string {
-	const payload = { documentId: ctx.documentId, page: ctx.page, selection: clip(ctx.selection ?? "") };
+export function encodeStudyContext(ctx: { documentId: string; page: number; selection?: string; pages?: readonly number[] }, text: string): string {
+	const extra = extraPages(ctx.page, ctx.pages ?? []);
+	const payload = { documentId: ctx.documentId, page: ctx.page, selection: clip(ctx.selection ?? ""), ...(extra.length > 0 ? { pages: extra } : {}) };
 	return `${STUDY_CONTEXT_PREFIX}${JSON.stringify(payload)}\n${text}`;
 }
 
@@ -59,8 +78,14 @@ export function parseStudyContext(message: string): { context: StudyContext; tex
 	if (typeof r.documentId !== "string" || r.documentId === "") return null;
 	if (typeof r.page !== "number" || !Number.isInteger(r.page) || r.page < 1 || r.page > MAX_PAGE) return null;
 	if (r.selection !== undefined && typeof r.selection !== "string") return null;
+	const extra = extraPages(r.page, r.pages);
 	return {
-		context: { documentId: r.documentId, page: r.page, selection: clip(typeof r.selection === "string" ? r.selection : "") },
+		context: {
+			documentId: r.documentId,
+			page: r.page,
+			selection: clip(typeof r.selection === "string" ? r.selection : ""),
+			...(extra.length > 0 ? { pages: extra } : {}),
+		},
 		text: newline === -1 ? "" : message.slice(newline + 1),
 	};
 }
