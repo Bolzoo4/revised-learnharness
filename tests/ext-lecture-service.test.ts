@@ -5,22 +5,22 @@ import type { Lecture } from "../src/core/ext/lecture/lecture.ts";
 import { bookIdFor, createLectureService, LectureServiceError, type BookRunStatus, type LectureServiceDeps } from "../src/server/ext/lecture-service.ts";
 import { makeLecture, NODE_A, NODE_B } from "./helpers/lecture-fixture.ts";
 import { memSourcesStore } from "./helpers/ext-fakes.ts";
+import { fakeStagedGraphs } from "./helpers/staged-graph-fake.ts";
 
 const PDF = "/books/prob.pdf";
-const SRC = "src_0123456789ab";
 const base = makeLecture();
 const draft = { title: base.title, summary: base.summary, slides: base.slides, blocks: base.blocks };
 
 function setup(over: Partial<LectureServiceDeps> = {}) {
 	const store = new Map<string, Lecture>();
 	const runs = new Map<string, BookRunStatus>();
-	let imported = false;
+	const graph = fakeStagedGraphs();
 	const deps: LectureServiceDeps = {
 		lectures: { save: (l) => void store.set(l.id, l), get: (id) => store.get(id) ?? null, list: () => [...store.values()].sort((a, b) => a.id.localeCompare(b.id)), remove: (id) => void store.delete(id) },
 		gate: { allowed: () => true, record: () => {} },
-		graphNodes: () => (imported ? [NODE_A, NODE_B].map((id) => ({ id, name: id, statement: "s", provenance: [{ chatId: SRC, messageId: "" }] })) : []),
-		importChapterGraph: async () => void (imported = true),
-		findSourceId: () => (imported ? SRC : null),
+		graphNodes: graph.graphNodes,
+		stageGraph: graph.stageGraph,
+		activeGraph: graph.activeGraph,
 		pdf: {
 			exists: (p) => p === PDF,
 			readBookmarks: async () => ({ pageCount: 20, bookmarks: [{ title: "Measurable spaces", page: 1 }] }),

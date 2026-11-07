@@ -28,10 +28,10 @@ const book = (n: number, over: Partial<BookRun> = {}): BookRun => ({
 });
 
 describe("lecture run store", () => {
-	it("round-trips the books, chapters, states and checkpoints", () => {
+	it("round-trips the books, chapters and states", () => {
 		const dir = dirFor();
 		const store = createLectureRunStore(dir);
-		const books = [book(1, { chapters: [{ ...book(1).chapters[0]!, importedParts: 3 }, book(1).chapters[1]!] })];
+		const books = [book(1, { chapters: [book(1).chapters[0]!, book(1).chapters[1]!] })];
 		store.save(books);
 		assert.deepEqual(store.load(), books);
 		assert.ok(fs.existsSync(path.join(dir, "lecture-runs.json")));

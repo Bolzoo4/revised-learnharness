@@ -1,76 +1,156 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { GraphNode } from "../src/core/contracts.ts";
 import type { CostGate } from "../src/core/ext/cost-gate.ts";
-import { buildLecture } from "../src/core/ext/lecture/build.ts";
+import { buildLecture, type LectureDraft } from "../src/core/ext/lecture/build.ts";
 import type { Lecture } from "../src/core/ext/lecture/lecture.ts";
-import { chapterSourcePath, runChapter, type ChapterProgress, type ChapterRunDeps } from "../src/agent/ext/lecture/chapter-run.ts";
+import {
+	chapterSourceId,
+	chapterSourcePath,
+	runChapter,
+	type ChapterProgress,
+	type ChapterRunDeps,
+	type GraphNodeView,
+	type StagedChapterGraph,
+} from "../src/agent/ext/lecture/chapter-run.ts";
 import { CostCeilingError } from "../src/agent/ext/lecture/structured.ts";
 import { makeLecture, NODE_A, NODE_B } from "./helpers/lecture-fixture.ts";
 
 const book = { bookId: "b0123abcd", bookTitle: "Probability 1" };
 const chapter = { index: 2, title: "Measurable spaces", pageStart: 10, pageEnd: 30 };
-const SRC = "src_0123456789ab";
+const SRC = chapterSourceId(book, chapter);
+const NOW = "2026-11-04T10:00:00.000Z";
 
-const node = (id: string): Pick<GraphNode, "id" | "name" | "statement" | "provenance"> => ({ id, name: id, statement: `statement of ${id}`, provenance: [{ chatId: SRC, messageId: "" }] });
+const nodeView = (id: string, source = SRC): GraphNodeView => ({ id, name: id, statement: `statement of ${id}`, provenance: [{ chatId: source, messageId: "" }] });
 const base = makeLecture();
-const draft = { title: base.title, summary: base.summary, slides: base.slides, blocks: base.blocks };
+const draft: LectureDraft = { title: base.title, summary: base.summary, slides: base.slides, blocks: base.blocks };
+const twoLectures = Array.from({ length: 8 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })); // 3000 words -> 2 lectures
 
-function harness(over: Partial<ChapterRunDeps> = {}) {
+/**
+ * A fake real graph and a fake staging overlay over it. The real graph is `realNodes`; a staged graph
+ * sees real + its own nodes, and commit() moves its nodes into the real graph (recorded in `events`).
+ */
+function fakeGraph(realNodes: GraphNodeView[], events: string[], opts: { importsSource?: boolean; importNodes?: string[] } = {}) {
+	const real = [...realNodes];
+	let committedSource = false;
+	const stage = (): StagedChapterGraph => {
+		let staged: GraphNodeView[] = [];
+		let imported = false;
+		return {
+			importText: async () => {
+				events.push("import");
+				imported = true;
+				if (opts.importsSource === false) return;
+				staged = (opts.importNodes ?? [NODE_A, NODE_B]).map((id) => nodeView(id));
+			},
+			hasSource: () => imported && opts.importsSource !== false,
+			readNodes: () => [...real, ...staged],
+			commit: () => {
+				events.push("commit");
+				real.push(...staged);
+				staged = [];
+				committedSource = true;
+			},
+			discard: () => {
+				events.push("discard");
+				staged = [];
+			},
+		};
+	};
+	return {
+		real,
+		stage,
+		snapshot: () => JSON.stringify(real),
+		activeGraph: (filePath: string) => (committedSource ? { sourceId: SRC, nodes: real.filter((n) => n.provenance.some((p) => p.chatId === SRC)) } : null),
+		markCommitted: () => void (committedSource = true),
+	};
+}
+
+function harness(over: Partial<ChapterRunDeps> = {}, graphOpts: { real?: GraphNodeView[]; importsSource?: boolean; importNodes?: string[] } = {}) {
 	const store = new Map<string, Lecture>();
-	const calls = { imports: 0, outlines: 0, writes: [] as (string | null)[], prevSummaries: [] as (string | null)[] };
-	let imported = false;
+	const events: string[] = [];
+	const calls = { outlines: 0, writes: [] as (string | null)[], prevSummaries: [] as (string | null)[], seenNodes: [] as string[][] };
+	const graph = fakeGraph(graphOpts.real ?? [], events, graphOpts);
 	const progress: ChapterProgress[] = [];
 	const gate: CostGate = { allowed: () => true, record: () => {} };
 	const deps: ChapterRunDeps = {
 		gate,
 		lectures: {
-			save: (l) => void store.set(l.id, l),
+			save: (l) => {
+				events.push(`save:${l.id}`);
+				store.set(l.id, l);
+			},
 			list: () => [...store.values()],
 			remove: (id) => void store.delete(id),
 		},
-		importChapterGraph: async () => { calls.imports++; imported = true; },
-		findSourceId: () => (imported ? SRC : null),
-		readNodes: () => (imported ? [node(NODE_A), node(NODE_B)] : []),
+		stageGraph: graph.stage,
+		activeGraph: graph.activeGraph,
 		readChapterText: async () => "Unrelated chapter source text that is never copied by the lecture.",
-		writeOutline: async () => { calls.outlines++; return [{ title: "T", kind: "definition", summary: "s" }]; },
-		writeLecture: async (input) => { calls.writes.push(input.feedback); calls.prevSummaries.push(input.previousSummary); return draft; },
-		now: () => "2026-11-04T10:00:00.000Z",
+		writeOutline: async () => {
+			calls.outlines++;
+			return [{ title: "T", kind: "definition", summary: "s" }];
+		},
+		writeLecture: async (input) => {
+			calls.writes.push(input.feedback);
+			calls.prevSummaries.push(input.previousSummary);
+			calls.seenNodes.push(input.nodes.map((n) => n.id));
+			return draft;
+		},
+		now: () => NOW,
 		onProgress: (p) => void progress.push(p),
 		...over,
 	};
-	return { deps, store, calls, progress };
+	return { deps, store, calls, progress, events, graph };
 }
 
-describe("runChapter", () => {
-	it("extracts the graph from the chapter text first, then writes and saves the lecture", async () => {
+describe("runChapter: the staged flow", () => {
+	it("extracts into the staging overlay, writes the lecture, commits, and only then saves it", async () => {
 		const h = harness();
 		const r = await runChapter(book, chapter, h.deps);
 		assert.equal(r.state, "done");
 		assert.deepEqual(r.lectureIds, ["lec_b0123abcd_c02_l01"]);
-		assert.equal(h.calls.imports, 1);
+		assert.deepEqual(h.events, ["import", "commit", "save:lec_b0123abcd_c02_l01"], "import, then commit, then the save");
 		assert.equal(h.store.get("lec_b0123abcd_c02_l01")?.chapterSourceId, SRC);
-		assert.deepEqual(r.uncoveredNodeIds, []);
+		assert.deepEqual(h.graph.real.map((n) => n.id), [NODE_A, NODE_B], "the chapter's nodes are active only after the commit");
+		assert.deepEqual(r.uncoveredNodeIds, [], "the draft cites both chapter nodes");
 		assert.deepEqual(h.progress.map((p) => p.state).slice(0, 4), ["queued", "graph", "outline", "writing"]);
 	});
-	it("does not re-import a chapter whose graph already exists", async () => {
-		let imports = 0;
-		const h = harness({ findSourceId: () => SRC, readNodes: () => [node(NODE_A), node(NODE_B)], importChapterGraph: async () => void imports++ });
+	it("the writers see the chapter's staged nodes, while the real graph holds none until the commit", async () => {
+		const h = harness();
+		const realSizes: number[] = [];
+		h.deps.writeLecture = async (input) => {
+			realSizes.push(h.graph.real.length);
+			h.calls.seenNodes.push(input.nodes.map((n) => n.id));
+			return draft;
+		};
 		await runChapter(book, chapter, h.deps);
-		assert.equal(imports, 0);
+		assert.deepEqual(h.calls.seenNodes[0], [NODE_A, NODE_B], "the chapter's own nodes are in its overlay");
+		assert.deepEqual(realSizes, [0], "the real graph is empty while the lecture is written");
+	});
+	it("existing nodes linked by the chapter stay visible throughout, and are never changed", async () => {
+		const real = [nodeView(NODE_A, "src_other00000"), nodeView(NODE_B, "src_other00000")];
+		const before = JSON.stringify(real);
+		const h = harness({}, { real, importNodes: ["n_newchap1"] });
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "done");
+		// The draft cites the existing nodes: the validator reads them through the overlay, so the run is done.
+		assert.equal(r.state, "done", "the existing nodes are readable through the overlay while the chapter is written");
+		assert.equal(JSON.stringify(h.graph.real.filter((n) => n.id === NODE_A || n.id === NODE_B)), before);
 	});
 	it("retries a lecture that cites an unknown node, with the validator's feedback, then accepts", async () => {
 		const bad = { ...draft, blocks: draft.blocks.map((b, i) => (i === 0 ? { ...b, nodeIds: ["n_ghost000"] } : b)) };
 		const answers = [bad, draft];
 		const h = harness();
-		h.deps.writeLecture = async (input) => { h.calls.writes.push(input.feedback); return answers.shift()!; };
+		h.deps.writeLecture = async (input) => {
+			h.calls.writes.push(input.feedback);
+			return answers.shift()!;
+		};
 		const r = await runChapter(book, chapter, h.deps);
 		assert.equal(r.state, "done");
 		assert.equal(h.calls.writes.length, 2);
 		assert.equal(h.calls.writes[0], null);
 		assert.match(h.calls.writes[1]!, /unknown node n_ghost000/);
 	});
-	it("fails the chapter after exactly 3 attempts and saves nothing for that lecture", async () => {
+	it("fails after exactly 3 attempts: nothing saved, nothing committed, the staging discarded", async () => {
 		const bad = { ...draft, blocks: draft.blocks.map((b, i) => (i === 0 ? { ...b, nodeIds: ["n_ghost000"] } : b)) };
 		let writes = 0;
 		const h = harness({ writeLecture: async () => (writes++, bad) });
@@ -79,6 +159,7 @@ describe("runChapter", () => {
 		assert.equal(r.state, "failed");
 		assert.match(r.error!, /stayed invalid after 3 attempts/);
 		assert.equal(h.store.size, 0);
+		assert.deepEqual(h.events, ["import", "discard"]);
 	});
 	it("rejects a lecture that copies the chapter text verbatim", async () => {
 		const source = "A sigma algebra is a family of sets closed under complements and countable unions of its members always.";
@@ -89,11 +170,7 @@ describe("runChapter", () => {
 		assert.match(r.error!, /copies the source verbatim/);
 	});
 	it("writes lectures in sequence, handing each the previous summary, and reports uncovered chapter nodes", async () => {
-		const h = harness({
-			writeOutline: async () => Array.from({ length: 8 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })), // 3000 words -> 2 lectures
-			readNodes: () => [node(NODE_A), node(NODE_B), node("n_orphan00")],
-			findSourceId: () => SRC,
-		});
+		const h = harness({ writeOutline: async () => twoLectures }, { importNodes: [NODE_A, NODE_B, "n_orphan00"] });
 		h.deps.writeLecture = async (input) => {
 			h.calls.prevSummaries.push(input.previousSummary);
 			return { ...draft, summary: `summary ${input.order}` };
@@ -101,7 +178,7 @@ describe("runChapter", () => {
 		const r = await runChapter(book, chapter, h.deps);
 		assert.deepEqual(h.calls.prevSummaries, [null, "summary 1"]);
 		assert.equal(r.lectureIds.length, 2);
-		assert.deepEqual(r.uncoveredNodeIds, ["n_orphan00"]);
+		assert.deepEqual(r.uncoveredNodeIds, ["n_orphan00"], "the chapter node no lecture cites is reported");
 	});
 	it("replaces earlier lectures of the same chapter and keeps other chapters", async () => {
 		const h = harness();
@@ -110,133 +187,165 @@ describe("runChapter", () => {
 		await runChapter(book, chapter, h.deps);
 		assert.deepEqual([...h.store.keys()].sort(), ["lec_b0123abcd_c02_l01", "lec_b0123abcd_c03_l01"]);
 	});
-	it("keeps the previous lectures of the chapter when a re-run fails midway", async () => {
-		const h = harness({
-			writeOutline: async () => Array.from({ length: 8 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })), // 2 lectures
-		});
-		const oldId = "lec_b0123abcd_c02_l09";
-		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
-		let n = 0;
-		h.deps.writeLecture = async () => { if (++n === 2) throw new Error("model down"); return draft; };
-		const r = await runChapter(book, chapter, h.deps);
-		assert.equal(r.state, "failed");
-		assert.ok(h.store.has(oldId), "the previous lecture must survive a failed re-run");
-		assert.ok(h.store.has("lec_b0123abcd_c02_l01"), "the first new lecture was saved before the failure");
-	});
-	it("an abort midway (REQ-lec-18) stops cleanly: no further model call, saved lectures and old ones are kept", async () => {
-		const ac = new AbortController();
-		const h = harness({
-			writeOutline: async () => Array.from({ length: 12 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })), // 3+ lectures
-		});
-		const oldId = "lec_b0123abcd_c02_l09";
-		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
-		let n = 0;
-		h.deps.writeLecture = async () => {
-			n++;
-			if (n === 2) { ac.abort(); ac.signal.throwIfAborted(); } // the signal fires during lecture 2
-			return draft;
-		};
-		const r = await runChapter(book, chapter, h.deps);
-		assert.equal(ac.signal.aborted, true);
-		assert.equal(n, 2, "no model call after the abort, and no retry of the aborted one");
-		assert.notEqual(r.state, "done");
-		assert.equal(r.state, "failed"); // runChapter has no distinct aborted state: it reports the abort as a failed run
-		assert.match(r.error!, /abort/i);
-		assert.ok(h.store.has("lec_b0123abcd_c02_l01"), "lecture 1 was saved before the abort");
-		assert.ok(h.store.has(oldId), "old lectures are not deleted by an aborted run");
-		assert.equal(h.progress.at(-1)?.state, "failed");
-	});
-	it("fails without deleting anything when the outline yields no lecture", async () => {
-		const h = harness({ writeOutline: async () => [] });
-		const oldId = "lec_b0123abcd_c02_l09";
-		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
-		const r = await runChapter(book, chapter, h.deps);
-		assert.equal(r.state, "failed");
-		assert.match(r.error!, /no lecture/);
-		assert.ok(h.store.has(oldId), "the previous lecture must be kept");
-	});
-	it("stops with stopped_cost when the ceiling is reached, before any model call", async () => {
-		const h = harness({ gate: { allowed: () => false, record: () => {} } });
-		const r = await runChapter(book, chapter, h.deps);
-		assert.equal(r.state, "stopped_cost");
-		assert.equal(h.calls.imports + h.calls.outlines + h.calls.writes.length, 0);
-	});
-	it("treats a ceiling reached inside a writer as stopped_cost and keeps lectures already saved", async () => {
-		const h = harness({
-			writeOutline: async () => Array.from({ length: 8 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })),
-		});
-		let n = 0;
-		h.deps.writeLecture = async () => { if (++n === 2) throw new CostCeilingError("spent"); return draft; };
-		const r = await runChapter(book, chapter, h.deps);
-		assert.equal(r.state, "stopped_cost");
-		assert.equal(h.store.size, 1);
-	});
-	it("fails clearly when the chapter graph is empty", async () => {
-		const h = harness({ readNodes: () => [], findSourceId: () => SRC });
-		const r = await runChapter(book, chapter, h.deps);
-		assert.equal(r.state, "failed");
-		assert.match(r.error!, /graph is empty/);
-	});
-	it("labels the import with book and chapter", () => {
-		assert.equal(chapterSourcePath(book, chapter), "Probability 1/02 Measurable spaces");
-	});
-	it("buildLecture output is what gets saved", async () => {
+	it("builds the saved lecture from the draft, with the chapter's source id", async () => {
 		const h = harness();
 		await runChapter(book, chapter, h.deps);
-		const meta = { bookId: book.bookId, bookTitle: book.bookTitle, chapter, order: 1, chapterSourceId: SRC, createdAt: "2026-11-04T10:00:00.000Z" };
+		const meta = { bookId: book.bookId, bookTitle: book.bookTitle, chapter, order: 1, chapterSourceId: SRC, createdAt: NOW };
 		assert.deepEqual(h.store.get("lec_b0123abcd_c02_l01"), buildLecture(draft, meta));
 	});
 });
 
-describe("runChapter: graph parts are checkpointed, and a retry imports only the rest", () => {
-	// Three paragraphs of 5000 characters: three graph parts (each paragraph alone fits a part, two do not).
-	const chapterText = [`P1 ${"a".repeat(5000)}`, `P2 ${"b".repeat(5000)}`, `P3 ${"c".repeat(5000)}`].join("\n\n");
-
-	/** A fake notes pipeline: each import adds its part's node once (a second import of a part would show as a duplicate id). */
-	function fakePipeline(failAtCall?: number, alreadyImported = false) {
-		const texts: string[] = [];
-		const nodeIds: string[] = [];
-		let ready = alreadyImported;
-		const deps: Partial<ChapterRunDeps> = {
-			importChapterGraph: async ({ text }) => {
-				texts.push(text);
-				if (failAtCall !== undefined && texts.length === failAtCall) throw new Error("model down");
-				nodeIds.push(`n_${text.slice(0, 2)}`);
-				ready = true;
-			},
-			findSourceId: () => (ready ? SRC : null),
-			readNodes: () => [...nodeIds.map(node), node(NODE_A), node(NODE_B)],
-			readChapterText: async () => chapterText,
+describe("runChapter: a chapter that does not finish leaves the real graph and the lectures as they were", () => {
+	it("a failure while writing a later lecture: no node is active, no lecture is saved, the old lectures stay", async () => {
+		const h = harness({ writeOutline: async () => twoLectures });
+		const oldId = "lec_b0123abcd_c02_l09";
+		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
+		const before = h.graph.snapshot();
+		let n = 0;
+		h.deps.writeLecture = async () => {
+			if (++n === 2) throw new Error("model down");
+			return draft;
 		};
-		return { texts, nodeIds, deps };
-	}
-
-	it("a run that fails after the first part resumes from the checkpoint and imports only the uncovered rest", async () => {
-		const pipe = fakePipeline(2);
-		const checkpoints: number[] = [];
-		const first = harness({ ...pipe.deps, onImported: undefined });
-		first.deps.onImported = (n) => void checkpoints.push(n);
-		const r1 = await runChapter(book, chapter, first.deps);
-		assert.equal(r1.state, "failed");
-		assert.match(r1.error!, /model down/);
-		assert.deepEqual(checkpoints, [1], "part 1 is checkpointed, part 2 failed before its checkpoint");
-		assert.deepEqual(pipe.texts.map((t) => t.slice(0, 2)), ["P1", "P2"]);
-
-		// the retry: the failing call is past, the stored checkpoint is 1
-		const second = harness({ ...pipe.deps, importedParts: 1, onImported: (n) => void checkpoints.push(n) });
-		const r2 = await runChapter(book, chapter, second.deps);
-		assert.equal(r2.state, "done");
-		assert.deepEqual(pipe.texts.slice(2).map((t) => t.slice(0, 2)), ["P2", "P3"], "only parts 2 and 3 are imported again");
-		assert.deepEqual(checkpoints, [1, 2, 3]);
-		assert.deepEqual(pipe.nodeIds, ["n_P1", "n_P2", "n_P3"], "no node is imported twice");
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /model down/);
+		assert.equal(h.graph.snapshot(), before, "the real graph is byte-identical");
+		assert.deepEqual([...h.store.keys()], [oldId], "the first lecture was never saved; the old lecture is kept");
+		assert.deepEqual(h.events, ["import", "discard"]);
 	});
-	it("a chapter whose checkpoint covers every part imports nothing", async () => {
-		const pipe = fakePipeline(undefined, true);
-		const h = harness({ ...pipe.deps, importedParts: 3 });
+	it("an outline that yields no lecture fails without touching the real graph or the old lectures", async () => {
+		const h = harness({ writeOutline: async () => [] });
+		const oldId = "lec_b0123abcd_c02_l09";
+		h.store.set(oldId, makeLecture({ id: oldId, order: 9 }));
+		const before = h.graph.snapshot();
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /no lecture/);
+		assert.equal(h.graph.snapshot(), before);
+		assert.ok(h.store.has(oldId));
+	});
+	it("an abort midway (REQ-lec-18) stops with no further model call and leaves the real graph unchanged", async () => {
+		const ac = new AbortController();
+		const h = harness({ writeOutline: async () => Array.from({ length: 12 }, (_, i) => ({ title: `t${i}`, kind: "theorem" as const, summary: "s" })) });
+		const before = h.graph.snapshot();
+		let n = 0;
+		h.deps.writeLecture = async () => {
+			n++;
+			if (n === 2) {
+				ac.abort();
+				ac.signal.throwIfAborted();
+			}
+			return draft;
+		};
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(n, 2, "no model call after the abort, and no retry of the aborted one");
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /abort/i);
+		assert.equal(h.graph.snapshot(), before);
+		assert.equal(h.store.size, 0);
+		assert.equal(h.progress.at(-1)?.state, "failed");
+	});
+	it("a ceiling reached inside a writer is stopped_cost, and nothing is committed", async () => {
+		const h = harness({ writeOutline: async () => twoLectures });
+		const before = h.graph.snapshot();
+		let n = 0;
+		h.deps.writeLecture = async () => {
+			if (++n === 2) throw new CostCeilingError("spent");
+			return draft;
+		};
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "stopped_cost");
+		assert.equal(h.store.size, 0);
+		assert.equal(h.graph.snapshot(), before);
+	});
+	it("stops with stopped_cost before any model call when the ceiling is reached", async () => {
+		const h = harness({ gate: { allowed: () => false, record: () => {} } });
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "stopped_cost");
+		assert.equal(h.events.includes("import"), false, "no import before the ceiling check");
+		assert.equal(h.calls.outlines, 0);
+	});
+	it("a commit that throws fails the chapter: nothing is saved and the staging is discarded", async () => {
+		const h = harness();
+		const stage = h.graph.stage;
+		h.deps.stageGraph = () => {
+			const s = stage();
+			return { ...s, commit: () => { throw new Error("disk full"); } };
+		};
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /disk full/);
+		assert.equal(h.store.size, 0);
+	});
+	it("a chapter whose import left no source record fails clearly and commits nothing", async () => {
+		const h = harness({}, { importsSource: false });
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /left no source record/);
+		assert.equal(h.events.includes("commit"), false);
+	});
+	it("fails clearly when the chapter graph is empty", async () => {
+		const h = harness({}, { importNodes: [] });
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "failed");
+		assert.match(r.error!, /graph is empty/);
+	});
+});
+
+describe("runChapter: a retry starts from scratch and never duplicates", () => {
+	it("a failed chapter, retried, commits its graph exactly once", async () => {
+		const real = [nodeView(NODE_A, "src_other00000")];
+		const events: string[] = [];
+		const graph = fakeGraph(real, events, { importNodes: [NODE_B] });
+		// The first run fails at lecture 2 (staging discarded); the retry succeeds.
+		const store = new Map<string, Lecture>();
+		const deps = (failSecond: boolean): ChapterRunDeps => ({
+			gate: { allowed: () => true, record: () => {} },
+			lectures: { save: (l) => void store.set(l.id, l), list: () => [...store.values()], remove: (id) => void store.delete(id) },
+			stageGraph: graph.stage,
+			activeGraph: graph.activeGraph,
+			readChapterText: async () => "Chapter.",
+			writeOutline: async () => twoLectures,
+			writeLecture: (() => {
+				let n = 0;
+				return async () => {
+					if (failSecond && ++n === 2) throw new Error("model down");
+					return draft;
+				};
+			})(),
+			now: () => NOW,
+		});
+		const first = await runChapter(book, chapter, deps(true));
+		assert.equal(first.state, "failed");
+		assert.deepEqual(graph.real.map((n) => n.id), [NODE_A], "after the failure only the existing node remains");
+		const second = await runChapter(book, chapter, deps(false));
+		assert.equal(second.state, "done");
+		assert.equal(graph.real.filter((n) => n.id === NODE_B).length, 1, "the chapter's node is active once, not twice");
+		assert.equal(store.size, 2);
+	});
+});
+
+describe("runChapter: an active chapter is skipped, a chapter whose lectures are gone is rebuilt", () => {
+	it("a chapter whose graph is active and whose lectures are stored is done without any import", async () => {
+		const h = harness();
+		h.graph.markCommitted();
+		h.store.set("lec_b0123abcd_c02_l01", makeLecture({ id: "lec_b0123abcd_c02_l01" }));
 		const r = await runChapter(book, chapter, h.deps);
 		assert.equal(r.state, "done");
-		assert.equal(pipe.texts.length, 0);
+		assert.deepEqual(r.lectureIds, ["lec_b0123abcd_c02_l01"]);
+		assert.equal(h.events.length, 0, "no import, no commit");
+		assert.equal(h.calls.outlines, 0);
 	});
+	it("an active graph without stored lectures is rebuilt", async () => {
+		const h = harness();
+		h.graph.markCommitted();
+		const r = await runChapter(book, chapter, h.deps);
+		assert.equal(r.state, "done");
+		assert.deepEqual(h.events.slice(0, 1), ["import"]);
+	});
+});
+
+describe("runChapter: explained errors", () => {
 	it("explains the stored error text: a repeated part once with its count, and the hint for a stop before the submit tool", async () => {
 		const repeated = Array.from({ length: 6 }, () => "the extractor never submitted findings").join("; ");
 		const h = harness({ writeOutline: async () => { throw new Error(repeated); } });
@@ -247,5 +356,9 @@ describe("runChapter: graph parts are checkpointed, and a retry imports only the
 		const outline = harness({ writeOutline: async () => { throw new Error("the model ended without calling submit_outline"); } });
 		const r2 = await runChapter(book, chapter, outline.deps);
 		assert.equal(r2.error!.split("The model stopped before calling the tool").length - 1, 1);
+	});
+	it("labels the import with book and chapter, and derives the source id from that label", () => {
+		assert.equal(chapterSourcePath(book, chapter), "Probability 1/02 Measurable spaces");
+		assert.match(chapterSourceId(book, chapter), /^src_[0-9a-f]{12}$/);
 	});
 });

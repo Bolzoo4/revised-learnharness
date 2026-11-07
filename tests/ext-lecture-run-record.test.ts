@@ -25,7 +25,7 @@ const book = (over: Partial<BookRun> = {}): BookRun => ({ bookId: BOOK, title: "
 
 describe("parseRunRecords", () => {
 	it("round-trips a valid file", () => {
-		const b = book({ chapters: [ch(1, "done", { lectures: 2 }), ch(2, "failed", { error: "boom", stage: "outline", importedParts: 1, startedAt: "t1", updatedAt: "t2" })] });
+		const b = book({ chapters: [ch(1, "done", { lectures: 2 }), ch(2, "failed", { error: "boom", stage: "outline", startedAt: "t1", updatedAt: "t2" })] });
 		assert.deepEqual(parseRunRecords({ version: 1, books: [b] }), [b]);
 	});
 	it("reads anything that is not version 1 with the right shape as empty", () => {

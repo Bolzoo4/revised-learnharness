@@ -75,7 +75,7 @@ export function createStagedGraphStore(base: GraphStore): StagedGraphStore {
 		return { ...staged, extractions };
 	}
 
-	const store: StagedGraphStore = {
+	const store: Omit<StagedGraphStore, "commit" | "discard"> = {
 		get state() {
 			return state;
 		},
@@ -189,7 +189,7 @@ export function createStagedGraphStore(base: GraphStore): StagedGraphStore {
 			if (state === "open") state = "discarded";
 			clearStaged();
 		},
-	}) as StagedGraphStore;
+	});
 
 	function clearStaged(): void {
 		sources.clear();

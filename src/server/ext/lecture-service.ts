@@ -45,9 +45,12 @@ export interface LectureServiceDeps {
 	lectures: LecturesStore;
 	library?: SourceLibrary;
 	gate: CostGate;
+	/** The real graph's nodes (the lecture overlay and back-links read these). */
 	graphNodes(): ReadonlyArray<Pick<GraphNode, "id" | "name" | "statement" | "provenance">>;
-	importChapterGraph: ChapterRunDeps["importChapterGraph"];
-	findSourceId: ChapterRunDeps["findSourceId"];
+	/** A staged graph per chapter (the chapter's import, reads and commit; see chapter-run.ts). */
+	stageGraph: ChapterRunDeps["stageGraph"];
+	/** The chapter's graph when it is active in the real graph, or null. */
+	activeGraph: ChapterRunDeps["activeGraph"];
 	pdf: {
 		exists(pdfPath: string): boolean;
 		readBookmarks(pdfPath: string): Promise<{ pageCount: number; bookmarks: ChapterStart[] }>;
@@ -72,8 +75,6 @@ export interface LectureServiceDeps {
 export function bookIdFor(pdfPath: string): string {
 	return `b${createHash("sha256").update(pdfPath).digest("hex").slice(0, 8)}`;
 }
-
-const sameChapter = (a: Chapter, b: Chapter): boolean => a.index === b.index && a.pageStart === b.pageStart && a.pageEnd === b.pageEnd;
 
 function errorName(err: unknown): string {
 	const code = (err as { code?: unknown } | null)?.code;
@@ -136,7 +137,7 @@ export function createLectureService(deps: LectureServiceDeps) {
 		return status.chapters.find((c) => c.chapter.index === index);
 	}
 
-	/** A chapter's progress: keeps the stage and the checkpoint, stamps the times, logs the final states. */
+	/** A chapter's progress: keeps the stage, stamps the times, logs the final states. */
 	function onProgress(status: BookRunStatus, p: ChapterProgress): void {
 		const i = status.chapters.findIndex((c) => c.chapter.index === p.chapter.index);
 		if (i < 0) return;
@@ -150,7 +151,6 @@ export function createLectureService(deps: LectureServiceDeps) {
 			lectures: p.lectures,
 			uncovered: p.uncovered,
 			...(stage !== undefined ? { stage } : {}),
-			...(prev.importedParts !== undefined ? { importedParts: prev.importedParts } : {}),
 			...(p.error !== undefined ? { error: p.error } : {}),
 			startedAt: p.state === "queued" ? at : (prev.startedAt ?? at),
 			updatedAt: at,
@@ -171,24 +171,17 @@ export function createLectureService(deps: LectureServiceDeps) {
 		persist();
 	}
 
-	/** One chapter through the chapter pipeline, its progress and graph checkpoints written to the status. */
-	function runOne(status: BookRunStatus, chapter: Chapter, importedParts: number | undefined): Promise<ChapterResult> {
+	/** One chapter through the chapter pipeline; its progress is written to the status. */
+	function runOne(status: BookRunStatus, chapter: Chapter): Promise<ChapterResult> {
 		return runChapter({ bookId: status.bookId, bookTitle: status.title }, chapter, {
 			gate: deps.gate,
 			lectures: deps.lectures,
-			importChapterGraph: deps.importChapterGraph,
-			findSourceId: deps.findSourceId,
-			readNodes: deps.graphNodes,
+			stageGraph: deps.stageGraph,
+			activeGraph: deps.activeGraph,
 			readChapterText: (c) => deps.pdf.readChapterText(status.pdfPath, c),
 			writeOutline: deps.writers.writeOutline,
 			writeLecture: deps.writers.writeLecture,
 			now,
-			...(importedParts !== undefined ? { importedParts } : {}),
-			onImported: (parts) => {
-				const cur = chapterOf(status, chapter.index);
-				if (cur !== undefined) cur.importedParts = parts;
-				persist();
-			},
 			onProgress: (p) => onProgress(status, p),
 		});
 	}
@@ -238,14 +231,10 @@ export function createLectureService(deps: LectureServiceDeps) {
 			...(deps.library ? { registerSource: () => registerBookAsPrimary(deps.library!, pdfPath, title) } : {}),
 			onChapters: (chapters) => {
 				status.phase = "running";
-				// A chapter of an earlier run of this book keeps its graph checkpoint when its pages are unchanged.
-				status.chapters = chapters.map((chapter) => {
-					const old = previous?.chapters.find((c) => sameChapter(c.chapter, chapter));
-					return { chapter, state: "queued", lectures: 0, uncovered: 0, ...(old?.importedParts !== undefined ? { importedParts: old.importedParts } : {}) };
-				});
+				status.chapters = chapters.map((chapter) => ({ chapter, state: "queued", lectures: 0, uncovered: 0 }));
 				persist();
 			},
-			runChapter: (chapter) => runOne(status, chapter, chapterOf(status, chapter.index)?.importedParts),
+			runChapter: (chapter) => runOne(status, chapter),
 		}).then(() => settle(status), (err: unknown) => fail(status, err));
 		return { bookId, finished };
 	}
@@ -282,7 +271,6 @@ export function createLectureService(deps: LectureServiceDeps) {
 				state: "queued",
 				lectures: 0,
 				uncovered: 0,
-				...(c.importedParts !== undefined ? { importedParts: c.importedParts } : {}),
 				startedAt: at,
 				updatedAt: at,
 			};
@@ -293,7 +281,7 @@ export function createLectureService(deps: LectureServiceDeps) {
 		persist();
 		const finished = mapPool(indices, MAX_PARALLEL_CHAPTERS, (index) => {
 			const c = chapterOf(status, index)!;
-			return runOne(status, c.chapter, c.importedParts ?? 0);
+			return runOne(status, c.chapter);
 		}).then(() => settle(status), (err: unknown) => fail(status, err));
 		return { chapters: indices, finished };
 	}

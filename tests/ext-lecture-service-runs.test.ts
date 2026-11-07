@@ -3,10 +3,10 @@ import { describe, it } from "node:test";
 import type { Lecture } from "../src/core/ext/lecture/lecture.ts";
 import { INTERRUPTED_TEXT, type BookRun, type LectureRunStore } from "../src/core/ext/lecture/run-record.ts";
 import { bookIdFor, createLectureService, LectureServiceError, type BookRunStatus, type LectureServiceDeps } from "../src/server/ext/lecture-service.ts";
-import { makeLecture, NODE_A, NODE_B } from "./helpers/lecture-fixture.ts";
+import { makeLecture } from "./helpers/lecture-fixture.ts";
+import { fakeStagedGraphs } from "./helpers/staged-graph-fake.ts";
 
 const PDF = "/books/prob.pdf";
-const SRC = "src_0123456789ab";
 const BOOK = bookIdFor(PDF);
 const base = makeLecture();
 const draft = { title: base.title, summary: base.summary, slides: base.slides, blocks: base.blocks };
@@ -30,7 +30,7 @@ const mkBook = (over: Partial<BookRun> = {}): BookRun => ({
 	phase: "failed",
 	chapters: [
 		{ chapter: { index: 1, title: "Measurable spaces", pageStart: 1, pageEnd: 9 }, state: "done", lectures: 1, uncovered: 0 },
-		{ chapter: { index: 2, title: "Sigma algebras", pageStart: 10, pageEnd: 19 }, state: "failed", stage: "outline", lectures: 0, uncovered: 0, importedParts: 1, error: "boom", startedAt: T0, updatedAt: T0 },
+		{ chapter: { index: 2, title: "Sigma algebras", pageStart: 10, pageEnd: 19 }, state: "failed", stage: "outline", lectures: 0, uncovered: 0, error: "boom", startedAt: T0, updatedAt: T0 },
 		{ chapter: { index: 3, title: "Measures", pageStart: 20, pageEnd: 29 }, state: "stopped_cost", stage: "writing", lectures: 0, uncovered: 0, startedAt: T0, updatedAt: T0 },
 	],
 	startedAt: T0,
@@ -40,21 +40,16 @@ const mkBook = (over: Partial<BookRun> = {}): BookRun => ({
 function setup(over: Partial<LectureServiceDeps> & { run?: BookRun[]; exists?: boolean; gateOpen?: boolean } = {}) {
 	const lines: string[] = [];
 	const runStore = memRunStore(over.run ?? []);
-	const imports: string[] = [];
+	const graph = fakeStagedGraphs();
 	const lectures = new Map<string, Lecture>();
-	// A checkpointed chapter has its graph parts already: the source exists in the graph.
-	const graph = { ready: (over.run ?? []).some((b) => b.chapters.some((c) => c.importedParts !== undefined)) };
 	const runs = new Map<string, BookRunStatus>();
 	let outlineFails = false;
 	const deps: LectureServiceDeps = {
 		lectures: { save: (l) => void lectures.set(l.id, l), get: (id) => lectures.get(id) ?? null, list: () => [...lectures.values()], remove: (id) => void lectures.delete(id) },
 		gate: { allowed: () => over.gateOpen ?? true, record: () => {} },
-		graphNodes: () => (graph.ready ? [NODE_A, NODE_B].map((id) => ({ id, name: id, statement: "s", provenance: [{ chatId: SRC, messageId: "" }] })) : []),
-		importChapterGraph: async ({ text }) => {
-			imports.push(text.slice(0, 2));
-			graph.ready = true;
-		},
-		findSourceId: () => (graph.ready ? SRC : null),
+		graphNodes: graph.graphNodes,
+		stageGraph: graph.stageGraph,
+		activeGraph: graph.activeGraph,
 		pdf: {
 			exists: (p) => (over.exists ?? true) && p === PDF,
 			readBookmarks: async () => ({ pageCount: 40, bookmarks: [{ title: "Measurable spaces", page: 1 }, { title: "Sigma algebras", page: 10 }, { title: "Measures", page: 20 }] }),
@@ -80,7 +75,7 @@ function setup(over: Partial<LectureServiceDeps> & { run?: BookRun[]; exists?: b
 		svc,
 		runs,
 		lines,
-		imports,
+		imports: graph.imports,
 		runStore,
 		setOutlineFails: (v: boolean) => (outlineFails = v),
 		graph,
@@ -123,12 +118,14 @@ describe("persistence and the chapter log", () => {
 		const line = h.lines.find((l) => l.includes(`chapter 1 `))!;
 		assert.match(line, /"Measurable spaces" failed: the model ended without calling submit_outline\. The model stopped before calling the tool\. This usually means it ran out of output space: lower the thinking level or choose a model with a larger output limit in Settings\. \(stage outline, 0s\)$/);
 	});
-	it("a graph import that fails part-way leaves its checkpoint in the saved state", async () => {
-		const h = setup({ importChapterGraph: async () => { throw new Error("model down"); } });
+	it("a graph import that fails leaves nothing active: the chapter is failed with the explained error", async () => {
+		const failing = fakeStagedGraphs({ importError: new Error("model down") });
+		const h = setup({ stageGraph: failing.stageGraph });
 		await h.svc.startBookIngest({ pdfPath: PDF }).finished;
 		const saved = h.runStore.saved().find((b) => b.bookId === BOOK)!;
 		assert.equal(saved.chapters[0]!.state, "failed");
-		assert.equal(saved.chapters[0]!.importedParts, undefined, "no part completed, so no checkpoint");
+		assert.match(saved.chapters[0]!.error!, /model down/);
+		assert.equal(failing.committed.size, 0, "no chapter graph was committed");
 	});
 });
 
@@ -170,8 +167,10 @@ describe("restart", () => {
 			lectures: { save: () => {}, get: () => null, list: () => [], remove: () => {} },
 			gate: { allowed: () => true, record: () => {} },
 			graphNodes: () => [],
-			importChapterGraph: async () => {},
-			findSourceId: () => null,
+			stageGraph: () => {
+				throw new Error("not used: the store cannot be read");
+			},
+			activeGraph: () => null,
 			pdf: { exists: () => true, readBookmarks: async () => ({ pageCount: 1, bookmarks: [] }), readPageTexts: async () => [], readChapterText: async () => "" },
 			writers: { detectChaptersWithLlm: async () => [], writeOutline: async () => [], writeLecture: async () => draft },
 			runs,
@@ -183,7 +182,7 @@ describe("restart", () => {
 });
 
 describe("retryChapters", () => {
-	it("re-runs every failed, interrupted or stopped chapter, from the checkpoint, and ends with the book's phase", async () => {
+	it("re-runs every failed, interrupted or stopped chapter from the start, and ends with the book's phase", async () => {
 		const h = setup({ run: [mkBook()] });
 		const { chapters, finished } = h.svc.retryChapters(BOOK);
 		assert.deepEqual(chapters, [2, 3]);
@@ -193,7 +192,7 @@ describe("retryChapters", () => {
 		assert.deepEqual(book.chapters.map((c) => c.state), ["done", "done", "done"]);
 		assert.equal(book.phase, "done");
 		assert.equal(book.error, undefined);
-		assert.equal(h.imports.length, 1, "chapter 2 is covered by its checkpoint; only chapter 3 (no checkpoint) imports its part");
+		assert.equal(h.imports.length, 2, "each retried chapter is imported once, from the start");
 	});
 	it("re-runs one chapter when its index is given, and only that one", async () => {
 		const h = setup({ run: [mkBook()] });

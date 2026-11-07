@@ -1,40 +1,43 @@
 // src/server/ext/lecture-live.ts
 /**
  * Composition of the lecture stage: the live stores, the teacher-slot engine,
- * upstream's notes import for the chapter graphs, and the shared cost gate.
+ * the staged chapter graphs (upstream's notes pipeline over a staging overlay,
+ * committed once a chapter's lectures are all written), and the shared cost gate.
  * Only wiring; everything testable is in lecture-service.ts and src/agent/ext.
  */
 
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { createExtractionPipeline } from "../../agent/subagents/extraction.ts";
 import { readBookmarks, readChapterText, readPageTexts } from "../../agent/ext/lecture/pdf-facts.ts";
+import { sourceIdForPath, type GraphNodeView, type StagedChapterGraph } from "../../agent/ext/lecture/chapter-run.ts";
 import { detectChaptersWithLlm, writeLectureDraft, writeOutline } from "../../agent/ext/lecture/writers.ts";
 import { emit } from "../../core/events.ts";
-import { getGraph } from "../../core/graph.ts";
+import { getGraph, type EmissionStats } from "../../core/graph.ts";
+import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { audioVoicesFromEnv } from "../../core/ext/lecture/audio.ts";
 import type { Lecture } from "../../core/ext/lecture/lecture.ts";
 import type { LecturesStore } from "../../core/ext/study-ports.ts";
 import { createSourceLibrary } from "../../core/ext/sources.ts";
 import { EXT_PATHS } from "../../store/ext/paths.ts";
 import { keyValue } from "../keys.ts";
-import { extraction } from "../chat-handler.ts";
 import { sourceDirectory } from "../source-organization.ts";
 import { stores } from "../stores.ts";
 import { liveAudioGate, liveCostGate } from "./cost-live.ts";
+import { extractionModelDeps } from "./extraction-deps.ts";
 import { createLectureAudio } from "./lecture-audio.ts";
 import { bookIdFor, createLectureService, type BookRunStatus } from "./lecture-service.ts";
 import { createLectureOfficeHours } from "./lecture-office-hours.ts";
 import { practiceService } from "./practice-live.ts";
 import { keepStagedPdf } from "./pdf-upload.ts";
+import { createStagedGraphStore } from "./staged-graph-store.ts";
 import { extStores } from "./stores.ts";
+import { verifyAfterMerge } from "./verification.ts";
 import { writerDeps } from "./study-engine.ts";
 
 /** The run registry survives dev-server module reloads. */
 const g = globalThis as { __lhExtLectureRuns?: Map<string, BookRunStatus> };
 const runs = (g.__lhExtLectureRuns ??= new Map<string, BookRunStatus>());
-
-const sourceIdOf = (filePath: string): string => `src_${crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
 
 /**
  * Narration audio (Deepgram). Its files live under <data>/ext/lecture-audio; the key is read server-side
@@ -63,23 +66,63 @@ const lecturesWithAudio: LecturesStore = {
 	},
 };
 
+/**
+ * One chapter's graph, STAGED (docs/ext/CONTRACTS.md "Staged chapter graph"): the upstream notes pipeline
+ * runs over a staging overlay of the real store, so nothing it writes is visible until commit(). The
+ * pipeline is built here with the same model wiring as the live one (extraction-deps.ts), but not
+ * wrapped in the live post-merge hook: the hook's steps run once, after the commit, below.
+ */
+function stageChapterGraph(): StagedChapterGraph {
+	const staged = createStagedGraphStore(stores.graphStore);
+	const pipeline = createExtractionPipeline({ ...stores, graphStore: staged, ...extractionModelDeps() });
+	let importedPath: string | undefined;
+	let imported: EmissionStats = { nodes: 0, chains: 0 };
+	return {
+		async importText({ filePath, text }) {
+			importedPath = filePath;
+			imported = await pipeline.importNotes({ filePath, text });
+		},
+		hasSource: (filePath) => staged.readSources().some((s) => s.filePath === filePath),
+		readNodes: (): ReadonlyArray<GraphNodeView> => getGraph(staged).nodes,
+		commit() {
+			staged.commit();
+			// The commit has happened: nothing below may fail the chapter, so each step is isolated.
+			afterCommit(importedPath, imported.nodes);
+		},
+		discard: () => staged.discard(),
+	};
+}
+
+/** What the live pipeline did after a merge, moved to the commit: the layout, the source listing, the activity event, the verification. */
+function afterCommit(filePath: string | undefined, addedNodes: number): void {
+	try {
+		if (filePath !== undefined) sourceDirectory.registerImport(filePath);
+		settleGraphLayout(stores.graphStore);
+	} catch (err) {
+		console.error("[lectures] after the chapter commit (layout or listing):", err instanceof Error ? err.name : "error");
+	}
+	emit("sources-changed", {});
+	// Same gate as the live post-merge hook: inert under NODE_ENV=test, fire-and-forget, never delays the run.
+	if (addedNodes > 0 && process.env.NODE_ENV !== "test") {
+		void verifyAfterMerge().catch((err) => console.error("[ext] post-merge verification failed:", err));
+	}
+}
+
+/** A chapter's graph when it is already active in the real graph (its source record is committed), or null. */
+function activeChapterGraph(filePath: string): { sourceId: string; nodes: ReadonlyArray<GraphNodeView> } | null {
+	const sourceId = sourceIdForPath(filePath);
+	if (!stores.graphStore.readSources().some((s) => s.id === sourceId)) return null;
+	const nodes = getGraph(stores.graphStore).nodes.filter((n) => n.provenance.some((p) => p.chatId === sourceId));
+	return { sourceId, nodes };
+}
+
 export const lectureService = createLectureService({
 	lectures: lecturesWithAudio,
 	library: createSourceLibrary(extStores.sourcesStore),
 	gate: liveCostGate,
 	graphNodes: () => getGraph(stores.graphStore).nodes,
-	importChapterGraph: async ({ filePath, text }) => {
-		sourceDirectory.registerImport(filePath);
-		try {
-			await extraction.importNotes({ filePath, text });
-		} finally {
-			emit("sources-changed", {});
-		}
-	},
-	findSourceId: (filePath) => {
-		const id = sourceIdOf(filePath);
-		return sourceDirectory.read().sources.some((s) => s.id === id) ? id : null;
-	},
+	stageGraph: stageChapterGraph,
+	activeGraph: activeChapterGraph,
 	pdf: { exists: (p) => fs.existsSync(p), readBookmarks, readPageTexts, readChapterText },
 	writers: {
 		detectChaptersWithLlm: (excerpt, pageCount) => detectChaptersWithLlm(writerDeps(), excerpt, pageCount),

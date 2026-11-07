@@ -20,6 +20,7 @@ import { createMemoryGraphStore } from "./helpers/memory-graph-store.ts";
 import { fakeDeps, memLog } from "./helpers/research-fakes.ts";
 import { fakeGate, memSnapshotStore, memSourcesStore, memVerificationStore, node } from "./helpers/ext-fakes.ts";
 import { makeLecture, NODE_A, NODE_B } from "./helpers/lecture-fixture.ts";
+import { fakeStagedGraphs } from "./helpers/staged-graph-fake.ts";
 import { readPages, registerA, studyHarness } from "./helpers/study-fakes.ts";
 
 const CANARY = "CANARY-7731 sk-canary-key https://leak.example/?t=CANARY";
@@ -297,21 +298,18 @@ describe("study complete and approval under a provider limit", () => {
 describe("lecture generation under a provider limit", () => {
 	const book = { bookId: "b0123abcd", bookTitle: "Probability 1" };
 	const chapter = { index: 2, title: "Measurable spaces", pageStart: 10, pageEnd: 30 };
-	const SRC = "src_0123456789ab";
-	const nodeOf = (id: string): Pick<GraphNode, "id" | "name" | "statement" | "provenance"> => ({ id, name: id, statement: `statement of ${id}`, provenance: [{ chatId: SRC, messageId: "" }] });
 	const base = makeLecture();
 	const draft = { title: base.title, summary: base.summary, slides: base.slides, blocks: base.blocks };
 
 	function harness(gate: CostGate, over: Partial<ChapterRunDeps> = {}) {
 		const store = new Map<string, Lecture>();
 		const progress: ChapterProgress[] = [];
-		let imported = false;
+		const graph = fakeStagedGraphs();
 		const deps: ChapterRunDeps = {
 			gate,
 			lectures: { save: (l) => void store.set(l.id, l), list: () => [...store.values()], remove: (id) => void store.delete(id) },
-			importChapterGraph: async () => void (imported = true),
-			findSourceId: () => (imported ? SRC : null),
-			readNodes: () => (imported ? [nodeOf(NODE_A), nodeOf(NODE_B)] : []),
+			stageGraph: graph.stageGraph,
+			activeGraph: graph.activeGraph,
 			readChapterText: async () => "Chapter text.",
 			writeOutline: async () => [{ title: "T", kind: "definition", summary: "s" }],
 			writeLecture: async () => draft,

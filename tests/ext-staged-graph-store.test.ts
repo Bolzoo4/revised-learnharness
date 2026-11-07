@@ -21,12 +21,13 @@ const chain = (id: string, premises: string[], conclusion: string, chatId = "src
 	createdAt: "2026-11-07T09:00:00.000Z",
 	provenance: [{ chatId, messageId: "" }],
 });
-const usage = (startedAt: string): ExtractionRunUsage => ({
+const usage = (startedAt: number): ExtractionRunUsage => ({
 	startedAt,
-	at: startedAt,
+	at: `2026-11-07T09:00:0${startedAt}.000Z`,
 	durationMs: 1,
 	stages: { extractor: { model: "m", steps: [] }, auditor: { model: "m", steps: [] } },
 });
+const cov = (chatId: string, messageId: string): CoverageEntry => ({ chatId, messageId, fp: "f", tokens: 1, foldedAt: "t" }) as CoverageEntry;
 
 /** A complete in-memory base store; every write is recorded so the replay order can be checked. */
 function memBase(seed: { nodes?: GraphNode[]; chains?: GraphChain[]; sources?: NotesSource[] } = {}) {
@@ -72,12 +73,12 @@ function memBase(seed: { nodes?: GraphNode[]; chains?: GraphChain[]; sources?: N
 describe("staged graph store: reads", () => {
 	it("reads return the base followed by the staged writes, for every ledger", () => {
 		const base = memBase({ nodes: [node("n_base")], chains: [chain("arg_base", ["n_base"], "n_base", "chat_base")], sources: [{ id: "src_base", filePath: "/a.txt", importedAt: "t" }] });
-		base.store.appendCoverage({ chatId: "chat_base", messageId: "m1", fingerprint: "f" } as CoverageEntry);
+		base.store.appendCoverage(cov("chat_base", "m1"));
 		const s = createStagedGraphStore(base.store);
 		s.appendNode(node("n_new"));
 		s.appendChain(chain("arg_new", ["n_new"], "n_base", "src_chapter"));
-		s.appendCoverage({ chatId: "src_chapter", messageId: "m2", fingerprint: "g" } as CoverageEntry);
-		s.appendCheckpoint({ chatId: "src_chapter", foldedAt: "t" } as SessionCheckpoint);
+		s.appendCoverage(cov("src_chapter", "m2"));
+		s.appendCheckpoint({ chatId: "src_chapter", foldedAt: "t" });
 		s.upsertSource({ id: "src_chapter", filePath: "/c.txt", importedAt: "t2" });
 		assert.deepEqual(s.readNodes().map((n) => n.id), ["n_base", "n_new"]);
 		assert.deepEqual(s.readChains().map((c) => c.id), ["arg_base", "arg_new"]);
@@ -86,18 +87,18 @@ describe("staged graph store: reads", () => {
 		assert.deepEqual(s.readSources().map((x) => x.id).sort(), ["src_base", "src_chapter"]);
 	});
 	it("a staged source keeps the base record's usage log on upsert, and staged usage shows in the view", () => {
-		const base = memBase({ sources: [{ id: "src_x", filePath: "/x.txt", importedAt: "t0", extractions: [usage("u1")] }] });
+		const base = memBase({ sources: [{ id: "src_x", filePath: "/x.txt", importedAt: "t0", extractions: [usage(1)] }] });
 		const s = createStagedGraphStore(base.store);
 		s.upsertSource({ id: "src_x", filePath: "/x.txt", importedAt: "t1" });
-		s.appendSourceUsage("src_x", usage("u2"));
-		s.appendSourceUsage("src_x", usage("u2")); // idempotent per startedAt
+		s.appendSourceUsage("src_x", usage(2));
+		s.appendSourceUsage("src_x", usage(2)); // idempotent per startedAt
 		const view = s.readSources().find((x) => x.id === "src_x")!;
-		assert.deepEqual(view.extractions?.map((e) => e.startedAt), ["u1", "u2"]);
+		assert.deepEqual(view.extractions?.map((e) => e.startedAt), [1, 2]);
 	});
 	it("a usage line for a source that exists nowhere is dropped, as the base does", () => {
 		const base = memBase();
 		const s = createStagedGraphStore(base.store);
-		s.appendSourceUsage("src_ghost", usage("u1"));
+		s.appendSourceUsage("src_ghost", usage(1));
 		s.commit();
 		assert.deepEqual(base.sourcesNow(), []);
 	});
@@ -119,8 +120,8 @@ describe("staged graph store: writes stay staged until commit", () => {
 		const s = createStagedGraphStore(base.store);
 		s.appendNode(node("n_new"));
 		s.appendChain(chain("arg_new", ["n_base"], "n_new"));
-		s.appendCoverage({ chatId: "src_chapter", messageId: "m", fingerprint: "f" } as CoverageEntry);
-		s.appendCheckpoint({ chatId: "src_chapter", foldedAt: "t" } as SessionCheckpoint);
+		s.appendCoverage(cov("src_chapter", "m"));
+		s.appendCheckpoint({ chatId: "src_chapter", foldedAt: "t" });
 		s.upsertSource({ id: "src_chapter", filePath: "/c.txt", importedAt: "t" });
 		s.writePositions({ n_new: { x: 0, y: 0 } });
 		assert.equal(base.snapshot(), before);
@@ -130,12 +131,12 @@ describe("staged graph store: writes stay staged until commit", () => {
 		const base = memBase();
 		const s = createStagedGraphStore(base.store);
 		// Staged in a different order on purpose: the replay order is the contract, not the write order.
-		s.appendCheckpoint({ chatId: "src_chapter", foldedAt: "t" } as SessionCheckpoint);
+		s.appendCheckpoint({ chatId: "src_chapter", foldedAt: "t" });
 		s.appendChain(chain("arg_1", ["n_1"], "n_2"));
 		s.appendNode(node("n_1"));
-		s.appendCoverage({ chatId: "src_chapter", messageId: "m", fingerprint: "f" } as CoverageEntry);
+		s.appendCoverage(cov("src_chapter", "m"));
 		s.upsertSource({ id: "src_chapter", filePath: "/c.txt", importedAt: "t" });
-		s.appendSourceUsage("src_chapter", usage("u1"));
+		s.appendSourceUsage("src_chapter", usage(1));
 		s.appendNode(node("n_2"));
 		const stats = s.commit();
 		assert.deepEqual(stats, { sources: 1, usage: 1, nodes: 2, chains: 1, coverage: 1, checkpoints: 1 });

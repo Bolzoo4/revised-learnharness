@@ -37,8 +37,6 @@ export interface ChapterRun {
 	lectures: number;
 	uncovered: number;
 	error?: string;
-	/** Graph parts imported and checkpointed so far (see splitForGraphImport). */
-	importedParts?: number;
 	startedAt?: string;
 	updatedAt?: string;
 }
@@ -192,7 +190,6 @@ function parseChapter(raw: unknown): ChapterRun | null {
 	if (!isInt(c.lectures, 0) || !isInt(c.uncovered, 0)) return null;
 	if (c.stage !== undefined && c.stage !== "graph" && c.stage !== "outline" && c.stage !== "writing") return null;
 	if (c.error !== undefined && typeof c.error !== "string") return null;
-	if (c.importedParts !== undefined && !isInt(c.importedParts, 0)) return null;
 	if (c.startedAt !== undefined && typeof c.startedAt !== "string") return null;
 	if (c.updatedAt !== undefined && typeof c.updatedAt !== "string") return null;
 	return {
@@ -202,7 +199,6 @@ function parseChapter(raw: unknown): ChapterRun | null {
 		lectures: c.lectures as number,
 		uncovered: c.uncovered as number,
 		...(typeof c.error === "string" ? { error: c.error.slice(0, MAX_ERROR_CHARS) } : {}),
-		...(c.importedParts !== undefined ? { importedParts: c.importedParts as number } : {}),
 		...(typeof c.startedAt === "string" ? { startedAt: c.startedAt } : {}),
 		...(typeof c.updatedAt === "string" ? { updatedAt: c.updatedAt } : {}),
 	};
