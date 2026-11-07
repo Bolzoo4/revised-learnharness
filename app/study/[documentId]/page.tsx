@@ -1,3 +1,4 @@
+import "pdfjs-dist/web/pdf_viewer.css";
 import { notFound } from "next/navigation";
 import { ExtPageShell } from "@/components/ext/ext-page-shell";
 import { StudyView } from "@/components/ext/study-view";
