@@ -153,6 +153,10 @@ a plugin boundary later.
 2. For the larger areas, would you prefer to wait for the plugin infrastructure?
 3. Is it fine for the fork to be published separately with clear attribution, and should it keep the
    name or use another?
+4. Licence: I plan to give the app to friends and may later offer it with a subscription that includes
+   model usage. The fork stays AGPL-3.0 with the source published. Would you be open to discussing a
+   separate licence or an exception for my extension code (`src/*/ext/`, `components/ext/`), or do you
+   prefer everything under AGPL-3.0 as it is?
 
 ## 9. Licence and attribution
 
