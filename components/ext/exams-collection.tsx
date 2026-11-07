@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ExamDoc, MaterialDoc } from "@/src/core";
 import { ExamReview } from "./exams-review.tsx";
 import { getCollection, uploadExam, uploadMaterial, type CollectionDetail } from "./exams-api.ts";
@@ -15,6 +15,12 @@ export function CollectionView({ collectionId }: { collectionId: string }) {
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const reviewRef = useRef<HTMLElement>(null);
+
+	// Opening an exam's review brings it into view: the list sits below the fold.
+	useEffect(() => {
+		if (selectedId !== null) reviewRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+	}, [selectedId]);
 
 	useEffect(() => {
 		let alive = true;
@@ -65,11 +71,15 @@ export function CollectionView({ collectionId }: { collectionId: string }) {
 				<h3 className="font-medium">Exams</h3>
 				<p className="text-sm text-muted-foreground">Each exam is split into exercises. You review the split, then practise each exercise.</p>
 				<PdfChooser busy={busy} onPick={(file, title) => void addExam(file, title)} onError={setError} />
-				<ExamList exams={detail.exams} selectedId={selectedId} onReview={setSelectedId} />
+				<ExamList exams={detail.exams} selectedId={selectedId} onReview={(id) => setSelectedId((cur) => (cur === id ? null : id))} />
 			</section>
 
 			{selected !== null ? (
-				<section className="flex flex-col gap-3" aria-label="Review of the selected exam">
+				<section
+						ref={reviewRef}
+						className="flex scroll-mt-4 flex-col gap-3"
+						aria-label="Review of the selected exam"
+					>
 					<h3 className="font-medium">{selected.title}</h3>
 					<ExamReview key={selected.id} collectionId={collectionId} exam={selected} onExamChanged={examChanged} />
 				</section>
