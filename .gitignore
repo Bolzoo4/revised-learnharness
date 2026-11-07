@@ -19,3 +19,7 @@ xai-credentials.json*
 
 # dev-fresh launcher scratch (fresh-user sim): disposable per launch
 .fresh-data/
+
+# Manim video runtime: built by scripts/manim-runtime/build.sh (output and scratch)
+build/manim-runtime/
+build/manim-runtime-work/

@@ -99,6 +99,10 @@ extraResources:
     to: server
     filter:
       - "standalone/**/*"
+  # Manim video runtime (2026-11-07): built by scripts/manim-runtime/build.sh. electron-builder
+  # skips a missing source, so a build without the runtime ships with the video tool off (REQ-vid-12).
+  - from: build/manim-runtime
+    to: manim-runtime
 mac:
   # The backend's --require runs before Next loads. Keep this resource
   # outside app.asar so early Node-mode loading needs no ASAR support.
