@@ -22,7 +22,12 @@ interface ResearchStatus {
 	running: boolean;
 	trigger?: Trigger;
 	startedAt?: string;
+	/** Notes the agent has not read yet (REQ-rs-21). */
 	steers: string[];
+	/** Progress reports of the running cycle, oldest first (REQ-rs-20). */
+	reports: string[];
+	/** The research goal of the running cycle, when it has one (REQ-rs-19). */
+	goal?: string;
 	lastCycle: CycleLogEntry | null;
 	/** ISO end of a provider usage-limit pause, while one is in force. */
 	providerPausedUntil?: string | null;
@@ -55,12 +60,8 @@ const START_REFUSALS: Record<string, string> = {
 	"clock-invalid": GENERIC_ERROR,
 };
 
-/** The mark kinds (src/core/ext/frontier.ts), each with the one phrase that says what it does. */
-const MARK_OPTIONS: ReadonlyArray<{ value: Mark["mark"]; label: string }> = [
-	{ value: "expand", label: "expand: look for new material here" },
-	{ value: "hold", label: "hold: only check what is already known" },
-	{ value: "stop", label: "stop: leave this area alone" },
-];
+/** The longest research goal the page sends (the server checks the same limit). */
+export const GOAL_MAX_CHARS = 500;
 
 /** The stop reasons a cycle log can carry (src/core/ext/research-log.ts), in plain words. */
 const STOP_LABELS: Record<string, string> = {
@@ -93,15 +94,20 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T |
 	}
 }
 
-/** Which cycle controls are usable now. Abort and steering need a running cycle; a start is refused while one runs. */
+/** Which cycle controls are usable now. Abort and notes need a running cycle; a start is refused while one runs. */
 export function cycleControls(status: ResearchStatus | null) {
 	const running = status?.running === true;
 	return {
 		startDisabled: running,
 		abortDisabled: !running,
-		steerDisabled: !running,
-		steerHint: running ? null : "Steering works only while a cycle is running.",
+		noteDisabled: !running,
+		noteHint: running ? null : "A note can be left only while a cycle is running.",
 	};
+}
+
+/** The progress reports for the page, newest first. The server keeps them oldest first. */
+export function reportsNewestFirst(status: ResearchStatus | null): string[] {
+	return [...(status?.reports ?? [])].reverse();
 }
 
 /** The one-line state of the cycle, in plain words: Loading, Idle, or Running (who started it, since when). */
@@ -127,8 +133,8 @@ export function ResearchView() {
 	const [inbox, setInbox] = useState<InboxItem[]>([]);
 	const [watchlist, setWatchlist] = useState<WatchEntry[]>([]);
 	const [notice, setNotice] = useState<string | null>(null);
-	const [steerText, setSteerText] = useState("");
-	const [markForm, setMarkForm] = useState({ scopeKind: "node", scopeId: "", mark: "expand" });
+	const [goal, setGoal] = useState("");
+	const [noteText, setNoteText] = useState("");
 	const [watchForm, setWatchForm] = useState({ kind: "arxiv-query", query: "" });
 	const [tiers, setTiers] = useState<Record<string, "primary" | "secondary">>({});
 
@@ -162,21 +168,31 @@ export function ResearchView() {
 	}
 
 	const controls = cycleControls(status);
+	const goalText = goal.trim();
 
-	const startCycle = () =>
+	/** Starts a cycle: with a goal (REQ-rs-19) or, without one, a gap-driven cycle. */
+	const startCycle = (research?: string) =>
 		act(async () => {
-			const res = await call<{ started: boolean; reason?: string }>("POST", "/api/ext/research/cycle", { action: "start" });
+			const body = research === undefined ? { action: "start" } : { action: "start", goal: research };
+			const res = await call<{ started: boolean; reason?: string }>("POST", "/api/ext/research/cycle", body);
 			if (res === null) return false;
 			if (!res.started) setNotice(START_REFUSALS[res.reason ?? ""] ?? GENERIC_ERROR);
+			else if (research !== undefined) setGoal("");
 			return true;
 		});
+
+	const startGoal = (e: FormEvent) => {
+		e.preventDefault();
+		if (goalText === "" || goalText.length > GOAL_MAX_CHARS) return;
+		void startCycle(goalText);
+	};
 
 	const abortCycle = () =>
 		act(async () => (await call<{ aborted: boolean }>("POST", "/api/ext/research/cycle", { action: "abort" })) !== null);
 
-	const sendSteer = (e: FormEvent) => {
+	const sendNote = (e: FormEvent) => {
 		e.preventDefault();
-		const message = steerText.trim();
+		const message = noteText.trim();
 		if (message === "") return;
 		void act(async () => {
 			const res = await fetch("/api/ext/research/cycle", {
@@ -185,8 +201,8 @@ export function ResearchView() {
 				body: JSON.stringify({ action: "steer", message }),
 			}).catch(() => null);
 			if (res === null || (!res.ok && res.status !== 409)) return false;
-			if (res.status === 409) setNotice("No cycle is running, so the message was not delivered.");
-			else setSteerText("");
+			if (res.status === 409) setNotice("No cycle is running, so the note was not delivered.");
+			else setNoteText("");
 			return true;
 		});
 	};
@@ -195,27 +211,6 @@ export function ResearchView() {
 		act(async () => {
 			const tier = tiers[locator] ?? "secondary";
 			return (await call("POST", "/api/ext/research/inbox", { locator, decision, tier })) !== null;
-		});
-
-	const addMark = (e: FormEvent) => {
-		e.preventDefault();
-		if (markForm.scopeId.trim() === "") return;
-		void act(async () => {
-			const res = await call("POST", "/api/ext/research/marks", {
-				scope: { kind: markForm.scopeKind, id: markForm.scopeId.trim() },
-				mark: markForm.mark,
-			});
-			if (res !== null) setMarkForm((f) => ({ ...f, scopeId: "" }));
-			return res !== null;
-		});
-	};
-
-	/** Editing a mark replaces it: the new mark is written first, then the old one is cleared only if that succeeded. */
-	const changeMark = (old: Mark, mark: Mark["mark"]) =>
-		act(async () => {
-			const created = await call("POST", "/api/ext/research/marks", { scope: old.scope, mark });
-			if (created === null) return false;
-			return (await call("DELETE", "/api/ext/research/marks", { id: old.id })) !== null;
 		});
 
 	const removeMark = (id: string) => act(async () => (await call("DELETE", "/api/ext/research/marks", { id })) !== null);
@@ -258,30 +253,77 @@ export function ResearchView() {
 				{paused !== null && <p className="text-sm" role="status">{paused}</p>}
 				<p className="text-sm text-muted-foreground">Last cycle: {lastCycleAt}</p>
 				<div className="flex flex-wrap gap-2">
-					<button type="button" onClick={startCycle} disabled={controls.startDisabled} className="rounded border border-primary px-3 py-1">
-						Run a cycle now
-					</button>
 					<button type="button" onClick={() => void abortCycle()} disabled={controls.abortDisabled} className="rounded border px-3 py-1">
 						Abort
 					</button>
 					<button type="button" onClick={openChat} className="rounded border px-3 py-1">Open research chat</button>
 				</div>
 				<p className="text-xs text-muted-foreground">Open research chat: talk to the research agent in a chat session.</p>
-				<form onSubmit={sendSteer} className="flex flex-wrap items-end gap-2">
+			</section>
+
+			<section className="flex flex-col gap-3 rounded border p-4">
+				<h2 className="font-medium">Research goal</h2>
+				<p className="text-sm text-muted-foreground">
+					Name what you want researched. The agent starts from what it judges to be basic knowledge of the topic, then moves
+					toward the current frontier.
+				</p>
+				<form onSubmit={startGoal} className="flex flex-wrap items-end gap-2">
 					<label className="flex flex-1 flex-col gap-1 text-sm">
-						<span>Steer the running cycle</span>
+						<span>Research goal</span>
 						<input
 							className="rounded border px-2 py-1"
-							value={steerText}
-							onChange={(e) => setSteerText(e.target.value)}
-							disabled={controls.steerDisabled}
+							maxLength={GOAL_MAX_CHARS}
+							placeholder="Investigate the state of the art of plastic materials"
+							value={goal}
+							onChange={(e) => setGoal(e.target.value)}
+							disabled={controls.startDisabled}
 						/>
 					</label>
-					<button type="submit" disabled={controls.steerDisabled} className="rounded border px-3 py-1">Send steer</button>
-					{controls.steerHint !== null && <p className="w-full text-xs text-muted-foreground">{controls.steerHint}</p>}
+					<button
+						type="submit"
+						disabled={controls.startDisabled || goalText === ""}
+						className="rounded border border-primary px-3 py-1"
+					>
+						Start
+					</button>
+				</form>
+				<div className="flex flex-wrap items-center gap-2">
+					<button type="button" onClick={() => void startCycle()} disabled={controls.startDisabled} className="rounded border px-3 py-1">
+						Run a cycle now
+					</button>
+					<span className="text-xs text-muted-foreground">Run a cycle now looks for gaps in the graph, without a goal.</span>
+				</div>
+
+				{status?.running === true && (
+					<div className="flex flex-col gap-1 text-sm">
+						<span className="text-xs font-medium">Progress, newest first</span>
+						{reportsNewestFirst(status).length === 0 && <span className="text-xs text-muted-foreground">No progress reports yet.</span>}
+						<ul className="flex flex-col gap-1 text-xs">
+							{reportsNewestFirst(status).map((r, i) => <li key={i}>{r}</li>)}
+						</ul>
+					</div>
+				)}
+
+				<form onSubmit={sendNote} className="flex flex-wrap items-end gap-2">
+					<label className="flex flex-1 flex-col gap-1 text-sm">
+						<span>Leave a note for the agent</span>
+						<input
+							className="rounded border px-2 py-1"
+							value={noteText}
+							onChange={(e) => setNoteText(e.target.value)}
+							disabled={controls.noteDisabled}
+						/>
+					</label>
+					<button type="submit" disabled={controls.noteDisabled} className="rounded border px-3 py-1">Send note</button>
+					<p className="w-full text-xs text-muted-foreground">
+						The agent reads your note after its next report.{controls.noteHint !== null ? ` ${controls.noteHint}` : ""}
+					</p>
 				</form>
 				{status !== null && status.steers.length > 0 && (
-					<ul className="text-sm">{status.steers.map((s, i) => <li key={i}>{s}</li>)}</ul>
+					<div className="text-sm">
+						<span className="text-xs font-medium">Notes waiting for the agent</span>
+						<ul>{status.steers.map((s, i) => <li key={i}>{s}</li>)}</ul>
+					</div>
 				)}
 			</section>
 
@@ -327,11 +369,8 @@ export function ResearchView() {
 
 			<section className="flex flex-col gap-3 rounded border p-4">
 				<h2 className="font-medium">Marks</h2>
-				<p className="text-sm text-muted-foreground">
-					Tell research where to focus. A node is one item, a subtree is an item and everything under it, and a goal is one of
-					your goals.
-				</p>
-				{marks.length === 0 && <p className="text-sm text-muted-foreground">No marks yet. Add one below to steer where research looks.</p>}
+				<p className="text-sm text-muted-foreground">Set marks from a node in the graph.</p>
+				{marks.length === 0 && <p className="text-sm text-muted-foreground">No marks yet.</p>}
 				<ul className="flex flex-col gap-2 text-sm">
 					{marks.map((m) => (
 						<li key={m.id} className="flex flex-wrap items-center gap-2">
@@ -339,77 +378,61 @@ export function ResearchView() {
 								{m.scope.kind} {m.scope.id}: {m.mark}
 								{m.budgetUsd !== undefined ? `, budget ${m.budgetUsd} USD` : ""}, set by {m.author === "user" ? "you" : "research"}
 							</span>
-							<select aria-label="Change mark" value={m.mark} onChange={(e) => void changeMark(m, e.target.value as Mark["mark"])} className="rounded border px-1 py-0.5">
-								{MARK_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+							<button type="button" onClick={() => void removeMark(m.id)} className="rounded border px-3 py-1">Clear</button>
+						</li>
+					))}
+				</ul>
+			</section>
+
+			<details className="rounded border p-4">
+				<summary>
+					<h2 className="inline font-medium">Watchlist</h2>
+				</summary>
+				<div className="mt-3 flex flex-col gap-3">
+					<p className="text-sm text-muted-foreground">Feeds and arXiv queries that research checks for new items, each on its own schedule.</p>
+					{watchlist.length === 0 && <p className="text-sm text-muted-foreground">Nothing is watched yet. Add an arXiv query or a feed below.</p>}
+					<ul className="flex flex-col gap-2 text-sm">
+						{watchlist.map((w) => (
+							<li key={w.id} className="flex flex-wrap items-center gap-2">
+								<span>{WATCH_LABELS[w.kind]}: {w.query}, checked every {w.cadenceHours} hours</span>
+								<button type="button" onClick={() => void removeWatch(w.id)} className="rounded border px-3 py-1">Remove</button>
+							</li>
+						))}
+					</ul>
+					<form onSubmit={addWatch} className="flex flex-wrap items-end gap-2 text-sm">
+						<label className="flex flex-col gap-1">
+							<span>Watch type</span>
+							<select value={watchForm.kind} onChange={(e) => setWatchForm((f) => ({ ...f, kind: e.target.value }))} className="rounded border px-1 py-0.5">
+								<option value="arxiv-query">arXiv query</option>
+								<option value="feed">feed URL</option>
+								<option value="repo">repo (owner/name)</option>
 							</select>
-							<button type="button" onClick={() => void removeMark(m.id)} className="rounded border px-3 py-1">Remove</button>
-						</li>
-					))}
-				</ul>
-				<form onSubmit={addMark} className="flex flex-wrap items-end gap-2 text-sm">
-					<label className="flex flex-col gap-1">
-						<span>Mark target kind</span>
-						<select value={markForm.scopeKind} onChange={(e) => setMarkForm((f) => ({ ...f, scopeKind: e.target.value }))} className="rounded border px-1 py-0.5">
-							<option value="node">node</option>
-							<option value="subtree">subtree</option>
-							<option value="goal">goal</option>
-						</select>
-					</label>
-					<label className="flex flex-col gap-1">
-						<span>Node id / goal id</span>
-						<input value={markForm.scopeId} onChange={(e) => setMarkForm((f) => ({ ...f, scopeId: e.target.value }))} className="rounded border px-2 py-1" />
-					</label>
-					<label className="flex flex-col gap-1">
-						<span>Action</span>
-						<select value={markForm.mark} onChange={(e) => setMarkForm((f) => ({ ...f, mark: e.target.value }))} className="rounded border px-1 py-0.5">
-							{MARK_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-						</select>
-					</label>
-					<button type="submit" className="rounded border px-3 py-1">Add mark</button>
-				</form>
-			</section>
+						</label>
+						<label className="flex flex-1 flex-col gap-1">
+							<span>Query or feed URL</span>
+							<input value={watchForm.query} onChange={(e) => setWatchForm((f) => ({ ...f, query: e.target.value }))} className="rounded border px-2 py-1" />
+						</label>
+						<button type="submit" className="rounded border px-3 py-1">Add to watchlist</button>
+					</form>
+				</div>
+			</details>
 
-			<section className="flex flex-col gap-3 rounded border p-4">
-				<h2 className="font-medium">Watchlist</h2>
-				<p className="text-sm text-muted-foreground">Feeds and arXiv queries that research checks for new items, each on its own schedule.</p>
-				{watchlist.length === 0 && <p className="text-sm text-muted-foreground">Nothing is watched yet. Add an arXiv query or a feed below.</p>}
-				<ul className="flex flex-col gap-2 text-sm">
-					{watchlist.map((w) => (
-						<li key={w.id} className="flex flex-wrap items-center gap-2">
-							<span>{WATCH_LABELS[w.kind]}: {w.query}, checked every {w.cadenceHours} hours</span>
-							<button type="button" onClick={() => void removeWatch(w.id)} className="rounded border px-3 py-1">Remove</button>
-						</li>
-					))}
-				</ul>
-				<form onSubmit={addWatch} className="flex flex-wrap items-end gap-2 text-sm">
-					<label className="flex flex-col gap-1">
-						<span>Watch type</span>
-						<select value={watchForm.kind} onChange={(e) => setWatchForm((f) => ({ ...f, kind: e.target.value }))} className="rounded border px-1 py-0.5">
-							<option value="arxiv-query">arXiv query</option>
-							<option value="feed">feed URL</option>
-							<option value="repo">repo (owner/name)</option>
-						</select>
-					</label>
-					<label className="flex flex-1 flex-col gap-1">
-						<span>Query or feed URL</span>
-						<input value={watchForm.query} onChange={(e) => setWatchForm((f) => ({ ...f, query: e.target.value }))} className="rounded border px-2 py-1" />
-					</label>
-					<button type="submit" className="rounded border px-3 py-1">Add to watchlist</button>
-				</form>
-			</section>
-
-			<section className="flex flex-col gap-3 rounded border p-4">
-				<h2 className="font-medium">Recent cycles</h2>
-				<p className="text-sm text-muted-foreground">The last few cycles: when each ended, why it stopped, how many nodes it added and what it cost.</p>
-				{log.length === 0 && <p className="text-sm text-muted-foreground">No cycles yet. Run one now, or wait for the first scheduled cycle.</p>}
-				<ul className="flex flex-col gap-1 text-sm">
-					{log.map((c) => (
-						<li key={c.cycleId}>
-							{new Date(c.endedAt).toLocaleString()} ({c.trigger === "schedule" ? "scheduled" : "started by you"}): {STOP_LABELS[c.stoppedBy] ?? "stopped"}, {c.nodesAdded} nodes added, {c.costUsd.toFixed(3)} USD
-						</li>
-					))}
-				</ul>
-			</section>
+			<details className="rounded border p-4">
+				<summary>
+					<h2 className="inline font-medium">Recent cycles</h2>
+				</summary>
+				<div className="mt-3 flex flex-col gap-3">
+					<p className="text-sm text-muted-foreground">The last few cycles: when each ended, why it stopped, how many nodes it added and what it cost.</p>
+					{log.length === 0 && <p className="text-sm text-muted-foreground">No cycles yet. Run one now, or wait for the first scheduled cycle.</p>}
+					<ul className="flex flex-col gap-1 text-sm">
+						{log.map((c) => (
+							<li key={c.cycleId}>
+								{new Date(c.endedAt).toLocaleString()} ({c.trigger === "schedule" ? "scheduled" : "started by you"}): {STOP_LABELS[c.stoppedBy] ?? "stopped"}, {c.nodesAdded} nodes added, {c.costUsd.toFixed(3)} USD
+							</li>
+						))}
+					</ul>
+				</div>
+			</details>
 		</div>
 	);
 }
