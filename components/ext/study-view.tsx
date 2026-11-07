@@ -307,16 +307,24 @@ export function StudyView({
 	function onDividerMove(e: ReactPointerEvent<HTMLDivElement>) {
 		const el = splitRef.current;
 		if (!dragging.current || !el) return;
+		// A button-less move means the release was missed (pointer left the window or the capture was lost): end the drag.
+		if (e.buttons === 0) {
+			endDrag(e.currentTarget, e.pointerId);
+			return;
+		}
 		const r = ratioFromPointer(e.clientX, el.getBoundingClientRect().left, el.clientWidth);
 		draftRatio.current = r;
 		setPrefs((p) => ({ ...p, ratio: r }));
 	}
-	function onDividerUp(e: ReactPointerEvent<HTMLDivElement>) {
+	function endDrag(target: HTMLDivElement, pointerId: number) {
 		if (!dragging.current) return;
 		dragging.current = false;
-		if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+		if (target.hasPointerCapture(pointerId)) target.releasePointerCapture(pointerId);
 		if (draftRatio.current !== null) persist({ ...prefsRef.current, ratio: draftRatio.current });
 		draftRatio.current = null;
+	}
+	function onDividerUp(e: ReactPointerEvent<HTMLDivElement>) {
+		endDrag(e.currentTarget, e.pointerId);
 	}
 	function onDividerKey(e: ReactKeyboardEvent<HTMLDivElement>) {
 		const next = splitStep(ratio, e.key, splitWidth);
@@ -460,6 +468,7 @@ export function StudyView({
 					onPointerMove={onDividerMove}
 					onPointerUp={onDividerUp}
 					onPointerCancel={onDividerUp}
+					onLostPointerCapture={onDividerUp}
 					onDoubleClick={resetSplit}
 					onKeyDown={onDividerKey}
 				/>
