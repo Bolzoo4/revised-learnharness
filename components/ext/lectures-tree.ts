@@ -35,8 +35,12 @@ export type TreeLecture = LectureRow;
 export interface TreeChapter {
 	index: number;
 	title: string;
+	/** The server's chapter state as sent (saved-only chapters read "saved"). */
+	state: string;
 	/** The plain-words state of the chapter (see chapterStateText). */
 	stateText: string;
+	/** True when the chapter can be retried (failed, interrupted or stopped). */
+	retryable: boolean;
 	/** Chapter nodes no lecture covers yet, when the chapter's run is known. */
 	uncovered: number;
 	error?: string;
@@ -47,6 +51,8 @@ export interface TreeBook {
 	title: string;
 	/** The plain-words phase of the book's run, or "saved" when only saved lectures are known. */
 	phaseText: string;
+	/** True while the book's run is in flight (its retry buttons wait for it to finish). */
+	making: boolean;
 	error?: string;
 	chapters: TreeChapter[];
 }
@@ -60,13 +66,21 @@ const CHAPTER_STATES: Record<string, string> = {
 	failed: "failed",
 	stopped_cost: "stopped: the daily limit for background work is spent",
 	stopped_provider: "stopped: the provider's usage limit is reached",
+	interrupted: "interrupted",
 };
 const BOOK_PHASES: Record<string, string> = {
 	detecting: "finding the chapters",
 	running: "making the lectures",
 	done: "done",
 	failed: "finished with errors",
+	interrupted: "interrupted",
 };
+
+/** The states a Retry button is offered for. */
+const RETRYABLE_STATES: ReadonlySet<string> = new Set(["failed", "interrupted", "stopped_cost", "stopped_provider"]);
+export function isRetryableChapterState(state: string): boolean {
+	return RETRYABLE_STATES.has(state);
+}
 
 /** The plain-words state of a chapter; an unknown state reads as itself, so a new server state is still shown. */
 export function chapterStateText(state: string): string {
@@ -95,7 +109,7 @@ export function buildLectureTree(runs: readonly RunRow[], lectures: readonly Lec
 	const bookOf = (bookId: string, title: string) => {
 		let book = books.get(bookId);
 		if (book === undefined) {
-			book = { bookId, title, phaseText: "saved", chapters: [], chapterMap: new Map() };
+			book = { bookId, title, phaseText: "saved", making: false, chapters: [], chapterMap: new Map() };
 			books.set(bookId, book);
 		}
 		return book;
@@ -103,7 +117,7 @@ export function buildLectureTree(runs: readonly RunRow[], lectures: readonly Lec
 	const chapterOf = (book: TreeBook & { chapterMap: Map<number, TreeChapter> }, index: number, title: string): TreeChapter => {
 		let chapter = book.chapterMap.get(index);
 		if (chapter === undefined) {
-			chapter = { index, title, stateText: "saved", uncovered: 0, lectures: [] };
+			chapter = { index, title, state: "saved", stateText: "saved", retryable: false, uncovered: 0, lectures: [] };
 			book.chapterMap.set(index, chapter);
 		}
 		return chapter;
@@ -113,11 +127,14 @@ export function buildLectureTree(runs: readonly RunRow[], lectures: readonly Lec
 		const book = bookOf(run.bookId, run.title);
 		book.title = run.title;
 		book.phaseText = bookPhaseText(run.phase);
+		book.making = run.phase === "detecting" || run.phase === "running";
 		if (run.error) book.error = run.error;
 		for (const c of run.chapters) {
 			const chapter = chapterOf(book, c.chapter.index, c.chapter.title);
 			chapter.title = c.chapter.title;
+			chapter.state = c.state;
 			chapter.stateText = chapterStateText(c.state);
+			chapter.retryable = isRetryableChapterState(c.state);
 			chapter.uncovered = c.uncovered;
 			if (c.error) chapter.error = c.error;
 		}

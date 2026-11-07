@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ExerciseList } from "./exercise-list.tsx";
 import { startLectureAudio } from "./lecture-audio-client.ts";
+import { startLectureRetry } from "./lecture-retry-client.ts";
 import { audioLineText, canGenerateAudioLine, type TreeBook, type TreeLecture } from "./lectures-tree.ts";
 
 /** Book > chapter > lecture > exercise. Each exercise can open office hours on its chapter (ExerciseList). */
@@ -14,7 +15,10 @@ export function LecturesTree({ books, onStarted }: { books: TreeBook[]; onStarte
 					<h2 className="font-medium">
 						{book.title} <span className="text-xs text-muted-foreground">{book.phaseText}</span>
 					</h2>
-					{book.error ? <p className="text-sm text-destructive">{book.error}</p> : null}
+					{book.error ? <p className="whitespace-pre-wrap break-words text-sm text-destructive">{book.error}</p> : null}
+					{book.chapters.some((c) => c.retryable) ? (
+						<RetryControl bookId={book.bookId} label="Retry failed chapters" disabled={book.making} />
+					) : null}
 					<ol className="mt-2 flex flex-col gap-3">
 						{book.chapters.map((chapter) => (
 							<li key={chapter.index} className="flex flex-col gap-2">
@@ -26,7 +30,8 @@ export function LecturesTree({ books, onStarted }: { books: TreeBook[]; onStarte
 										{chapter.uncovered > 0 ? `, ${chapter.uncovered} nodes not covered yet` : ""}
 									</span>
 								</h3>
-								{chapter.error ? <p className="text-sm text-destructive">{chapter.error}</p> : null}
+								{chapter.retryable ? <RetryControl bookId={book.bookId} chapterIndex={chapter.index} label="Retry" disabled={book.making} /> : null}
+								{chapter.error ? <p className="whitespace-pre-wrap break-words text-sm text-destructive">{chapter.error}</p> : null}
 								{chapter.lectures.length === 0 ? <p className="text-sm text-muted-foreground">No lectures for this chapter yet.</p> : null}
 								<ul className="flex flex-col gap-3 pl-3">
 									{chapter.lectures.map((lecture) => (
@@ -68,6 +73,27 @@ function LectureAudioLine({ lecture }: { lecture: TreeLecture }) {
 					{pending ? "Starting…" : "Generate audio"}
 				</button>
 			) : null}
+			{note !== null ? <span role="status">{note}</span> : null}
+		</div>
+	);
+}
+
+/** A Retry button for one chapter, or for the book's failed chapters (no index). Busy until the server answers; the page's refresh shows the progress. */
+function RetryControl({ bookId, chapterIndex, label, disabled }: { bookId: string; chapterIndex?: number; label: string; disabled: boolean }) {
+	const [pending, setPending] = useState(false);
+	const [note, setNote] = useState<string | null>(null);
+	async function retry() {
+		setPending(true);
+		setNote(null);
+		const failure = await startLectureRetry(bookId, chapterIndex);
+		setPending(false);
+		setNote(failure ?? "Retrying in the background; the progress updates below.");
+	}
+	return (
+		<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+			<button type="button" className="rounded border px-2 py-0.5" disabled={pending || disabled} onClick={() => void retry()}>
+				{pending ? "Starting…" : label}
+			</button>
 			{note !== null ? <span role="status">{note}</span> : null}
 		</div>
 	);
