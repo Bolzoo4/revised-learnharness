@@ -35,8 +35,8 @@ and the extraction pipeline.
   import stores, composition roots in `server`, and the app reaching code only through the
   `@/src/core` and `@/src/server` barrels.
 - Contracts (file formats, invariants, per-path behaviour) are documented in [`CONTRACTS.md`](./CONTRACTS.md).
-- Each feature has a written design with numbered requirements (`REQ-<topic>-NN`), kept in the
-  parent repository's `docs/superpowers/specs/` (eight specs under an umbrella spec).
+- Each feature has a written design with numbered requirements (`REQ-<topic>-NN`), kept in
+  [`docs/ext/design/specs/`](./design/specs/) (plans in [`docs/ext/design/plans/`](./design/plans/)) (eight specs under an umbrella spec).
 
 ## 3. What was added
 
