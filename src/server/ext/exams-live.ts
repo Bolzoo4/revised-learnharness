@@ -17,6 +17,7 @@ import { extractionModelDeps } from "./extraction-deps.ts";
 import { createExamsService, ExamsError, type ExamsService, type StagedFile } from "./exams-service.ts";
 import { DEFAULT_UPLOAD_TITLE, isPdfUpload, stagePdfUpload, uploadTempRoot } from "./pdf-upload.ts";
 import { extStores } from "./stores.ts";
+import { keepBytes } from "./workspace.ts";
 
 const modelDeps = extractionModelDeps();
 
@@ -70,6 +71,8 @@ export async function uploadExamPdf(collectionId: string, kind: "exam" | "materi
 		const bytes = new Uint8Array(await fs.readFile(staged.path));
 		const file = new File([bytes], "upload.pdf", { type: "application/pdf" });
 		const title = staged.title === DEFAULT_UPLOAD_TITLE ? undefined : staged.title;
+		// The app keeps its own copy of what the learner uploads (the agent's workspace).
+		keepBytes(bytes, `${kind === "exam" ? "exams" : "material"}/${collectionId}`, `${title ?? staged.title}.pdf`);
 		return kind === "exam" ? await examsService.addExam(collectionId, file, title) : await examsService.addMaterial(collectionId, file, title);
 	} finally {
 		await staged.release();

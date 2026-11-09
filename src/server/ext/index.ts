@@ -60,4 +60,5 @@ export { visualJobTools, visualJobInstructions, withVisualJobInstructions, VISUA
 export { examsService, uploadExamPdf } from "./exams-live.ts";
 export { ExamsError } from "./exams-service.ts";
 export { examSessionService } from "./exam-session-live.ts";
+export { importIntoWorkspace, keepBytes, workspaceDir } from "./workspace.ts";
 export { ExamSessionError } from "./exam-session.ts";

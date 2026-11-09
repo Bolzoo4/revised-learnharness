@@ -6,6 +6,7 @@ import { PaperclipIcon } from "lucide-react";
 import { directoryReferencePath, quoteFilePath } from "@/src/core";
 import { Hint } from "@/components/ui/hint";
 import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
+import { importPaths } from "@/components/ext/workspace-import";
 import { BROWSER_NOTICE } from "@/components/file-path-drop-zone";
 
 /** Picked files → the rooted paths an editor chips (issue #285), via the
@@ -128,7 +129,13 @@ export function AttachFilesButton({ editorRef }: { editorRef: React.RefObject<HT
 				onChange={(e) => {
 					const resolve = window.lh?.getPathForFile;
 					const { paths } = resolve ? pathsForFiles(Array.from(e.currentTarget.files ?? []), resolve) : { paths: [] };
-					if (paths.length > 0) editorRef.current?.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths }));
+					if (paths.length > 0) {
+						// Extension: the files are copied into the agent's workspace first; the chips carry the copies.
+						void importPaths(paths).then(({ paths: kept, errors }) => {
+							editorRef.current?.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: kept }));
+							if (errors[0]) setNotice(errors[0]);
+						});
+					}
 					e.currentTarget.value = ""; // allow re-picking the same file
 				}}
 			/>

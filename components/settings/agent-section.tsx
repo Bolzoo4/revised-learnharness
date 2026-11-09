@@ -128,14 +128,14 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 export function composeAddFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
 	const next = folder.trim();
 	const folders = agent?.fileAccess?.folders ?? [];
-	const restricted = agent?.fileAccess?.restricted ?? false;
+	const restricted = agent?.fileAccess?.restricted ?? true;
 	if (!isFolderEntry(next) || folders.includes(next)) return { ...agent, fileAccess: { restricted, folders } };
 	return { ...agent, fileAccess: { restricted, folders: [...folders, next] } };
 }
 
 /** Removing the last folder NEVER changes the restriction switch. */
 export function composeRemoveFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
-	return { ...agent, fileAccess: { restricted: agent?.fileAccess?.restricted ?? false, folders: (agent?.fileAccess?.folders ?? []).filter((f) => f !== folder) } };
+	return { ...agent, fileAccess: { restricted: agent?.fileAccess?.restricted ?? true, folders: (agent?.fileAccess?.folders ?? []).filter((f) => f !== folder) } };
 }
 
 /** The quizzing mechanics (owner 2026-09-27): a segmented control, not a
@@ -851,7 +851,7 @@ export function AgentSection({
 				))}
 				{(() => {
 					const folders = agent?.fileAccess?.folders ?? [];
-					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted === true;
+					const restricted = Boolean(fileAccessError) || agent?.fileAccess?.restricted !== false;
 					const effectiveAgent = fileAccessError ? { ...agent, fileAccess: { restricted: true, folders } } : agent;
 					const addFolder = () => {
 						const next = folderInput.trim();
@@ -865,7 +865,7 @@ export function AgentSection({
 							<SettingsRow label="File access" hint={!restricted
 								? "Broad local source access, except protected locations"
 								: folders.length ? "Only listed folders and subfolders."
-									: "Restricted: no folders allowed. Add a folder to enable access."}>
+									: "Restricted to the app's own workspace (your uploads). Add a folder to allow more."}>
 								<div className="flex items-center gap-2 text-xs">
 									<span>Restrict to listed folders</span>
 									<Toggle checked={restricted} label="Restrict to listed folders" onChange={(on) => onSectionChange(composeFileRestriction(effectiveAgent, on))} />
