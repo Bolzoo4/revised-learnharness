@@ -44,7 +44,13 @@ async function fixture({ desktop = true, claimed = true } = {}) {
 	for (const [name, next] of Object.entries({
 		React, window: win, document: doc, Node: win.Node, HTMLElement: win.HTMLElement, Element: win.Element,
 		Event: win.Event, CustomEvent: win.CustomEvent, IS_REACT_ACT_ENVIRONMENT: true,
-		fetch: () => { uploads++; throw new Error("No network expected for file drops"); },
+		// The one call a drop makes: copying the files into the agent's workspace (identity here: the paths come back as sent).
+		// Anything else would be an upload, which a drop never does.
+		fetch: async (url: string, init?: { body?: string }) => {
+			if (url === "/api/ext/workspace/import") return new Response(JSON.stringify({ paths: JSON.parse(init?.body ?? "{}").paths, errors: [] }));
+			uploads++;
+			throw new Error("No network expected for file drops");
+		},
 	})) {
 		previous.set(name, Object.getOwnPropertyDescriptor(globalThis, name));
 		Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: next });

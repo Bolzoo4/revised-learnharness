@@ -37,17 +37,18 @@ after(async () => {
 const blocked = /File-access configuration.*blocked/;
 
 describe("strict persisted file-access policy", () => {
-	it("genuinely absent preferences default OFF, including a not-yet-created data folder", async () => {
+	it("genuinely absent preferences are restricted to the agent's workspace (extension default), including a not-yet-created data folder", async () => {
 		assert.deepEqual(readFileAccessSettings(), { ok: true, settings: { restricted: false, folders: [] } });
 		assert.equal(fileAccessConfigurationError(), null);
-		assert.equal(resolveSourcePath(path.join(b, "notes.md")), path.join(b, "notes.md"));
+		assert.equal(fileAccessPolicy().restricted, true);
+		assert.throws(() => resolveSourcePath(path.join(b, "notes.md")), /allowed folders/);
 		await fs.rmdir(data);
 		try { assert.equal(readFileAccessSettings().ok, true); }
 		finally { await fs.mkdir(data); }
 	});
 	it("valid existing preferences with no policy default OFF; a legacy list alone does not turn it ON", async () => {
 		await stored({ version: 1, agent: { tools: { pdf: false } } });
-		assert.equal(fileAccessPolicy().restricted, false);
+		assert.equal(fileAccessPolicy().restricted, true, "extension default: no explicit File access choice means the workspace only");
 		await stored({ version: 1, agent: { fileAccess: { folders: [a] } } });
 		assert.equal(fileAccessPolicy().restricted, false);
 		assert.equal(resolveSourcePath(path.join(b, "notes.md")), path.join(b, "notes.md"));

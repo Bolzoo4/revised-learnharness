@@ -78,6 +78,10 @@ import { projectView as projectNative } from "../src/core/view.ts";
 import { subscribe } from "../src/core/events.ts";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import type { SteerInput, TurnInput } from "../src/core/input-events.ts";
+import { setFileAccessPolicy } from "../src/agent/tools/file-access.ts";
+
+// These tests read files from temp folders: they run with the open policy (the extension default is the workspace only).
+setFileAccessPolicy(() => ({ restricted: false, folders: [] }));
 
 const JOBS_DIR = path.join(PATHS.data, "jobs");
 

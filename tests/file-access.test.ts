@@ -295,7 +295,7 @@ describe("settings parsing and UI", () => {
 	it("UI composition preserves the switch, saved roots and unrelated agent preferences", () => {
 		assert.ok(isFolderEntry("~/Study")); assert.ok(isFolderEntry("C:\\Users\\learner")); assert.ok(!isFolderEntry("relative"));
 		const one = composeAddFolder({ tools: { pdf: false }, graphTools: { enabled: false } }, " ~/Study ");
-		assert.deepEqual(one.fileAccess, { restricted: false, folders: ["~/Study"] });
+		assert.deepEqual(one.fileAccess, { restricted: true, folders: ["~/Study"] }, "extension default: no explicit choice means restricted");
 		const on = composeFileRestriction(one, true);
 		assert.deepEqual(composeAddFolder(on, "~/Study"), on);
 		assert.deepEqual(composeAddFolder(on, "relative"), on);
@@ -307,11 +307,12 @@ describe("settings parsing and UI", () => {
 	});
 	it("SSR makes OFF, empty ON, editable folders and fail-closed errors explicit", () => {
 		const render = (agent?: Parameters<typeof AgentSection>[0]["agent"], fileAccessError?: string) => renderToStaticMarkup(React.createElement(AgentSection, { agent, fileAccessError, models: undefined, graph: undefined, compaction: undefined, onSectionChange: () => {}, onModelsChange: () => {}, onCompactionChange: () => {} }));
-		const off = render();
+		assert.match(render(), /Restricted to the app(?:'|&#x27;)s own workspace/, "extension default: restricted to the workspace");
+		const off = render({ fileAccess: { restricted: false, folders: [] } });
 		assert.match(off, /Broad local source access/);
 		assert.match(off, /aria-checked="false"[^>]*aria-label="Restrict to listed folders"/);
 		const empty = render({ fileAccess: { restricted: true, folders: [] } });
-		assert.match(empty, /Restricted: no folders allowed/);
+		assert.match(empty, /Restricted to the app(?:'|&#x27;)s own workspace/);
 		assert.match(empty, /aria-checked="true"[^>]*aria-label="Restrict to listed folders"/);
 		const populated = render({ fileAccess: { restricted: true, folders: [a] } });
 		assert.match(populated, />Only listed folders and subfolders\.<\/span>/);

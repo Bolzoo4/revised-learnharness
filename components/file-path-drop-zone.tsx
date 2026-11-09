@@ -5,6 +5,7 @@ import { FileSymlinkIcon, XIcon } from "lucide-react";
 import { directoryReferencePath, quoteFilePath } from "@/src/core";
 import { appendToPrimaryInput } from "@/components/dictation";
 import { INSERT_FILE_PATHS_EVENT } from "@/components/path-input";
+import { importPaths } from "@/components/ext/workspace-import";
 
 export const BROWSER_NOTICE = "Local file paths can only be attached in the desktop app. You can paste a full path instead.";
 
@@ -81,14 +82,18 @@ export function FilePathDropZone({ children, className }: { children: React.Reac
 					setNotice("No local file paths were available. Drop existing files or folders from your computer.");
 					return;
 				}
+				const zone = event.currentTarget;
 				const focused = document.activeElement?.closest<HTMLElement>("[data-file-path-input]");
-				if (focused && event.currentTarget.contains(focused)) {
-					focused.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: paths }));
-				} else if (!appendToPrimaryInput(paths.map(quoteFilePath).join(" "))) {
-					setNotice("Open a chat to attach file paths.");
-					return;
-				}
-				setNotice(skipped ? "Some dropped items had no available file path." : "");
+				// Extension: the files are copied into the agent's workspace first; the chips carry the copies.
+				void importPaths(paths).then(({ paths: kept, errors }) => {
+					if (focused && zone.contains(focused)) {
+						focused.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: kept }));
+					} else if (!appendToPrimaryInput(kept.map(quoteFilePath).join(" "))) {
+						setNotice("Open a chat to attach file paths.");
+						return;
+					}
+					setNotice(errors[0] ?? (skipped ? "Some dropped items had no available file path." : ""));
+				});
 			}}
 		>
 			{children}
