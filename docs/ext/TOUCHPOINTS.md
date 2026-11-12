@@ -99,9 +99,10 @@ git diff --stat upstream/main -- . ':!src/**/ext/**' ':!tests/ext-*' ':!tests/he
 | `app/chat/[id]/page.tsx` | passes the bound exercise to `Chat` as `pinned` for an `exam` session | Exam session |
 | `components/chat.tsx` | optional `pinned` prop: a node rendered under the top bar (the exam session's exercise box) | Exam session |
 | `src/server/file-access.ts` | with no explicit File access choice the policy is restricted, and the workspace folder (`<data>/workspace`) is always allowed on top of the learner's folders | Workspace |
-| `components/settings/agent-section.tsx` | the File access row treats an absent choice as restricted and says so (workspace wording) | Workspace |
+| `components/settings/agent-section.tsx` | the File access row treats an absent choice as restricted and says so (workspace wording); a "Copy attachments" switch | Workspace |
+| `src/core/settings.ts`, `src/server/settings-body.ts` | `agent.copyAttachments` (boolean, default ON): copy attachments into the workspace, or keep a link | Workspace |
 | `components/file-path-drop-zone.tsx` | dropped files are copied into the workspace (`importPaths`) before their chips are inserted | Workspace |
-| `components/attach-files-button.tsx` | picked files are copied into the workspace (`importPaths`) before their chips are inserted | Workspace |
+| `components/attach-files-button.tsx` | picked files and the chosen folder are copied into the workspace (`importPaths`) before their chips are inserted | Workspace |
 | `tests/file-access.test.ts`, `tests/file-access-settings.test.ts`, `tests/jobs.test.ts`, `tests/learner-image-snapshots.test.ts`, `tests/file-path-drop-zone.test.tsx` | the "absent preference" expectations describe the restricted default; tests that read temp files run with the open policy; the drop fixture answers the workspace import call | Workspace |
 | `tests/font-menu.test.tsx` | the ink-default count is 3 theme blocks (dark, `.dark`, light) | Light theme |
 | `tests/render-settings.test.tsx` | the pinned tool list includes `video` | Video (Manim) |

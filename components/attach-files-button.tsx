@@ -110,7 +110,10 @@ export function AttachFilesButton({ editorRef }: { editorRef: React.RefObject<HT
 			const chosen = await choose();
 			if (chosen === null) return; // Native cancellation leaves the draft intact.
 			const path = directoryReferencePath(chosen);
-			if (editor?.isConnected && editor === editorRef.current) editor.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: [path] }));
+			// Extension: the folder is copied into the agent's workspace first (unless that is turned off in Settings).
+			const { paths: kept, errors } = await importPaths([path]);
+			if (editor?.isConnected && editor === editorRef.current) editor.dispatchEvent(new CustomEvent(INSERT_FILE_PATHS_EVENT, { detail: kept }));
+			if (errors[0]) setNotice(errors[0]);
 		} catch { setNotice("Could not choose a folder. Try again."); }
 		finally { choosingFolder.current = false; }
 	};

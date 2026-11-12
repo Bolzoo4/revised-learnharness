@@ -123,6 +123,11 @@ export function composeFileRestriction(agent: AgentSettings | undefined, restric
 	return { ...agent, fileAccess: { restricted, folders: agent?.fileAccess?.folders ?? [] } };
 }
 
+/** The "copy attachments" switch (default ON); changes nothing else. */
+export function composeCopyAttachments(agent: AgentSettings | undefined, copy: boolean): AgentSettings {
+	return { ...agent, copyAttachments: copy };
+}
+
 /** Compose: add one allowed folder (trimmed; duplicates and invalid entries
  *  are no-ops). Pure — exported for tests. */
 export function composeAddFolder(agent: AgentSettings | undefined, folder: string): AgentSettings {
@@ -870,6 +875,11 @@ export function AgentSection({
 									<span>Restrict to listed folders</span>
 									<Toggle checked={restricted} label="Restrict to listed folders" onChange={(on) => onSectionChange(composeFileRestriction(effectiveAgent, on))} />
 								</div>
+							</SettingsRow>
+							<SettingsRow label="Copy attachments" hint={agent?.copyAttachments === false
+								? "Attached files and folders stay where they are; they must be inside an allowed folder to be read."
+								: "Attached files and folders are copied into the app's workspace, so they keep working if the originals move."}>
+								<Toggle checked={agent?.copyAttachments !== false} label="Copy attachments" onChange={(on) => onSectionChange(composeCopyAttachments(effectiveAgent, on))} />
 							</SettingsRow>
 							{fileAccessError && <p role="alert" data-testid="file-access-config-error" className="text-xs text-red-500">{fileAccessError}</p>}
 							<div className="flex gap-2 pl-3">

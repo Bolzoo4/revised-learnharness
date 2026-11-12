@@ -219,6 +219,10 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 		}
 		settings.fileAccess = parsed.settings;
 	}
+	if (raw.copyAttachments !== undefined) {
+		if (typeof raw.copyAttachments !== "boolean") return { ok: false, error: "copyAttachments must be a boolean" };
+		settings.copyAttachments = raw.copyAttachments;
+	}
 	return { ok: true, settings };
 }
 
