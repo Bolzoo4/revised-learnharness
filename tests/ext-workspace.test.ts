@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { importIntoWorkspace, keepBytes, safeFileName } from "../src/server/ext/workspace.ts";
+import { importIntoWorkspace, keepBytes, MAX_FOLDER_FILES, safeFileName } from "../src/server/ext/workspace.ts";
 
 function tmp() {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "lh-ws-")));
@@ -37,16 +37,59 @@ describe("importIntoWorkspace", () => {
 		assert.equal(fs.readFileSync(r.paths[0]!, "utf8"), "first");
 		assert.equal(fs.readFileSync(r.paths[1]!, "utf8"), "second");
 	});
-	it("returns a path already inside the workspace unchanged, and does not copy a folder", () => {
-		const { dir, root } = tmp();
+	it("returns a path already inside the workspace unchanged", () => {
+		const { root } = tmp();
 		const inside = path.join(root, "kept.txt");
 		fs.writeFileSync(inside, "k");
-		const folder = path.join(dir, "folder");
-		fs.mkdirSync(folder);
-		const r = importIntoWorkspace([inside, folder], root);
-		assert.deepEqual(r.paths, [inside, folder]);
-		assert.deepEqual(r.errors, []);
+		const r = importIntoWorkspace([inside], root);
+		assert.deepEqual(r, { paths: [inside], errors: [] });
 		assert.equal(fs.existsSync(path.join(root, "uploads")), false);
+	});
+	it("copies a whole folder, keeps its structure and the directory marker, and leaves the original", () => {
+		const { dir, root } = tmp();
+		const folder = path.join(dir, "Study");
+		fs.mkdirSync(path.join(folder, "week1"), { recursive: true });
+		fs.writeFileSync(path.join(folder, "a.md"), "A");
+		fs.writeFileSync(path.join(folder, "week1", "b.md"), "B");
+		const r = importIntoWorkspace([`${folder}/`], root);
+		assert.deepEqual(r.errors, []);
+		assert.equal(r.paths[0], `${path.join(root, "uploads", "Study")}/`);
+		assert.equal(fs.readFileSync(path.join(root, "uploads", "Study", "week1", "b.md"), "utf8"), "B");
+		assert.equal(fs.existsSync(path.join(folder, "a.md")), true);
+	});
+	it("leaves out .git, node_modules and links, and never follows a link out of the folder", () => {
+		const { dir, root } = tmp();
+		const folder = path.join(dir, "proj");
+		fs.mkdirSync(path.join(folder, ".git"), { recursive: true });
+		fs.mkdirSync(path.join(folder, "node_modules"));
+		fs.writeFileSync(path.join(folder, ".git", "HEAD"), "x");
+		fs.writeFileSync(path.join(folder, "node_modules", "m.js"), "x");
+		fs.writeFileSync(path.join(folder, "ok.txt"), "ok");
+		const outside = path.join(dir, "secret.txt");
+		fs.writeFileSync(outside, "secret");
+		fs.symlinkSync(outside, path.join(folder, "link.txt"));
+		const r = importIntoWorkspace([folder], root);
+		const copied = path.join(root, "uploads", "proj");
+		assert.deepEqual(fs.readdirSync(copied), ["ok.txt"]);
+		assert.match(r.errors[0]!, /1 protected or unsupported entries were left out/);
+	});
+	it("a folder over the file limit is not copied at all", () => {
+		const { dir, root } = tmp();
+		const folder = path.join(dir, "big");
+		fs.mkdirSync(folder);
+		for (let i = 0; i <= MAX_FOLDER_FILES; i++) fs.writeFileSync(path.join(folder, `f${i}.txt`), "x");
+		const r = importIntoWorkspace([folder], root);
+		assert.deepEqual(r.paths, [folder]);
+		assert.match(r.errors[0]!, /too large to copy/);
+		assert.equal(fs.existsSync(path.join(root, "uploads", "big")), false);
+	});
+	it("a folder that holds the workspace does not copy the workspace into itself", () => {
+		const { dir, root } = tmp();
+		fs.writeFileSync(path.join(dir, "n.txt"), "n");
+		fs.writeFileSync(path.join(root, "old.txt"), "old");
+		importIntoWorkspace([dir], root);
+		const copied = path.join(root, "uploads", path.basename(dir));
+		assert.deepEqual(fs.readdirSync(copied).sort(), ["n.txt"]);
 	});
 	it("reports a missing file in words and returns its path unchanged", () => {
 		const { dir, root } = tmp();

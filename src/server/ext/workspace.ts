@@ -6,14 +6,15 @@
  * Agent → Tools → File access come on top of it.
  *
  * Copying in goes through the same mandatory denials as reading (credentials and other sensitive places are
- * refused whatever the policy). Folders are not copied: only single files.
+ * refused whatever the policy). Files and whole folders are copied; a link is never followed, and a folder over the
+ * limits below is not copied at all (never half a folder).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { PATHS } from "../../../config.ts";
 import { isWithin } from "../../agent/tools/file-access.ts";
-import { resolveSourcePath } from "../../agent/tools/fs-shared.ts";
+import { isSensitivePath, resolveSourcePath } from "../../agent/tools/fs-shared.ts";
 
 /** Where the workspace is (nothing is created: reading the file-access policy must not touch the disk). */
 export function workspacePath(dataRoot: string = PATHS.data): string {
@@ -29,6 +30,44 @@ export function workspaceDir(dataRoot: string = PATHS.data): string {
 
 /** Largest file copied in (bytes). */
 export const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
+/** Largest folder copied in: files and total bytes. */
+export const MAX_FOLDER_FILES = 2000;
+export const MAX_FOLDER_BYTES = 500 * 1024 * 1024;
+/** Folder names that are never copied (tooling noise, not study material). */
+const SKIPPED_DIRS = new Set([".git", "node_modules", ".DS_Store"]);
+
+interface FolderPlan {
+	files: Array<{ from: string; rel: string }>;
+	dirs: string[];
+	bytes: number;
+	skipped: number;
+}
+
+/** Walks a folder without following links: the regular files to copy, the folders to make, what was skipped. */
+function planFolder(root: string, skipUnder: string): FolderPlan {
+	const plan: FolderPlan = { files: [], dirs: [], bytes: 0, skipped: 0 };
+	const walk = (dir: string, rel: string) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const from = path.join(dir, entry.name);
+			const relPath = rel === "" ? entry.name : path.join(rel, entry.name);
+			if (SKIPPED_DIRS.has(entry.name)) continue;
+			if (isSensitivePath(from) || (!entry.isFile() && !entry.isDirectory()) || isWithin(from, skipUnder)) {
+				plan.skipped++;
+				continue;
+			}
+			if (entry.isDirectory()) {
+				plan.dirs.push(relPath);
+				walk(from, relPath);
+			} else {
+				plan.files.push({ from, rel: relPath });
+				plan.bytes += fs.statSync(from).size;
+			}
+			if (plan.files.length > MAX_FOLDER_FILES || plan.bytes > MAX_FOLDER_BYTES) return;
+		}
+	};
+	walk(root, "");
+	return plan;
+}
 
 const OPEN_POLICY = { restricted: false, folders: [], unavailable: [] } as const;
 
@@ -78,7 +117,31 @@ export function importIntoWorkspace(inputs: readonly string[], root: string = wo
 		try {
 			const real = resolveSourcePath(input, OPEN_POLICY);
 			const stat = fs.statSync(real);
-			if (isWithin(real, fs.realpathSync(root)) || !stat.isFile()) {
+			const realRoot = fs.realpathSync(root);
+			if (isWithin(real, realRoot)) {
+				paths.push(input);
+				continue;
+			}
+			if (stat.isDirectory()) {
+				const plan = planFolder(real, realRoot);
+				if (plan.files.length > MAX_FOLDER_FILES || plan.bytes > MAX_FOLDER_BYTES) {
+					errors.push(`${path.basename(real)} is too large to copy (over ${MAX_FOLDER_FILES} files or ${MAX_FOLDER_BYTES / 1024 / 1024} MB) and was not copied.`);
+					paths.push(input);
+					continue;
+				}
+				const target = writeUnique((dir) => fs.mkdirSync(dir), "uploads", safeFileName(real), root);
+				try {
+					for (const rel of plan.dirs) fs.mkdirSync(path.join(target, rel), { recursive: true });
+					for (const file of plan.files) fs.copyFileSync(file.from, path.join(target, file.rel), fs.constants.COPYFILE_EXCL);
+				} catch (error) {
+					fs.rmSync(target, { recursive: true, force: true }); // never half a folder
+					throw error;
+				}
+				if (plan.skipped > 0) errors.push(`${path.basename(real)}: ${plan.skipped} protected or unsupported entries were left out.`);
+				paths.push(input.endsWith("\\") ? `${target}\\` : `${target}/`);
+				continue;
+			}
+			if (!stat.isFile()) {
 				paths.push(input);
 				continue;
 			}

@@ -374,6 +374,9 @@ export interface AgentSettings {
 	 *  the current policy is read per new tool call/job start. Existing
 	 *  sensitive-location/credential denials always win, not a whole-data ban. */
 	fileAccess?: FileAccessSettings;
+	/** Extension: attached files and folders are copied into the agent's workspace (default ON). OFF keeps a
+	 *  link to the original, which then has to be inside an allowed folder to be readable. */
+	copyAttachments?: boolean;
 }
 
 /** Markdown-rendering knobs — the bare-bones set (owner decision). */
@@ -733,6 +736,7 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 		const parsed = parseFileAccessSettings(raw.fileAccess);
 		out.fileAccess = parsed.ok ? parsed.settings : { restricted: true, folders: [] };
 	}
+	if (typeof raw.copyAttachments === "boolean") out.copyAttachments = raw.copyAttachments;
 	return out;
 }
 
