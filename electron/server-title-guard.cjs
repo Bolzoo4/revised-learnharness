@@ -1,5 +1,5 @@
 /**
- * Preloaded only into the packaged macOS backend, before Next starts.
+ * Preloaded only into the always-on service (scripts/service/install.sh passes it with --require), before Next starts.
  *
  * Next assigns process.title. In Electron's Node mode on macOS, the native
  * setter checks in with Launch Services using the main app bundle, creating
@@ -11,7 +11,7 @@
  * Explicit launch arguments (not NODE_OPTIONS) keep the full-Electron browser
  * helper untouched. Node-mode fork descendants can inherit this preload.
  */
-if (process.platform === "darwin" && process.env.ELECTRON_RUN_AS_NODE === "1" && process.env.LH_DESKTOP_SERVER === "1") {
+if (process.platform === "darwin" && process.env.ELECTRON_RUN_AS_NODE === "1") {
 	let title = process.title;
 	Object.defineProperty(process, "title", {
 		configurable: true,

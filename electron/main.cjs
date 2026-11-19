@@ -118,7 +118,10 @@ if (process.argv.includes("--browser-service")) {
 				win.focus();
 			}
 		});
-		main();
+		main().catch((error) => {
+			log(`startup failed: ${error?.stack ?? error}`);
+			showServiceError(`LearnHarness could not start: ${error?.message ?? error}`);
+		});
 	}
 }
 
@@ -232,6 +235,8 @@ function showServiceError(message) {
 	const win = new BrowserWindow({ width: 640, height: 320, title: PRODUCT_NAME, backgroundColor: "#141414", webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
 	const html = `<!doctype html><meta charset="utf-8"><body style="font:14px -apple-system,sans-serif;background:#141414;color:#e5e5e5;padding:32px"><h2>LearnHarness service unavailable</h2><p>${escapeHtml(message)}</p><p>Log: <code>${escapeHtml(SERVICE_LOG())}</code></p>`;
 	void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+	// No menu and no main window exist on this path: closing this window must end the app.
+	win.on("closed", () => app.quit());
 }
 
 /** Synchronous on purpose: used on the way out, where an async call could be cut off. */
@@ -331,7 +336,7 @@ function createWindow(url) {
 		return { action: "deny" };
 	});
 
-	void win.loadURL(url);
+	Promise.resolve(win.loadURL(url)).catch((error) => { log(`could not load ${url}: ${error?.message ?? error}`); });
 	// Zoom truth reaches the renderer for EVERY load (reload, nav): the
 	// renderer's --lh-zoom must never go stale. The fallback catcher below
 	// covers ⌘= / layout variants the menu's ⌘Plus may not claim — menu-

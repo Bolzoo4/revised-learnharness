@@ -21,7 +21,7 @@ The service outlives the app: quitting the window does not stop it.
 
 ## Access
 
-A gate in `proxy.ts` (`src/server/access/`) checks every request. Every page and API request needs a session cookie, except `/healthz`, `/signin` and `/api/access/signin`. The host and Tailscale checks below still apply to those three paths.
+A gate in `proxy.ts` (`src/server/access/`) checks every request except the framework's static files (`/_next/static/`, `/_next/image`, `/favicon.ico`). Every other page and API request needs a session cookie, except `/healthz`, `/signin` and `/api/access/signin`. The host and Tailscale checks below still apply to those three paths.
 
 - Sign in at `/signin` with the token. The token is accepted only by `/api/access/signin`, compared in constant time. The cookie is signed, `HttpOnly`, `SameSite=Strict`, and lasts 90 days.
 - `Secure` is set on the cookie unless the request's `Host` is loopback (`127.0.0.1:<port>` or `localhost:<port>`). The flag is derived from the `Host` header, not from the connection; behind Tailscale Serve this still has to be verified.
@@ -40,7 +40,7 @@ Development: when `NODE_ENV` is not `production` and `LH_ACCESS_TOKEN_FILE` is n
 
 ## Notes
 
-- Only one server may use a data folder. A second server on it refuses to start and logs the pid of the first.
+- Only one server may use a data folder. A second server on it refuses to start and logs the pid of the first. This includes `next dev` pointed at the same `LH_DATA_DIR` as the service: use a different data folder for development.
 - A server started in production without a valid token file refuses to start.
 - ChatGPT sign-in completes in a browser on the Mac that runs the service (its callback is on `127.0.0.1`).
 - The Mac must be awake for the service to answer.

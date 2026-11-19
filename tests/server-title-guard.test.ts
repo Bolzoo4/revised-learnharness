@@ -11,7 +11,7 @@ import { runInNewContext } from "node:vm";
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const guardSource = readFileSync(path.join(root, "electron/server-title-guard.cjs"), "utf8");
-const backendEnv = { ELECTRON_RUN_AS_NODE: "1", LH_DESKTOP_SERVER: "1" };
+const backendEnv = { ELECTRON_RUN_AS_NODE: "1" };
 
 function titleFixture(platform = "darwin", env: Record<string, string> = backendEnv) {
 	const nativeWrites: unknown[] = [];
@@ -74,7 +74,6 @@ describe("macOS backend process.title guard", () => {
 		["Windows", "win32", backendEnv],
 		["Linux", "linux", backendEnv],
 		["full-Electron browser helper", "darwin", {}],
-		["non-backend Node child", "darwin", { ELECTRON_RUN_AS_NODE: "1" }],
 		["non-Node-mode process", "darwin", { LH_DESKTOP_SERVER: "1" }],
 	] as const) {
 		it(`leaves the original property untouched for ${label}`, () => {
