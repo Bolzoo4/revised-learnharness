@@ -38,3 +38,9 @@ test("above the breakpoint nothing changes: open is the saved choice unless the 
 		assert.deepEqual(sidebarPresentation({ mobile: false, pref: false, narrow: false, mobileOpen }), { open: false, overlay: false });
 	}
 });
+
+test("on a phone form fields are never smaller than 16px, so Safari does not zoom on focus", () => {
+	const css = fs.readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
+	const phone = css.slice(css.indexOf(`@media ${MOBILE_QUERY}`));
+	assert(/input,\s*textarea,\s*select\s*\{[^}]*font-size:\s*max\(16px,\s*1em\)/.test(phone));
+});

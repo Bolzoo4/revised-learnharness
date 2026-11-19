@@ -510,6 +510,12 @@ body {
 	.lh-app-height {
 		height: var(--lh-vvh, 100dvh);
 	}
+	/* Safari zooms the page when a field with text under 16px gets focus: never go below 16px on a phone. */
+	input,
+	textarea,
+	select {
+		font-size: max(16px, 1em);
+	}
 	/* Respect the notch and the home indicator. */
 	.lh-safe {
 		padding-top: env(safe-area-inset-top);
