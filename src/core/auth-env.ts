@@ -13,9 +13,16 @@ export function authEnvRecord(): AuthBoot {
 	return g[BOOT_KEY];
 }
 
+/** The access gate's settings belong to the server only; no child process inherits them. */
+export function withoutAccessEnv(env: Record<string, string | undefined>): NodeJS.ProcessEnv {
+	const result: Record<string, string | undefined> = { ...env };
+	for (const name of Object.keys(result)) if (name.startsWith("LH_ACCESS_")) delete result[name];
+	return result as NodeJS.ProcessEnv;
+}
+
 /** External CLIs own their authentication. Never pass LearnHarness-only injections. */
 export function externalCliEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-	const result = { ...env };
+	const result = withoutAccessEnv(env);
 	const { realEnv, fillGap } = authEnvRecord();
 	for (const name of fillGap) {
 		if (!realEnv.has(name)) delete result[name];
