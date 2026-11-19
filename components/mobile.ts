@@ -7,15 +7,18 @@ export const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 0.02}px)`;
 /** Minimum hit area for a shell control on a phone (Apple's guideline). */
 export const TOUCH_TARGET_PX = 44;
 
+const canMatchMedia = () => typeof window !== "undefined" && typeof window.matchMedia === "function";
+
 function subscribe(onChange: () => void): () => void {
+	if (!canMatchMedia()) return () => {};
 	const query = window.matchMedia(MOBILE_QUERY);
 	query.addEventListener("change", onChange);
 	return () => query.removeEventListener("change", onChange);
 }
 
-/** True below the breakpoint. Server render and first client render say false, then it settles. */
+/** True below the breakpoint. Server render, first client render and environments without matchMedia say false. */
 export function useIsMobile(): boolean {
-	return useSyncExternalStore(subscribe, () => window.matchMedia(MOBILE_QUERY).matches, () => false);
+	return useSyncExternalStore(subscribe, () => canMatchMedia() && window.matchMedia(MOBILE_QUERY).matches, () => false);
 }
 
 /** The strip at the bottom of the layout viewport that the on-screen keyboard covers. */
