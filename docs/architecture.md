@@ -149,11 +149,11 @@ Chats and graph-family files have separate version guards; absent stamps read as
 
 ## Host and providers
 
-Packaged Electron launches a private standalone Next child on loopback, sets data/auth paths, and loads a sandboxed renderer. Its navigation/permission and credential transport guards are desktop boundaries, not web multi-user authentication. [Desktop releases](desktop-release.md) covers tracing/packaging checks.
+Packaged Electron connects to an always-on launchd service that runs the standalone Next server on loopback ([service](service.md)), signs in once with the access token, and loads a sandboxed renderer. The access gate (`proxy.ts`, `src/server/access/`) protects pages and API with a session cookie; it is single-user, not multi-user authentication. Electron's navigation and permission guards remain desktop boundaries. [Desktop releases](desktop-release.md) covers tracing/packaging checks.
 
 [`models.ts`](../src/agent/models.ts) composes Pi providers and app bridges. Strong/Cheap/Vision slots have no factory model pins. Sessions retain explicit choices; background roles resolve independently. Missing configuration/readiness refuses rather than silently choosing another provider.
 
-API environment values override saved keys. Packaged subscription refresh credentials stay in Electron main; web/dev uses server-owned connection files. Subscription routes do not fall back to API billing. [Claude Code](claude-code.md) retains native CLI authentication/routing but bridges LearnHarness tools; [custom endpoints](custom-providers.md) bind authorization to URL/mode and resolve settings per operation. Neither route has inferred zero-dollar pricing. [Accounting](compaction-accounting.md) owns context/cache/cost semantics.
+API environment values override saved keys. Subscription connection files are server-owned, in the service's auth folder. Subscription routes do not fall back to API billing. [Claude Code](claude-code.md) retains native CLI authentication/routing but bridges LearnHarness tools; [custom endpoints](custom-providers.md) bind authorization to URL/mode and resolve settings per operation. Neither route has inferred zero-dollar pricing. [Accounting](compaction-accounting.md) owns context/cache/cost semantics.
 
 ### File access and external services
 
