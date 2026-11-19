@@ -21,7 +21,7 @@ The service outlives the app: quitting the window does not stop it.
 
 ## Access
 
-A gate in `proxy.ts` (`src/server/access/`) checks every request except the framework's static files (`/_next/static/`, `/_next/image`, `/favicon.ico`). Every other page and API request needs a session cookie, except `/healthz`, `/signin` and `/api/access/signin`. The host and Tailscale checks below still apply to those three paths.
+A gate in `proxy.ts` (`src/server/access/`) checks every request except the framework's static files (`/_next/static/`, `/_next/image`, `/favicon.ico`). Every other page and API request needs a session cookie, except `/healthz`, `/signin`, `/api/access/signin`, `/pair` and `/api/access/pair` (the last two only redeem a one-time pairing code). The host and Tailscale checks below still apply to those paths.
 
 - Sign in at `/signin` with the token. The token is accepted only by `/api/access/signin`, compared in constant time. The cookie is signed, `HttpOnly`, `SameSite=Strict`, and lasts 90 days on loopback and 14 days on any other host (see Remote access).
 - `Secure` is set on the cookie unless the request's `Host` is loopback (`127.0.0.1:<port>` or `localhost:<port>`). The flag is derived from the `Host` header, not from the connection; behind Tailscale Serve this still has to be verified.
