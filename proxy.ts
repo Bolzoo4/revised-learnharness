@@ -1,17 +1,31 @@
+// proxy.ts
 import { NextResponse, type NextRequest } from "next/server";
-import { desktopAPIAuthorized } from "./src/server/desktop-access.ts";
+import { accessSettings } from "./src/server/access/config.ts";
+import { evaluateAccess } from "./src/server/access/gate.ts";
 
-/** Applies to every API method, including SSE and spending/settings routes.
- * No public callback or worker bypass: internal jobs call server functions,
- * and any legitimate self-HTTP request must carry the private capability. */
+/** One gate for pages and API: host allowlist, Tailscale identity, session cookie, Origin.
+ * Next runs this on the Node runtime; it keeps no state (the rate limiter lives in the
+ * sign-in route handler, as the proxy docs advise against shared globals here). */
 export function proxy(request: NextRequest) {
-	if (!desktopAPIAuthorized(request.headers)) {
-		return NextResponse.json(
-			{ error: "Desktop API access requires the trusted LearnHarness window." },
-			{ status: 403, headers: { "Cache-Control": "no-store" } },
-		);
-	}
-	return NextResponse.next();
+	const headers = request.headers;
+	const decision = evaluateAccess(
+		{
+			method: request.method,
+			pathname: request.nextUrl.pathname,
+			host: headers.get("host"),
+			origin: headers.get("origin"),
+			secFetchSite: headers.get("sec-fetch-site"),
+			cookie: headers.get("cookie"),
+			tailscaleLogin: headers.get("tailscale-user-login"),
+		},
+		accessSettings(),
+		Date.now(),
+	);
+	if (decision.kind === "allow") return NextResponse.next();
+	// Relative Location on purpose: the standalone request URL can carry an internal hostname.
+	if (decision.kind === "redirect") return new NextResponse(null, { status: 307, headers: { location: decision.to, "Cache-Control": "no-store" } });
+	const error = decision.status === 421 ? "Misdirected request" : decision.status === 503 ? "Access is not configured" : "Access denied";
+	return NextResponse.json({ error }, { status: decision.status, headers: { "Cache-Control": "no-store" } });
 }
 
-export const config = { matcher: "/api/:path*" };
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
