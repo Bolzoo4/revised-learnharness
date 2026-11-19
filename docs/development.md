@@ -66,6 +66,10 @@ Do not commit `.env.local`, credentials, or learning records. Do not copy a pers
 
 Read the relevant installed Next guide under `node_modules/next/dist/docs/` before framework-facing changes. The import restrictions live in `eslint.config.mjs`; they do not enforce every architectural convention. [Architecture's code map](architecture.md#code-boundaries) and [prompt composition](../src/agent/prompts/README.md) identify the main entry points.
 
+## Phone layout
+
+The breakpoint (768px) and the phone check live in `components/mobile.ts`. `app/globals.css` repeats the media query (`max-width: 767.98px`) and `tests/mobile.test.ts` keeps the two equal. Below 768px the sidebar is an overlay drawer: `sidebarPresentation` returns `open` from the drawer's own state (`mobileOpen` in `components/sidebar.tsx`), and the saved sidebar preference is ignored. Use the `lh-touch` class for controls that need a finger-sized hit area (44px minimum on a phone). `lh-app-height` and `lh-safe` are applied once, on the shell in `components/sidebar.tsx`. Form fields (`input`, `textarea`, `select`) are forced to at least 16px on a phone, because Safari zooms the page on focus otherwise.
+
 ## Debugging
 
 - `LH_PROVIDER_EVENTS=1` saves raw provider events under the selected data root. They may contain private lesson/provider content.
