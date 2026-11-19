@@ -4,9 +4,10 @@ import test from "node:test";
 import { readAccessSettings, MIN_TOKEN_LENGTH } from "../src/server/access/config.ts";
 
 const long = "t".repeat(64);
-const reader = (map: Record<string, string>) => (path: string) => {
-	if (!(path in map)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-	return map[path];
+const reader = (map: Record<string, string | undefined>) => (path: string): string => {
+	const text = map[path];
+	if (text === undefined) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+	return text;
 };
 
 test("production without a token file is enforced with no token (fail closed)", () => {

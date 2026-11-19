@@ -27,7 +27,7 @@ test("a session never verifies under another token, so rotating the token invali
 
 test("tampered, truncated and malformed cookies are rejected", () => {
 	const { value } = issueSession(token, now);
-	const [exp, sig] = value.split(".");
+	const [exp = "", sig = ""] = value.split(".");
 	const bad: Array<string | null | undefined> = [
 		null, undefined, "", ".", "x", exp, `${exp}.`, `.${sig}`,
 		`${exp}.${sig}x`, `${exp}.${sig.slice(0, -1)}`,
