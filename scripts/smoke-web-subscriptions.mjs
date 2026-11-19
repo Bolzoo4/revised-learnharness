@@ -45,6 +45,8 @@ const env = {
 	TMPDIR: path.join(profile, "tmp"), LH_AUTH_FILE: path.join(profile, "auth.json"), LH_DATA_DIR: path.join(profile, "data"),
 	NODE_OPTIONS: `--import=${pathToFileURL(preload).href}`, NEXT_TELEMETRY_DISABLED: "1",
 };
+const accessToken = "w".repeat(64);
+await fs.writeFile(path.join(profile, "access-token"), accessToken, { mode: 0o600 });
 const saved = {
 	version: 1, hostId: "offline-host", allowBackgroundUse: true, activeId: "offline-account",
 	registrations: [{ id: "offline-account", clientId: "oaiapp_fixture", issuer: "https://auth.openai.com", subject: "offline-subject", email: "fixture@example.invalid", tokens: { accessToken: "fixture-chatgpt-access", refreshToken: "fixture-chatgpt-refresh", idToken: "fixture-id-token", scopes: SCOPES, expiresAt: Date.now() + 3600000 } }],
@@ -65,8 +67,9 @@ async function run(mode) {
 		credential: { type: "oauth", access: id === "xai" ? "fixture-xai-access" : "tid=fixture;proxy-ep=proxy.individual.githubcopilot.com;", refresh: "fixture-refresh", expires: Date.now() + 3600000, ...(id === "github-copilot" ? { availableModelIds: [copilot.id] } : {}) },
 	}), { mode: 0o600 });
 	const port = await freePort(), origin = `http://localhost:${port}`;
+	const runEnv = { ...env, LH_ACCESS_TOKEN_FILE: path.join(profile, "access-token"), LH_ACCESS_ALLOWED_HOSTS: `localhost:${port}` };
 	let logs = "", exited = false;
-	const child = spawn(process.execPath, [path.join(ROOT, "node_modules/next/dist/bin/next"), mode, "-p", String(port)], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawn(process.execPath, [path.join(ROOT, "node_modules/next/dist/bin/next"), mode, "-p", String(port)], { cwd: ROOT, env: runEnv, stdio: ["ignore", "pipe", "pipe"] });
 	const exit = new Promise((resolve) => child.once("exit", () => { exited = true; resolve(); }));
 	try {
 		await timeout(new Promise((resolve, reject) => {
@@ -74,9 +77,12 @@ async function run(mode) {
 			child.stdout.on("data", receive); child.stderr.on("data", receive);
 			child.once("error", reject); child.once("exit", (code) => reject(new Error(`Next ${mode} exited ${code}.`)));
 		}), 60000, `Next ${mode} readiness timeout.`);
+		const signin = await fetch(origin + "/api/access/signin", { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ token: accessToken }) });
+		assert.equal(signin.status, 200, `${mode}: sign-in failed`);
+		const sessionCookie = signin.headers.getSetCookie()[0].split(";")[0];
 		const request = (url, command) => fetch(origin + url, {
 			...(command ? { method: "POST", body: JSON.stringify(command) } : {}),
-			headers: { origin, "sec-fetch-site": "same-origin", "x-learnharness-subscriptions": "1", "content-type": "application/json" },
+			headers: { origin, "sec-fetch-site": "same-origin", "x-learnharness-subscriptions": "1", "content-type": "application/json", cookie: sessionCookie },
 			signal: AbortSignal.timeout(60000),
 		});
 		// Controls have not been imported through an HTTP request yet.
@@ -85,7 +91,7 @@ async function run(mode) {
 		let state = await (await request("/api/subscriptions")).json();
 		assert.equal(state.chatgpt.accounts[0].email, "fixture@example.invalid"); assert.equal(state.native.length, 2);
 		for (const secret of ["fixture-chatgpt-access", "fixture-chatgpt-refresh", "fixture-id-token", "fixture-xai-access", "fixture-refresh"]) assert(!JSON.stringify(state).includes(secret));
-		const stream = await fetch(origin + "/api/events", { signal: AbortSignal.timeout(60000) });
+		const stream = await fetch(origin + "/api/events", { headers: { cookie: sessionCookie }, signal: AbortSignal.timeout(60000) });
 		const reader = stream.body.getReader();
 		try {
 			const first = await reader.read(); assert(first.value);
@@ -105,12 +111,12 @@ async function run(mode) {
 			try { assert.equal((await request("/api/models")).status, 200); assert.equal((await request("/api/subscriptions")).status, 200); }
 			finally { await fs.utimes(file, times.atime, times.mtime); }
 		}
-		const navigate = () => fetch(origin + login.browserAction, { redirect: "manual", headers: { "sec-fetch-site": "same-origin" }, signal: AbortSignal.timeout(30000) });
+		const navigate = () => fetch(origin + login.browserAction, { redirect: "manual", headers: { "sec-fetch-site": "same-origin", cookie: sessionCookie }, signal: AbortSignal.timeout(30000) });
 		const browser = await navigate(); assert.equal(browser.status, 303, `${mode}: owner/action lost across routes or reload.`);
 		const location = new URL(browser.headers.get("location")); assert.equal(location.origin, "https://auth.openai.com"); assert.equal(new URL(location.searchParams.get("redirect_uri")).hostname, "127.0.0.1");
 		assert.equal((await navigate()).status, 410);
 		assert.equal((await request("/api/subscriptions", { providerId: "chatgpt", op: "cancel" })).status, 200);
-		assert.equal((await fetch(origin + "/api/subscriptions", { method: "POST", headers: { origin: "https://unrelated.invalid", "content-type": "application/json", "x-learnharness-subscriptions": "1" }, body: JSON.stringify({ providerId: "chatgpt", op: "disconnect", id: "offline-account" }) })).status, 403);
+		assert.equal((await fetch(origin + "/api/subscriptions", { method: "POST", headers: { origin: "https://unrelated.invalid", "content-type": "application/json", "x-learnharness-subscriptions": "1", cookie: sessionCookie }, body: JSON.stringify({ providerId: "chatgpt", op: "disconnect", id: "offline-account" }) })).status, 403);
 		assert.equal((await request("/api/subscriptions", { providerId: "chatgpt", op: "disconnect", id: "offline-account" })).status, 200);
 		assert.equal((await (await request("/api/models")).json()).providers.find((provider) => provider.id === "chatgpt").keyPresent, false);
 		console.log(`[smoke-web-subscriptions] ${mode}: cold catalogs, safe status, cross-route SSE/consent/disconnect, opaque redirect/replay, CSRF${mode === "dev" ? ", owner retained across source reload" : ""} passed`);

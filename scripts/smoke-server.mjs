@@ -64,9 +64,9 @@ function freePort() {
 }
 
 /** One GET; resolves the status code (0 = connection refused/failed). */
-function get(url) {
+function get(url, headers = {}) {
 	return new Promise((resolve) => {
-		const req = http.get(url, (res) => {
+		const req = http.get(url, { headers }, (res) => {
 			res.resume();
 			resolve(res.statusCode ?? 0);
 		});
@@ -75,6 +75,25 @@ function get(url) {
 			req.destroy();
 			resolve(0);
 		});
+	});
+}
+
+/** Exchange the access token for the session cookie, like a browser would. */
+function signIn(base, token) {
+	return new Promise((resolve, reject) => {
+		const body = JSON.stringify({ token });
+		const req = http.request(
+			`${base}/api/access/signin`,
+			{ method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body), origin: base } },
+			(res) => {
+				res.resume();
+				const cookie = (res.headers["set-cookie"] ?? [])[0]?.split(";")[0];
+				if (res.statusCode === 200 && cookie) resolve(cookie);
+				else reject(new Error(`sign-in → ${res.statusCode}`));
+			},
+		);
+		req.on("error", reject);
+		req.end(body);
 	});
 }
 
@@ -111,6 +130,9 @@ async function main() {
 	};
 
 	console.log(`[smoke-server] runtime: ${ELECTRON_MODE ? "Electron bundled Node" : "host Node"}`);
+	const accessToken = "s".repeat(64);
+	const accessTokenFile = path.join(home, "access-token");
+	fs.writeFileSync(accessTokenFile, accessToken, { mode: 0o600 });
 	const child = spawn(RUNTIME, [SERVER], {
 		cwd: STANDALONE,
 		env: {
@@ -121,6 +143,8 @@ async function main() {
 			HOSTNAME: "127.0.0.1",
 			LH_DATA_DIR: dataDir,
 			LH_AUTH_FILE: authFile,
+			LH_ACCESS_TOKEN_FILE: accessTokenFile,
+			LH_ACCESS_ALLOWED_HOSTS: `127.0.0.1:${port}`,
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -151,21 +175,30 @@ async function main() {
 
 	let failed = null;
 	try {
-		// 1) Boot: poll GET / until 200 (or timeout / early exit).
+		// 1) Boot: poll GET /healthz until 200 (or timeout / early exit).
 		let boot = 0;
 		const deadline = Date.now() + BOOT_TIMEOUT_MS;
 		while (Date.now() < deadline) {
 			if (exited) throw new Error(`server exited before answering on ${url}`);
-			boot = await get(url);
+			boot = await get(url + "/healthz");
 			if (boot === 200) break;
 			await new Promise((r) => setTimeout(r, POLL_MS));
 		}
-		if (boot !== 200) throw new Error(`server never answered 200 on ${url} (last status: ${boot})`);
-		console.log(`[smoke-server] boot ok: GET / → 200 (${url})`);
+		if (boot !== 200) throw new Error(`server never answered 200 on ${url}/healthz (last status: ${boot})`);
+		console.log(`[smoke-server] boot ok: GET /healthz → 200 (${url})`);
 
-		// 2) API surface: every probe must be 200.
+		// 2) The gate: no cookie → redirect/401, then sign in and use the session.
+		const anonymous = await get(url + "/api/settings");
+		if (anonymous !== 401) throw new Error(`GET /api/settings without a session → ${anonymous} (expected 401)`);
+		const cookie = await signIn(url, accessToken);
+		const authed = { cookie };
+		const root = await get(url, authed);
+		if (root !== 200) throw new Error(`GET / with a session → ${root} (expected 200)`);
+		console.log("[smoke-server] gate ok: 401 without a session, 200 with one");
+
+		// 3) API surface: every probe must be 200.
 		for (const route of PROBES) {
-			const status = await get(url + route);
+			const status = await get(url + route, authed);
 			if (status !== 200) throw new Error(`GET ${route} → ${status} (expected 200)`);
 			console.log(`[smoke-server] GET ${route} → 200`);
 		}
