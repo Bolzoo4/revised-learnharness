@@ -78,7 +78,8 @@
 		"zod": "^4.4.3"
 	},
 	"overrides": {
-		"katex": "$katex"
+		"katex": "$katex",
+		"linkify-it": "^6.1.0"
 	},
 	"devDependencies": {
 		"@next/eslint-plugin-next": "^16.4.6",
@@ -90,7 +91,7 @@
 		"@typescript-eslint/parser": "^8.68.0",
 		"concurrently": "^10.0.5",
 		"electron": "^44.9.3",
-		"electron-builder": "26.16.1",
+		"electron-builder": "26.18.0",
 		"eslint": "^9.39.5",
 		"eslint-import-resolver-typescript": "^4.4.5",
 		"eslint-plugin-import": "^2.32.0",
