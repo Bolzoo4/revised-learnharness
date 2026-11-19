@@ -4,12 +4,16 @@ import { webSubscriptionOwner, webSubscriptionsEnabled, webSubscriptionStatus } 
 const HEADERS = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" };
 /** Same-origin browser controls, not user authentication. Web/dev deliberately
  * retains the existing shared-server/API-key trust model. Never trust forwarded
- * origins or add CORS grants here. A public deployment needs its own access gate. */
+ * origins or add CORS grants here. A public deployment needs its own access gate.
+ * Non-loopback hosts are taken to be https (Tailscale Serve terminates TLS). */
 export function subscriptionRequestOrigin(request: Request): string | undefined {
 	try {
 		const url = new URL(request.url);
 		const host = request.headers.get("host") ?? url.host;
-		const addressed = new URL(`${url.protocol}//${host}`);
+		// Behind Tailscale Serve the connection is plain http on loopback but the browser sees https:
+		// any non-loopback host (a port is optional for loopback) is reached through it (the gate allows only listed hosts in production).
+		const protocol = /^(127\.0\.0\.1|localhost)(:\d{1,5})?$/i.test(host) ? url.protocol : "https:";
+		const addressed = new URL(`${protocol}//${host}`);
 		if (!["http:", "https:"].includes(addressed.protocol) || addressed.username || addressed.password || addressed.pathname !== "/" || addressed.search || addressed.hash) return;
 		return addressed.origin;
 	} catch { return; }
