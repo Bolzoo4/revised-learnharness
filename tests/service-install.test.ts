@@ -92,3 +92,40 @@ test("uninstall removes the plist and keeps the token and data", { skip: !darwin
 	assert(fs.existsSync(f.token));
 	assert.equal(f.run("uninstall.sh").status, 0, "uninstall is idempotent");
 });
+
+test("install keeps the token out of the plist and the support directory private", { skip: !darwin }, () => {
+	const f = fixture();
+	const result = f.run("install.sh");
+	assert.equal(result.status, 0, result.stderr);
+	const token = fs.readFileSync(f.token, "utf8").trim();
+	assert(!fs.readFileSync(f.plist, "utf8").includes(token));
+	assert(!result.stdout.includes(token));
+	assert.equal(fs.statSync(path.dirname(f.token)).mode & 0o777, 0o700);
+});
+
+test("install replaces a too-short token", { skip: !darwin }, () => {
+	const f = fixture();
+	fs.mkdirSync(path.dirname(f.token), { recursive: true });
+	fs.writeFileSync(f.token, "short");
+	assert.equal(f.run("install.sh").status, 0);
+	assert(fs.readFileSync(f.token, "utf8").trim().length >= 32);
+});
+
+test("install refuses values that could break out of the plist", { skip: !darwin }, () => {
+	for (const [key, value] of [["LH_PORT", "47890</string>"], ["LH_TAILSCALE_LOGIN", "a</string><key>x</key>"], ["LH_TAILNET_HOST", "a&b"]] as const) {
+		const f = fixture();
+		f.env[key as "LH_PORT"] = value;
+		const result = f.run("install.sh");
+		assert.notEqual(result.status, 0, key);
+		assert(!fs.existsSync(f.plist), key);
+	}
+});
+
+test("rotate replaces the token with a new 0600 one", { skip: !darwin }, () => {
+	const f = fixture();
+	f.run("install.sh");
+	const before = fs.readFileSync(f.token, "utf8");
+	assert.equal(f.run("rotate-token.sh").status, 0);
+	assert.notEqual(fs.readFileSync(f.token, "utf8"), before);
+	assert.equal(fs.statSync(f.token).mode & 0o777, 0o600);
+});

@@ -27,7 +27,7 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --arm64 --dir \
 echo "== built: $APP"
 
 if [ "${1:-}" = "--install" ]; then
-  find "$APP" \( -name "auth.json" -o -name "*-credentials.json*" -o -path "*/standalone/data" \) | head
+  find "$APP" \( -name "auth.json" -o -name "*-credentials.json*" -o -path "*/standalone/data" \) | head || true
   codesign --force --deep --sign - "$APP"
   LABEL="org.revisedlearnharness.app"; SERVICE_PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
   # The service runs from inside the app bundle: stop it before the bundle is replaced.

@@ -20,6 +20,12 @@ HOSTS="127.0.0.1:$PORT,localhost:$PORT"
 if [ -n "${LH_TAILNET_HOST:-}" ]; then HOSTS="$HOSTS,$LH_TAILNET_HOST"; fi
 LOGIN="${LH_TAILSCALE_LOGIN:-}"
 
+# Values go into an XML plist: refuse anything that could break out of a <string>.
+case "$PORT" in ''|*[!0-9]*) echo "LH_PORT must be digits" >&2; exit 1;; esac
+for value in "$APP" "$HOME" "$HOSTS" "$LOGIN"; do
+	case "$value" in *[\<\>\&\"\'\`]*|*$'\n'*) echo "unsupported character in: $value" >&2; exit 1;; esac
+done
+
 BIN="$APP/Contents/MacOS/LearnHarness"
 SERVER="$APP/Contents/Resources/server/standalone/server.js"
 GUARD="$APP/Contents/Resources/server-title-guard.cjs"
@@ -27,8 +33,10 @@ GUARD="$APP/Contents/Resources/server-title-guard.cjs"
 [ -f "$SERVER" ] || { echo "bundled server missing: $SERVER" >&2; exit 1; }
 [ -f "$GUARD" ] || { echo "title guard missing: $GUARD" >&2; exit 1; }
 
-mkdir -p "$SUPPORT" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-if [ ! -s "$TOKEN_FILE" ]; then
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+( umask 077; mkdir -p "$SUPPORT" ); chmod 700 "$SUPPORT"
+# A short or garbage token would make the server refuse to start: replace it.
+if [ ! -f "$TOKEN_FILE" ] || [ "$(wc -c < "$TOKEN_FILE" | tr -d ' ')" -lt 32 ]; then
 	( umask 077; openssl rand -hex 32 > "$TOKEN_FILE" )
 fi
 chmod 600 "$TOKEN_FILE"
@@ -81,6 +89,7 @@ fi
 
 UID_NUM="$(id -u)"
 launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true
+sleep 1   # bootout is asynchronous; bootstrap right after can fail
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 echo "LearnHarness service installed and started (port $PORT)."
