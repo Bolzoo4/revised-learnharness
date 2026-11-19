@@ -56,3 +56,10 @@ test("hosts are split, trimmed, lower-cased; empty entries dropped; tailscale lo
 test("an empty login variable means no login is configured", () => {
 	assert.equal(readAccessSettings({ LH_ACCESS_TAILSCALE_LOGIN: "  " }, reader({})).tailscaleLogin, null);
 });
+
+test("the length rule applies after trimming, so padding cannot make a short token valid", () => {
+	for (const text of ["x".repeat(31) + "\n", "   \n", " ".repeat(40)]) {
+		const s = readAccessSettings({ LH_ACCESS_TOKEN_FILE: "/t" }, reader({ "/t": text }));
+		assert.equal(s.token, null, JSON.stringify(text));
+	}
+});
