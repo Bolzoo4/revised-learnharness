@@ -15,8 +15,14 @@ p{min-height:1.25rem;margin:0;color:GrayText}
 <button type="submit">Sign in</button>
 <p role="status"></p>
 </form>
+<form id="pair" autocomplete="off" style="margin-top:1.5rem">
+<input name="code" type="text" placeholder="Pairing link or code" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+<button type="submit">Pair this device</button>
+<p role="status"></p>
+</form>
 <script>
 const form = document.querySelector("form"), message = document.querySelector("p");
+const pairForm = document.getElementById("pair"), pairMessage = pairForm.querySelector("p");
 form.addEventListener("submit", async (event) => {
 	event.preventDefault(); message.textContent = "";
 	try {
@@ -24,6 +30,16 @@ form.addEventListener("submit", async (event) => {
 		if (response.ok) location.replace("/");
 		else message.textContent = response.status === 429 ? "Too many attempts. Try again later." : "That token was not accepted.";
 	} catch { message.textContent = "The server could not be reached."; }
+});
+pairForm.addEventListener("submit", async (event) => {
+	event.preventDefault(); pairMessage.textContent = "";
+	const entered = pairForm.code.value.trim(), hash = entered.indexOf("#");
+	const code = hash >= 0 ? entered.slice(hash + 1) : entered;
+	try {
+		const response = await fetch("/api/access/pair", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code }) });
+		if (response.ok) location.replace("/");
+		else pairMessage.textContent = response.status === 429 ? "Too many attempts. Try again later." : "This pairing code is invalid or expired. Create a new one on the Mac.";
+	} catch { pairMessage.textContent = "The server could not be reached."; }
 });
 </script></body></html>`;
 

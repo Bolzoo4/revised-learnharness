@@ -144,3 +144,10 @@ test("a sign-in on a tailnet host gets a 14-day cookie, on loopback a 90-day one
 	assert.equal(await days("mac.tail1234.ts.net:8444"), 14);
 	assert.equal(await days("127.0.0.1:47890"), 90);
 });
+
+test("the sign-in page offers pairing by pasted link or code, posting only the code part to /api/access/pair", async () => {
+	const html = await page().text();
+	assert(html.includes('id="pair"') && html.includes("/api/access/pair"), "pairing form present");
+	assert(html.includes('entered.slice(hash + 1)'), "a pasted link is reduced to its fragment");
+	assert(!html.includes("lh_session"), "no cookie handling in the page");
+});
