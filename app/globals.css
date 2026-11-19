@@ -496,6 +496,29 @@ body {
 	opacity: 1;
 }
 
+/* Phone shell (components/mobile.ts holds the same numbers; tests/mobile.test.ts keeps them in sync). */
+:root {
+	--lh-touch: 44px;
+}
+@media (max-width: 767.98px) {
+	/* A control that must be at least a finger wide and tall on a phone. */
+	.lh-touch {
+		min-width: var(--lh-touch);
+		min-height: var(--lh-touch);
+	}
+	/* Layout height follows the visible area, so the keyboard cannot cover the bottom of the page. */
+	.lh-app-height {
+		height: var(--lh-vvh, 100dvh);
+	}
+	/* Respect the notch and the home indicator. */
+	.lh-safe {
+		padding-top: env(safe-area-inset-top);
+		padding-right: env(safe-area-inset-right);
+		padding-bottom: env(safe-area-inset-bottom);
+		padding-left: env(safe-area-inset-left);
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.braille-frame {
 		animation: none;
