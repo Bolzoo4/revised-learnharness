@@ -117,3 +117,20 @@ test("oversized bodies are refused, declared or not, and never yield a cookie", 
 	assert.equal(big.status, 401);
 	assert.equal(big.headers.get("set-cookie"), null);
 });
+
+test("a streamed body without content-length is cut off at the cap", async () => {
+	const host = "127.0.0.1:47890";
+	let pulled = 0;
+	const body = new ReadableStream<Uint8Array>({
+		pull(controller) {
+			pulled++;
+			if (pulled > 50) return controller.close();
+			controller.enqueue(new TextEncoder().encode("x".repeat(1000)));
+		},
+	});
+	const response = await POST(new Request(`http://${host}/api/access/signin`, {
+		method: "POST", headers: { host, origin: `http://${host}` }, body, duplex: "half",
+	} as RequestInit));
+	assert.equal(response.status, 401);
+	assert(pulled < 10, `read ${pulled} chunks`);
+});

@@ -3,6 +3,22 @@ import { accessSettings, isLoopbackHost, issueSession, SESSION_COOKIE, signinLim
 
 const MAX_BODY_BYTES = 1024;
 
+/** Read at most `limit` bytes of the body; null when it is longer (the rest is never buffered). */
+async function readCapped(request: Request, limit: number): Promise<string | null> {
+	const reader = request.body?.getReader();
+	if (!reader) return "";
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > limit) { await reader.cancel(); return null; }
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks).toString("utf8");
+}
+
 /** Exchange the access token for a session cookie. The only place the token is accepted. */
 export async function POST(request: Request) {
 	const settings = accessSettings();
@@ -13,8 +29,8 @@ export async function POST(request: Request) {
 	if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return NextResponse.json({ error: "too_large" }, { status: 413 });
 	let supplied = "";
 	try {
-		const text = await request.text();
-		if (text.length <= MAX_BODY_BYTES) {
+		const text = await readCapped(request, MAX_BODY_BYTES);
+		if (text !== null) {
 			const body = JSON.parse(text);
 			if (typeof body?.token === "string") supplied = body.token;
 		}

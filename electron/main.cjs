@@ -223,12 +223,26 @@ async function connectToService() {
 		healthUrl: `${url}/healthz`, appVersion: app.getVersion(), uid: process.getuid(), plistPath,
 		fetchHealth, launchctl, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 	});
-	const token = fs.readFileSync(TOKEN_FILE(), "utf8").trim();
-	await signInToService({ origin: url, token, fetch: globalThis.fetch, setCookie: (cookie) => session.defaultSession.cookies.set(cookie) });
+	let token;
+	try { token = fs.readFileSync(TOKEN_FILE(), "utf8").trim(); }
+	catch { throw new ServiceUnavailableError(`The access token file is missing (${TOKEN_FILE()}). Run scripts/service/install.sh.`); }
+	try {
+		await signInToService({ origin: url, token, fetch: globalThis.fetch, setCookie: (cookie) => session.defaultSession.cookies.set(cookie) });
+	} catch (error) {
+		throw new ServiceUnavailableError(`Sign-in to the service failed (${error?.message ?? error}). See ${SERVICE_LOG()}.`);
+	}
 	return url;
 }
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+/** Shown while the service starts, so a slow start does not look like a hung app. */
+function showStartingWindow() {
+	const win = new BrowserWindow({ width: 420, height: 160, title: PRODUCT_NAME, backgroundColor: "#141414", resizable: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+	const html = `<!doctype html><meta charset="utf-8"><body style="font:14px -apple-system,sans-serif;background:#141414;color:#e5e5e5;padding:32px"><h3>Starting LearnHarness…</h3><p>Connecting to the service.</p>`;
+	Promise.resolve(win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)).catch(() => {});
+	return win;
+}
 
 /** A plain window explaining why the app cannot open; the log path is the way forward. */
 function showServiceError(message) {
@@ -613,10 +627,13 @@ async function main() {
 	const devUrl = process.env.LH_DEV_URL;
 	let url = devUrl;
 	if (!devUrl) {
+		const starting = showStartingWindow();
 		try {
 			url = await connectToService();
 			log(`service up: ${url}`);
+			if (!starting.isDestroyed()) starting.destroy();
 		} catch (error) {
+			if (!starting.isDestroyed()) starting.destroy();
 			const message = error instanceof ServiceUnavailableError ? error.message : `Could not reach the LearnHarness service: ${error?.message ?? error}`;
 			log(message);
 			showServiceError(message);
