@@ -90,3 +90,30 @@ test("the sign-in page is HTML with a form, is not cacheable, and carries no tok
 	assert(html.includes("<form") && html.includes('type="password"'));
 	assert(!html.includes(token));
 });
+
+test("a parallel burst of wrong guesses cannot outrun the limiter", async () => {
+	const statuses = (await Promise.all(Array.from({ length: 30 }, () => post({ token: "wrong" })))).map((r) => r.status);
+	assert.equal(statuses.filter((s) => s === 401).length, 5);
+	assert.equal(statuses.filter((s) => s === 429).length, 25);
+	assert.equal((await post({ token })).status, 429, "still locked for the right token");
+});
+
+test("type-confusion bodies are wrong tokens", async () => {
+	for (const body of [{ token: ["x"] }, { token: { toString: "x" } }, { token: null }, "", "[]"]) {
+		signinLimiter().reset();
+		const response = await post(body);
+		assert.equal(response.status, 401, JSON.stringify(body));
+		assert.equal(response.headers.get("set-cookie"), null);
+	}
+});
+
+test("oversized bodies are refused, declared or not, and never yield a cookie", async () => {
+	const host = "127.0.0.1:47890";
+	const declared = await POST(new Request(`http://${host}/api/access/signin`, {
+		method: "POST", headers: { host, origin: `http://${host}`, "content-type": "application/json", "content-length": "5000" }, body: "{}",
+	}));
+	assert.equal(declared.status, 413);
+	const big = await post({ token, padding: "x".repeat(2000) });
+	assert.equal(big.status, 401);
+	assert.equal(big.headers.get("set-cookie"), null);
+});
