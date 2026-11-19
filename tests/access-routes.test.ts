@@ -39,7 +39,7 @@ test("the right token returns a session cookie that verifies under the token", a
 	assert(set.startsWith("lh_session="), set);
 	assert(/HttpOnly/i.test(set) && /SameSite=strict/i.test(set) && /Path=\//i.test(set), set);
 	assert(!/;\s*Secure/i.test(set), "no Secure flag on loopback http");
-	const value = decodeURIComponent(/^lh_session=([^;]+)/.exec(set)![1]);
+	const value = decodeURIComponent(/^lh_session=([^;]+)/.exec(set)?.[1] ?? "");
 	assert(verifySession(value, token, Date.now()));
 	assert(!set.includes(token), "the token is never echoed");
 });
