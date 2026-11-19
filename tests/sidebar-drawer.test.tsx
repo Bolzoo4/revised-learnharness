@@ -4,7 +4,8 @@ import React from "react";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DrawerBackdrop, SidebarToggle } from "../components/sidebar.tsx";
+import { DrawerBackdrop, SessionRow, SidebarToggle } from "../components/sidebar.tsx";
+import type { ChatListItem } from "../src/core/index.ts";
 
 describe("DrawerBackdrop", () => {
 	it("is a full-screen button that names its action", () => {
@@ -20,5 +21,17 @@ describe("SidebarToggle", () => {
 		const html = renderToStaticMarkup(<SidebarToggle />);
 		assert.ok(html.includes("Open sidebar"), html);
 		assert.ok(!html.includes("w-0 -mr-3"), "closed: the toggle owns a visible slot");
+	});
+});
+
+const chat: ChatListItem = {
+	id: "c1", title: "Test session", kind: "teach", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
+	messageCount: 4, phase: "probe", pendingQuestion: false, pendingProblem: false, busy: false, compacting: false,
+};
+
+describe("touch targets", () => {
+	it("the menu button, the close button and a session row carry the touch class", () => {
+		assert.ok(renderToStaticMarkup(<SidebarToggle />).includes("lh-touch"));
+		assert.ok(renderToStaticMarkup(<SessionRow chat={chat} active={false} onOpen={() => {}} />).includes("lh-touch"));
 	});
 });

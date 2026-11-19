@@ -42,7 +42,7 @@ export function ExtNavList({ pathname }: { pathname: string | null }) {
 						aria-current={active ? "page" : undefined}
 						data-testid={`ext-nav-${item.label.toLowerCase()}`}
 						className={cn(
-							"flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+							"lh-touch flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
 							active ? "bg-accent text-foreground" : "text-muted-foreground",
 						)}
 					>
