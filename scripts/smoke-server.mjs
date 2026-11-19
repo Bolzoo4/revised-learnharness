@@ -97,6 +97,33 @@ function signIn(base, token) {
 	});
 }
 
+/** POST a JSON body; resolves { status, headers, json } (json is null when the body is not JSON). */
+function postJson(url, body, headers = {}) {
+	return new Promise((resolve, reject) => {
+		const payload = JSON.stringify(body);
+		const req = http.request(
+			url,
+			{ method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload), ...headers } },
+			(res) => {
+				let text = "";
+				res.setEncoding("utf-8");
+				res.on("data", (chunk) => (text += chunk));
+				res.on("end", () => {
+					let json = null;
+					try {
+						json = JSON.parse(text);
+					} catch {
+						/* not JSON */
+					}
+					resolve({ status: res.statusCode ?? 0, headers: res.headers, json });
+				});
+			},
+		);
+		req.on("error", reject);
+		req.end(payload);
+	});
+}
+
 async function main() {
 	// HTTP boot alone never imports the dynamically loaded demo engine.
 	// Fail before packaging if its standalone dependency graph is incomplete.
@@ -198,6 +225,23 @@ async function main() {
 		const root = await get(url, authed);
 		if (root !== 200) throw new Error(`GET / with a session → ${root} (expected 200)`);
 		console.log("[smoke-server] gate ok: 401 without a session, 200 with one");
+
+		// 2b) Pairing: a signed-in caller mints a one-time code; a phone redeems it for its own session.
+		const minted = await postJson(`${url}/api/access/pairing`, {}, { ...authed, origin: url });
+		if (minted.status !== 200) throw new Error(`POST /api/access/pairing → ${minted.status} (expected 200)`);
+		const code = minted.json?.code;
+		if (typeof code !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(code))
+			throw new Error("POST /api/access/pairing → malformed code (expected 22 base64url characters)");
+		const redeemed = await postJson(`${url}/api/access/pair`, { code }, { origin: url });
+		if (redeemed.status !== 200) throw new Error(`POST /api/access/pair → ${redeemed.status} (expected 200)`);
+		const setCookie = (redeemed.headers["set-cookie"] ?? [])[0] ?? "";
+		if (!setCookie.startsWith("lh_session=")) throw new Error("POST /api/access/pair → no lh_session set-cookie");
+		const phoneCookie = setCookie.split(";")[0];
+		const phoneRoot = await get(url, { cookie: phoneCookie });
+		if (phoneRoot !== 200) throw new Error(`GET / with the paired session → ${phoneRoot} (expected 200)`);
+		const replayed = await postJson(`${url}/api/access/pair`, { code }, { origin: url });
+		if (replayed.status !== 401) throw new Error(`POST /api/access/pair (replayed code) → ${replayed.status} (expected 401)`);
+		console.log("[smoke-server] pairing ok: code → session, single use");
 
 		// 3) API surface: every probe must be 200.
 		for (const route of PROBES) {
