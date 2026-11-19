@@ -35,8 +35,11 @@ if [ "${1:-}" = "--install" ]; then
   osascript -e 'quit app "LearnHarness"' || true; sleep 3
   rm -rf /Applications/LearnHarness.app && cp -R "$APP" /Applications/LearnHarness.app
   if [ -f "$SERVICE_PLIST" ]; then
-    launchctl bootstrap "gui/$(id -u)" "$SERVICE_PLIST" && launchctl kickstart -k "gui/$(id -u)/$LABEL"
-    echo "== service restarted"
+    if launchctl bootstrap "gui/$(id -u)" "$SERVICE_PLIST" && launchctl kickstart -k "gui/$(id -u)/$LABEL"; then
+      echo "== service restarted"
+    else
+      echo "== service restart failed: the app will try again when it opens"
+    fi
   else
     echo "== service not installed yet: run scripts/service/install.sh"
   fi
