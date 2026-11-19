@@ -109,3 +109,28 @@ test("tailscale identity: a header with no configured login is refused; an absen
 	assert.deepEqual(decide({ pathname: "/api/chats", cookie }, noLogin), allow);
 	assert.deepEqual(decide({ pathname: "/api/chats" }, noLogin), { kind: "deny", status: 401 });
 });
+
+test("public paths answer only their own methods", () => {
+	const sameOriginPost = { origin: "http://127.0.0.1:47890", secFetchSite: "same-origin" } as const;
+	assert.notDeepEqual(decide({ method: "POST", pathname: "/healthz", ...sameOriginPost }), allow);
+	assert.notDeepEqual(decide({ method: "DELETE", pathname: "/api/access/signin", ...sameOriginPost }), allow);
+	assert.notDeepEqual(decide({ method: "GET", pathname: "/api/access/signin" }), allow);
+});
+
+test("a valid session cookie is found even after a planted duplicate", () => {
+	assert.deepEqual(decide({ pathname: "/api/chats", cookie: `${SESSION_COOKIE}=1.AAAA; ${cookie}` }), allow);
+});
+
+test("methods are case-insensitive", () => {
+	assert.deepEqual(decide({ method: "get", pathname: "/chat/x", cookie }), allow);
+	assert.deepEqual(decide({ method: "get", pathname: "/chat/x" }), { kind: "redirect", to: "/signin" });
+});
+
+test("an empty token is treated as unconfigured", () => {
+	assert.deepEqual(decide({ pathname: "/" }, { ...settings, token: "" }), { kind: "deny", status: 503 });
+});
+
+test("precedence: host before identity, origin before the session check", () => {
+	assert.deepEqual(decide({ host: "evil.example", tailscaleLogin: "x@y.test" }), { kind: "deny", status: 421 });
+	assert.deepEqual(decide({ method: "POST", pathname: "/api/chat", origin: "http://evil.example" }), { kind: "deny", status: 403 });
+});

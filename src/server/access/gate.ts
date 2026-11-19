@@ -18,17 +18,28 @@ export type GateDecision =
 	| { kind: "redirect"; to: "/signin" }
 	| { kind: "deny"; status: 401 | 403 | 421 | 503 };
 
-const PUBLIC_PATHS = new Set(["/healthz", "/signin", "/api/access/signin"]);
+/** Public paths and the only methods each one answers without a session. */
+const PUBLIC_PATHS = new Map<string, ReadonlySet<string>>([
+	["/healthz", new Set(["GET", "HEAD"])],
+	["/signin", new Set(["GET", "HEAD"])],
+	["/api/access/signin", new Set(["POST"])],
+]);
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-export function parseCookie(header: string | null, name: string): string | null {
-	if (!header) return null;
+/** Every value of cookie `name`, in order: a planted duplicate must not hide a valid session. */
+export function parseCookies(header: string | null, name: string): string[] {
+	if (!header) return [];
+	const values: string[] = [];
 	for (const part of header.split(";")) {
 		const index = part.indexOf("=");
 		if (index < 0) continue;
-		if (part.slice(0, index).trim() === name) return part.slice(index + 1).trim();
+		if (part.slice(0, index).trim() === name) values.push(part.slice(index + 1).trim());
 	}
-	return null;
+	return values;
+}
+
+export function parseCookie(header: string | null, name: string): string | null {
+	return parseCookies(header, name)[0] ?? null;
 }
 
 function sameOrigin(request: GateRequest, host: string): boolean {
@@ -52,19 +63,21 @@ function sameOrigin(request: GateRequest, host: string): boolean {
  */
 export function evaluateAccess(request: GateRequest, settings: AccessSettings, now: number): GateDecision {
 	if (settings.mode === "open") return { kind: "allow" };
-	if (!settings.token) return { kind: "deny", status: 503 };
+	const token = settings.token;
+	if (!token) return { kind: "deny", status: 503 };
 
 	const host = request.host?.toLowerCase() ?? null;
 	if (!host || !settings.allowedHosts.includes(host)) return { kind: "deny", status: 421 };
 
 	if (request.tailscaleLogin !== null && request.tailscaleLogin !== settings.tailscaleLogin) return { kind: "deny", status: 403 };
 
-	if (!SAFE_METHODS.has(request.method) && !sameOrigin(request, host)) return { kind: "deny", status: 403 };
+	const method = request.method.toUpperCase();
+	if (!SAFE_METHODS.has(method) && !sameOrigin(request, host)) return { kind: "deny", status: 403 };
 
-	if (PUBLIC_PATHS.has(request.pathname)) return { kind: "allow" };
+	if (PUBLIC_PATHS.get(request.pathname)?.has(method)) return { kind: "allow" };
 
-	if (!verifySession(parseCookie(request.cookie, SESSION_COOKIE), settings.token, now)) {
-		const page = (request.method === "GET" || request.method === "HEAD") && !request.pathname.startsWith("/api/");
+	if (!parseCookies(request.cookie, SESSION_COOKIE).some((value) => verifySession(value, token, now))) {
+		const page = (method === "GET" || method === "HEAD") && !request.pathname.startsWith("/api/");
 		return page ? { kind: "redirect", to: "/signin" } : { kind: "deny", status: 401 };
 	}
 	return { kind: "allow" };
