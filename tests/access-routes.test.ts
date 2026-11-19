@@ -134,3 +134,13 @@ test("a streamed body without content-length is cut off at the cap", async () =>
 	assert.equal(response.status, 401);
 	assert(pulled < 10, `read ${pulled} chunks`);
 });
+
+test("a sign-in on a tailnet host gets a 14-day cookie, on loopback a 90-day one", async () => {
+	const days = async (host: string) => {
+		const set = (await post({ token }, host)).headers.get("set-cookie") ?? "";
+		const expires = Date.parse(/expires=([^;]+)/i.exec(set)?.[1] ?? "");
+		return Math.round((expires - Date.now()) / 86_400_000);
+	};
+	assert.equal(await days("mac.tail1234.ts.net:8444"), 14);
+	assert.equal(await days("127.0.0.1:47890"), 90);
+});

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { accessSettings, isLoopbackHost, issueSession, SESSION_COOKIE, signinLimiter, tokensMatch } from "@/src/server";
+import { accessSettings, isLoopbackHost, issueSession, SESSION_COOKIE, sessionTtlFor, signinLimiter, tokensMatch } from "@/src/server";
 
 const MAX_BODY_BYTES = 1024;
 
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 	}
 
 	limiter.reset();
-	const session = issueSession(settings.token, now);
+	const session = issueSession(settings.token, now, sessionTtlFor(request.headers.get("host")));
 	const response = NextResponse.json({ ok: true });
 	response.cookies.set({
 		name: SESSION_COOKIE, value: session.value, httpOnly: true, sameSite: "strict", path: "/",

@@ -4,6 +4,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 export const SESSION_COOKIE = "lh_session";
 /** 90 days. The cookie is the only credential after sign-in. */
 export const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+/** 14 days: the cookie is shared by every port of the tailnet host, so remote sessions are shorter. */
+export const REMOTE_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 function sign(token: string, expires: number): string {
 	return createHmac("sha256", token).update(`lh-session-v1:${expires}`).digest("base64url");

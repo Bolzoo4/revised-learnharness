@@ -59,4 +59,4 @@ export * from "./ext/index.ts";
 // The access gate's sign-in pieces (docs/service.md); proxy.ts imports the gate directly.
 export { accessSettings } from "./access/config.ts";
 export { issueSession, SESSION_COOKIE } from "./access/session.ts";
-export { isLoopbackHost, signinLimiter, tokensMatch } from "./access/signin.ts";
+export { isLoopbackHost, sessionTtlFor, signinLimiter, tokensMatch } from "./access/signin.ts";

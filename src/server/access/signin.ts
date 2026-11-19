@@ -1,5 +1,6 @@
 // src/server/access/signin.ts
 import { createHash, timingSafeEqual } from "node:crypto";
+import { REMOTE_SESSION_TTL_MS, SESSION_TTL_MS } from "./session.ts";
 
 /** Constant-time comparison independent of the supplied length. */
 export function tokensMatch(supplied: string, token: string): boolean {
@@ -12,6 +13,11 @@ export function tokensMatch(supplied: string, token: string): boolean {
 export function isLoopbackHost(host: string | null): boolean {
 	if (!host) return false;
 	return /^(127\.0\.0\.1|localhost):\d{1,5}$/i.test(host);
+}
+
+/** @post the session length for a request addressed to `host` (REQ-remote-04) */
+export function sessionTtlFor(host: string | null): number {
+	return isLoopbackHost(host) ? SESSION_TTL_MS : REMOTE_SESSION_TTL_MS;
 }
 
 export interface FailureLimiter {

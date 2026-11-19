@@ -1,7 +1,8 @@
 // tests/access-signin.test.ts
 import assert from "node:assert/strict";
 import test from "node:test";
-import { tokensMatch, isLoopbackHost, createFailureLimiter } from "../src/server/access/signin.ts";
+import { tokensMatch, isLoopbackHost, createFailureLimiter, sessionTtlFor } from "../src/server/access/signin.ts";
+import { REMOTE_SESSION_TTL_MS, SESSION_TTL_MS } from "../src/server/access/session.ts";
 
 test("tokensMatch accepts only the exact token", () => {
 	const token = "q".repeat(64);
@@ -39,4 +40,11 @@ test("reset clears failures and lock", () => {
 	assert(!limiter.allow(1));
 	limiter.reset();
 	assert(limiter.allow(2));
+});
+
+test("sessions last 90 days on loopback and 14 days anywhere else", () => {
+	assert.equal(sessionTtlFor("127.0.0.1:47890"), SESSION_TTL_MS);
+	assert.equal(sessionTtlFor("localhost:47890"), SESSION_TTL_MS);
+	for (const host of [null, "", "mac.tail1234.ts.net:8444", "127.0.0.1.evil.example:1"]) assert.equal(sessionTtlFor(host), REMOTE_SESSION_TTL_MS, String(host));
+	assert.equal(REMOTE_SESSION_TTL_MS, 14 * 24 * 60 * 60 * 1000);
 });
