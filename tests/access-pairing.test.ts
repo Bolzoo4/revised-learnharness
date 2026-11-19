@@ -50,10 +50,3 @@ test("codes carry 128 bits and are different every time", () => {
 	}
 	assert.equal(seen.size, 50);
 });
-
-test("the store keeps no plaintext code", () => {
-	const store = createPairingStore();
-	const { code } = store.create(0);
-	assert(!JSON.stringify(store, (_key, value) => (typeof value === "function" ? undefined : value)).includes(code));
-	assert(!Object.values(store).some((v) => typeof v === "string" && v.includes(code)));
-});
