@@ -871,7 +871,7 @@ export function GraphChromeRow({
 	return (
 		<>
 			{!isEmpty && (
-				<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur">
+				<div className="graph-chrome-fade-in w-56 min-w-0 shrink rounded-xl border bg-card/85 px-1 py-[3px] shadow-lg backdrop-blur max-md:w-full">
 					<Hint
 						// ⌘F focuses node search (surface-scoped registry action).
 						label="Search nodes"
@@ -1581,7 +1581,7 @@ export function GraphView({
 			    the settings/coverage dropdowns (owner report), still hoverable
 			    and clickable on top of them. The row is a stacking context, so
 			    its open dropdowns cover the number; clicks land on the panel. */}
-			<div className="relative z-20 flex min-w-0 items-start gap-2">
+			<div className="relative z-20 flex min-w-0 items-start gap-2 max-md:flex-wrap max-md:justify-end">
 				{/* The actions row (empty-graph chrome wave, owner 2026-09-25):
 				    Import Notes always — the empty graph's entry point; search +
 				    settings only when nodes exist, fading in on their mount. */}
