@@ -23,6 +23,7 @@ import type { ChatListItem } from "@/src/core";
 import { kbdEventForAction } from "@/src/core";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { ExtNav } from "@/components/ext/ext-nav";
+import { sidebarPresentation, useIsMobile, useVisualViewportVars } from "@/components/mobile";
 
 /**
  * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
@@ -87,9 +88,11 @@ declare global {
 	}
 }
 
-const SidebarContext = createContext<{ open: boolean; toggle: () => void }>({
+const SidebarContext = createContext<{ open: boolean; toggle: () => void; mobile: boolean; close: () => void }>({
 	open: false,
 	toggle: () => {},
+	mobile: false,
+	close: () => {},
 });
 
 export function useSidebar() {
@@ -109,6 +112,20 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	const [open, setOpen] = useState(false);
 	const [narrow, setNarrow] = useState(false);
 	const [mounted, setMounted] = useState(false);
+	const mobile = useIsMobile();
+	const pathname = usePathname();
+	const [mobileOpen, setMobileOpen] = useState(false);
+	useVisualViewportVars(mobile);
+
+	// The drawer starts closed on a phone and closes on navigation and on Escape (REQ-mobile-05).
+	useEffect(() => { setMobileOpen(false); }, [pathname]);
+	useEffect(() => {
+		if (!mobile || !mobileOpen) return;
+		const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMobileOpen(false); };
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [mobile, mobileOpen]);
+	const close = useCallback(() => setMobileOpen(false), []);
 
 	useEffect(() => {
 		// Electron shell detection (merged chrome, 2026-09-17): keys the
@@ -151,6 +168,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	}, []);
 
 	const toggle = useCallback(() => {
+		if (mobile) { setMobileOpen((v) => !v); return; }
 		// Opening while narrow (auto-closed, or the user's own closed-at-
 		// narrow): ask the shell to widen to the threshold — the resize
 		// listener flips `narrow` and the sidebar appears. The preference
@@ -166,7 +184,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
 			return !v;
 		});
-	}, [narrow, open]);
+	}, [mobile, narrow, open]);
 
 	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
 	// and the context answers on exactly that name — the shared spelling
@@ -181,10 +199,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 		return () => window.removeEventListener(event, onToggle);
 	}, [toggle]);
 
+	const presentation = sidebarPresentation({ mobile, pref: open, narrow, mobileOpen });
 	return (
-		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
-			{/* transitions gated on mount: no slide-in flash on page load */}
-			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+		<SidebarContext.Provider value={{ open: presentation.open, toggle, mobile, close }}>
+			{/* transitions gated on mount: no slide-in flash on page load. On a phone the height follows the
+			    visible area (above the keyboard) and the safe areas are padded (REQ-mobile-07, 08). */}
+			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]", "lh-app-height lh-safe")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
@@ -392,8 +412,13 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
+/** The dimmed area behind the phone drawer; tapping it closes the drawer. */
+export function DrawerBackdrop({ onClose }: { onClose: () => void }) {
+	return <button type="button" aria-label="Close menu" onClick={onClose} className="fixed inset-0 z-40 bg-black/50" />;
+}
+
 function SessionsSidebar() {
-	const { open, toggle } = useSidebar();
+	const { open, toggle, mobile, close } = useSidebar();
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -647,11 +672,17 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	return (
+		<>
+		{mobile && open && <DrawerBackdrop onClose={close} />}
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			className={cn(
+				mobile
+					? cn("fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] transition-transform duration-200", open ? "translate-x-0" : "-translate-x-full")
+					: cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0"),
+			)}
 			aria-hidden={!open}
 		>
-			<div className="flex h-full w-72 flex-col border-r bg-background">
+			<div className="flex h-full w-72 max-w-full flex-col border-r bg-background">
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
@@ -942,6 +973,7 @@ function SessionsSidebar() {
 					onDeleted={onDeleted}
 				/>
 			</aside>
+		</>
 	);
 }
 
