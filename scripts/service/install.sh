@@ -4,7 +4,7 @@
 # Optional environment:
 #   LH_APP                app bundle (default /Applications/LearnHarness.app)
 #   LH_PORT               loopback port (default 47890)
-#   LH_TAILNET_HOST       tailnet DNS name to accept in the Host header (sub-project 2)
+#   LH_TAILNET_HOST       tailnet host:port to accept in the Host header, or the host:port saved by serve.sh (sub-project 2)
 #   LH_TAILSCALE_LOGIN    the one Tailscale login allowed through Serve (sub-project 2)
 #   LH_SERVICE_DRY_RUN=1  write files, do not call launchctl (used by tests)
 set -euo pipefail
@@ -17,6 +17,8 @@ TOKEN_FILE="$SUPPORT/access-token"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/learnharness-service.log"
 HOSTS="127.0.0.1:$PORT,localhost:$PORT"
+# serve.sh stores the tailnet host:port it published; an explicit LH_TAILNET_HOST wins.
+if [ -z "${LH_TAILNET_HOST:-}" ] && [ -s "$SUPPORT/tailnet-host" ]; then LH_TAILNET_HOST="$(tr -d '[:space:]' < "$SUPPORT/tailnet-host")"; fi
 if [ -n "${LH_TAILNET_HOST:-}" ]; then HOSTS="$HOSTS,$LH_TAILNET_HOST"; fi
 LOGIN="${LH_TAILSCALE_LOGIN:-}"
 
