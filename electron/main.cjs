@@ -26,14 +26,11 @@
 
 const { app, BrowserWindow, Menu, ipcMain, session, shell, dialog } = require("electron");
 const { pickAttachmentPath } = require("./attachment-picker.cjs");
-const { createChatGPT, fileStore } = require("./chatgpt.cjs");
-const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
-const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
-const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
-const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { trustedSender } = require("./trusted-sender.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
-const { randomBytes } = require("node:crypto");
-const { spawn } = require("node:child_process");
+const { ensureService, servicePort, ServiceUnavailableError, SERVICE_LABEL } = require("./service-client.cjs");
+const { signInToService } = require("./service-signin.cjs");
+const { execFile, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
@@ -52,17 +49,7 @@ const PRODUCT_NAME = "LearnHarness";
 // Must run before the LH_DEV_URL suffix below — dev becomes
 // "LearnHarness-dev".
 app.setName(PRODUCT_NAME);
-const AUTH_FILE = () => path.join(app.getPath("userData"), "auth.json");
 const DATA_DIR = () => path.join(app.getPath("userData"), "data");
-
-/** The packaged standalone server (extraResources → Resources/server).
- *  In dev LH_DEV_URL short-circuits everything: no spawn, no packaging —
- *  the window points at the running `next dev` server (full HMR). */
-function serverEntry() {
-	// extraResources ships the whole .next payload under server/standalone/
-	// (copied from .next with an explicit filter — see electron-builder.yml).
-	return path.join(process.resourcesPath, "server", "standalone", "server.js");
-}
 
 // ─── Single instance: two instances would fight over the data dir ─────────
 // ─── Browser-service helper (Wave E stage 3, owner 2026-10-10) ────────
@@ -135,13 +122,6 @@ if (process.argv.includes("--browser-service")) {
 	}
 }
 
-let serverProcess = null;
-let chatgpt = null;
-let chatgptChild = null;
-let subscriptions = null;
-let subscriptionChild = null;
-// Per-launch request capability, never OAuth tokens and never renderer state.
-let desktopAPISecret = null;
 let reopenWindow = null;
 const trustedAppWindows = new Set();
 
@@ -199,85 +179,65 @@ function log(line) {
 	}
 }
 
-function startServer(port) {
-	return new Promise((resolve, reject) => {
-		const child = spawn(
-			process.execPath,
-			// Only the macOS backend needs this: Next's native title setter
-			// otherwise checks this Node-mode process in as a foreground app.
-			process.platform === "darwin"
-				? ["--require", path.join(process.resourcesPath, "server-title-guard.cjs"), serverEntry()]
-				: [serverEntry()],
-			{
-				cwd: path.dirname(serverEntry()),
-				env: {
-					...process.env,
-					ELECTRON_RUN_AS_NODE: "1",
-					NODE_ENV: "production",
-					PORT: String(port),
-					HOSTNAME: "127.0.0.1", // the server defaults to 0.0.0.0 — never
-					LH_DATA_DIR: DATA_DIR(),
-					// The auth/keys store — the child reads AND writes this file itself
-					// (no env injection anymore: a spawn-time copy would shadow every
-					// settings-page key change until restart; env wins over file).
-					LH_AUTH_FILE: AUTH_FILE(),
-					LH_DESKTOP_SERVER: "1",
-					LH_DESKTOP_API_SECRET: desktopAPISecret,
-				},
-				stdio: ["ignore", "pipe", "pipe", "ipc"],
-			},
-		);
-		serverProcess = child;
-		chatgptChild = attachChatGPTChild(child, chatgpt);
-		subscriptionChild = attachSubscriptionChild(child, subscriptions);
-		const fwd = (buf) => buf.toString().trimEnd().split("\n").forEach((l) => l && log(`server: ${l}`));
-		child.stdout.on("data", fwd);
-		child.stderr.on("data", fwd);
-		child.on("exit", (code, signal) => {
-			log(`server exited (code=${code} signal=${signal})`);
-			serverProcess = null;
-			chatgptChild?.dispose();
-			chatgptChild = null;
-			subscriptionChild?.dispose();
-			subscriptionChild = null;
-			chatgpt?.close();
-			subscriptions?.close();
+// ─── The always-on service (docs/service.md) ────────────────────────────────
+// The server is no longer our child. A launchd LaunchAgent runs it; this shell checks
+// that it is up and on the same version, signs in once with the access token, and keeps
+// the resulting session cookie in its own profile. `freePort` above stays: the
+// browser-service helper still uses it.
+const SERVICE_PLIST = () => path.join(app.getPath("home"), "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);
+const SERVICE_LOG = () => path.join(app.getPath("home"), "Library", "Logs", "learnharness-service.log");
+const TOKEN_FILE = () => path.join(app.getPath("userData"), "access-token");
+
+const launchctl = (args) => new Promise((resolve) => {
+	execFile("/bin/launchctl", args, (error) => resolve({ code: error ? (typeof error.code === "number" ? error.code : 1) : 0 }));
+});
+const plutilPort = (plistPath) => new Promise((resolve, reject) => {
+	execFile("/usr/bin/plutil", ["-extract", "EnvironmentVariables.PORT", "raw", "-o", "-", plistPath], (error, stdout) => (error ? reject(error) : resolve(stdout)));
+});
+
+/** GET /healthz → parsed JSON, or null for anything else. */
+function fetchHealth(healthUrl) {
+	return new Promise((resolve) => {
+		const req = http.get(healthUrl, { timeout: 2000 }, (res) => {
+			let body = "";
+			res.setEncoding("utf8");
+			res.on("data", (chunk) => { body += chunk; });
+			res.on("end", () => {
+				try { resolve(res.statusCode === 200 ? JSON.parse(body) : null); } catch { resolve(null); }
+			});
 		});
-		resolve(child);
+		req.on("error", () => resolve(null));
+		req.on("timeout", () => { req.destroy(); resolve(null); });
 	});
 }
 
-/** No "ready" event exists — poll until the server answers (docs-confirmed). */
-function waitUntilUp(url, tries = 150) {
-	return new Promise((resolve, reject) => {
-		const attempt = (n) => {
-			const req = http.get(url, (res) => {
-				res.resume();
-				resolve(res.statusCode !== undefined);
-			});
-			req.on("error", () => {
-				if (n <= 0) reject(new Error(`server never answered on ${url}`));
-				else setTimeout(() => attempt(n - 1), 200);
-			});
-		};
-		attempt(tries);
+/** Returns the service origin once the service is up, current, and this window is signed in. */
+async function connectToService() {
+	const plistPath = SERVICE_PLIST();
+	const port = await servicePort({ plistPath, plutil: plutilPort });
+	const url = `http://127.0.0.1:${port}`;
+	await ensureService({
+		healthUrl: `${url}/healthz`, appVersion: app.getVersion(), uid: process.getuid(), plistPath,
+		fetchHealth, launchctl, sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 	});
+	const token = fs.readFileSync(TOKEN_FILE(), "utf8").trim();
+	await signInToService({ origin: url, token, fetch: globalThis.fetch, setCookie: (cookie) => session.defaultSession.cookies.set(cookie) });
+	return url;
 }
 
-function killServer() {
-	chatgpt?.close();
-	subscriptions?.close();
-	if (!serverProcess) return;
-	const child = serverProcess;
-	serverProcess = null;
-	child.kill("SIGTERM");
-	setTimeout(() => {
-		try {
-			child.kill("SIGKILL");
-		} catch {
-			/* already gone */
-		}
-	}, 3000);
+const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+/** A plain window explaining why the app cannot open; the log path is the way forward. */
+function showServiceError(message) {
+	const win = new BrowserWindow({ width: 640, height: 320, title: PRODUCT_NAME, backgroundColor: "#141414", webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+	const html = `<!doctype html><meta charset="utf-8"><body style="font:14px -apple-system,sans-serif;background:#141414;color:#e5e5e5;padding:32px"><h2>LearnHarness service unavailable</h2><p>${escapeHtml(message)}</p><p>Log: <code>${escapeHtml(SERVICE_LOG())}</code></p>`;
+	void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}
+
+/** Synchronous on purpose: used on the way out, where an async call could be cut off. */
+function stopServiceNow() {
+	try { execFileSync("/bin/launchctl", ["bootout", `gui/${process.getuid()}/${SERVICE_LABEL}`], { timeout: 5000, stdio: "ignore" }); }
+	catch { /* not loaded */ }
 }
 
 /** Security posture (all defaults asserted explicitly; the guards are the
@@ -317,7 +277,6 @@ function createWindow(url) {
 			contextIsolation: true,
 			sandbox: true,
 			nodeIntegration: false,
-			...(process.env.LH_DEV_URL ? { additionalArguments: ["--lh-web-subscriptions"] } : {}),
 			preload: path.join(__dirname, "preload.cjs"),
 		},
 		// Live-resize + first-paint flash (owner, 2026-09-17): during a resize
@@ -434,8 +393,8 @@ const ZOOM_LADDER = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
  *
  * Install path: the downloaded update applies on quit (autoInstallOnAppQuit
  * — Squirrel.Mac stages natively and swaps on relaunch). The renderer
- * banner asks for an immediate restart via "lh:update-install"; we kill
- * the child server FIRST — deterministic ordering: the server lives
+ * banner asks for an immediate restart via "lh:update-install"; we stop
+ * the service FIRST — deterministic ordering: the server lives
  * inside the .app bundle Squirrel is about to replace (extraResources),
  * and before-quit alone would race the swap. */
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -495,12 +454,10 @@ function checkForUpdates({ manual = false } = {}) {
 }
 
 function installUpdateNow() {
-	// Kill the server BEFORE the quit-and-install (see block comment).
-	try {
-		killServer();
-	} catch {
-		/* already dead */
-	}
+	// Stop the service BEFORE the quit-and-install (see block comment): launchd would
+	// otherwise restart it from a bundle that is being replaced. The next launch of the
+	// new app bootstraps it again (ensureService).
+	stopServiceNow();
 	autoUpdater?.quitAndInstall();
 }
 
@@ -634,16 +591,14 @@ function installMenu() {
 
 async function main() {
 	app.on("window-all-closed", () => {
-		chatgpt?.pause();
-		subscriptions?.pause();
 		// macOS convention: the app stays resident, reactivated from the Dock.
 		if (process.platform !== "darwin") app.quit();
 	});
 
-	// The child must not outlive us — cover every quit path.
-	app.on("before-quit", killServer);
-	process.on("exit", killServer);
-	process.on("SIGHUP", killServer);
+	// A staged update installs on quit and swaps the bundle the service runs from.
+	app.on("before-quit", () => {
+		if (updateState.status === "downloaded") stopServiceNow();
+	});
 
 	await app.whenReady();
 
@@ -651,63 +606,30 @@ async function main() {
 	// spawn, no packaging, full HMR. The rest of this shell still applies
 	// (guards, menu, single instance).
 	const devUrl = process.env.LH_DEV_URL;
-	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
+	let url = devUrl;
 	if (!devUrl) {
-		desktopAPISecret = randomBytes(32).toString("hex");
-		const ownedOrigin = new URL(url).origin;
-		// All URLs, not only /api: remove the header again on external redirects.
-		session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["<all_urls>"] }, (details, callback) => {
-			callback({ requestHeaders: desktopAPIHeaders(details, ownedOrigin, desktopAPISecret, [...trustedAppWindows]) });
-		});
-		chatgpt = createChatGPT({
-			store: fileStore(path.join(app.getPath("userData"), "chatgpt-credentials.json")),
-			openExternal: (target) => shell.openExternal(target),
-			onChange: (value) => {
-				chatgptChild?.send(value);
-				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:chatgpt:changed");
-			},
-		});
-		subscriptions = createSubscriptions({
-			directory: app.getPath("userData"),
-			loadSDK: () => loadSubscriptionSDK(path.dirname(serverEntry())),
-			openExternal: (target) => shell.openExternal(target),
-			onChange: (snapshot) => {
-				subscriptionChild?.send(snapshot);
-				for (const win of BrowserWindow.getAllWindows()) win.webContents.send("lh:subscriptions:changed");
-			},
-		});
-		await subscriptions.ready;
-		log(`starting server: ${serverEntry()}`);
-		log(`data dir: ${DATA_DIR()}${fs.existsSync(AUTH_FILE()) ? " · auth.json: present" : " · auth.json: ABSENT (no BYOK keys yet)"}`);
-		await startServer(new URL(url).port);
-		await waitUntilUp(url);
-		log(`server up: ${url}`);
+		try {
+			url = await connectToService();
+			log(`service up: ${url}`);
+		} catch (error) {
+			const message = error instanceof ServiceUnavailableError ? error.message : `Could not reach the LearnHarness service: ${error?.message ?? error}`;
+			log(message);
+			showServiceError(message);
+			return;
+		}
 	} else {
 		log(`dev mode: ${devUrl}`);
 	}
 
-	// Renderer controls contain no token/URL/code operation. The separate server
-	// child is the only recipient of credential leases over inherited IPC.
-	ipcMain.handle("lh:chatgpt:control", async (event, command) => {
-		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return { error: "Untrusted desktop request." };
-		if (!chatgpt || !serverProcess?.connected) return { available: false, pending: false, activeId: null, accounts: [], error: "ChatGPT sign-in requires the desktop app's private server connection. Browser-only and externally launched development servers keep API-key connections." };
-		return chatGPTControl(command, chatgpt);
-	});
-
-	ipcMain.handle("lh:subscriptions:control", async (event, command) => {
-		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
-		if (!subscriptions || !serverProcess?.connected) {
-			if (command?.op === "status") return [];
-			throw new Error("Subscription sign-in requires the desktop app's private server connection.");
-		}
-		return subscriptionControl(command, subscriptions);
-	});
-
-	// The dev shell has no browser tabs. Only a one-use action on its own
-	// Next server may be resolved here; never accept an arbitrary external URL.
+	// The shell has no browser tabs: provider sign-in pages open in the system browser.
+	// Only a one-use action on the service's own origin may be resolved here, and the
+	// request carries this window's session cookie (session.fetch uses the cookie jar).
 	ipcMain.handle("lh:subscriptions:web-browser", async (event, action) => {
-		if (!devUrl || !trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted development request.");
-		await openWebSubscriptionBrowser(action, new URL(url).origin, { openExternal: (target) => shell.openExternal(target) });
+		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted desktop request.");
+		await openWebSubscriptionBrowser(action, new URL(url).origin, {
+			fetch: (target, options) => session.defaultSession.fetch(target, options),
+			openExternal: (target) => shell.openExternal(target),
+		});
 	});
 
 	ipcMain.handle("lh:attachment:pick", (event, mode) => pickAttachmentPath(event, mode, {
@@ -746,7 +668,7 @@ async function main() {
 		const target = SIDEBAR_AUTOCLOSE;
 		if (width < target) win.setBounds({ x, y, width: target, height });
 	});
-	reopenWindow = () => { chatgpt?.resume(); subscriptions?.resume(); return createWindow(url); };
+	reopenWindow = () => createWindow(url);
 	app.on("activate", () => {
 		if (BrowserWindow.getAllWindows().length === 0) reopenWindow();
 	});

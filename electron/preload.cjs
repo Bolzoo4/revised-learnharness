@@ -44,39 +44,10 @@ contextBridge.exposeInMainWorld("lh", {
 	// uploads, copies, or DOM File IPC to main; sandbox/isolation stay on.
 	getPathForFile: (file) => webUtils.getPathForFile(file),
 	chooseAttachmentFolder: () => ipcRenderer.invoke("lh:attachment:pick", "folder"),
-	...(process.argv?.includes("--lh-web-subscriptions") ? {
-		subscriptionTransport: "web",
-		openSubscriptionBrowser: (action) => ipcRenderer.invoke("lh:subscriptions:web-browser", action),
-	} : {}),
-	chatgpt: {
-		status: () => ipcRenderer.invoke("lh:chatgpt:control", { op: "status" }),
-		login: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "login", id }),
-		cancel: () => ipcRenderer.invoke("lh:chatgpt:control", { op: "cancel" }),
-		select: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "select", id }),
-		disconnect: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "disconnect", id }),
-		logout: (id) => ipcRenderer.invoke("lh:chatgpt:control", { op: "logout", id }),
-		consent: (enabled) => ipcRenderer.invoke("lh:chatgpt:control", { op: "consent", enabled }),
-		onChange: (cb) => {
-			const listener = () => cb();
-			ipcRenderer.on("lh:chatgpt:changed", listener);
-			return () => ipcRenderer.removeListener("lh:chatgpt:changed", listener);
-		},
-	},
-	subscriptions: {
-		status: () => ipcRenderer.invoke("lh:subscriptions:control", { op: "status" }),
-		login: (providerId, enabled) => ipcRenderer.invoke("lh:subscriptions:control", { op: "login", providerId, enabled }),
-		cancel: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "cancel", providerId }),
-		respond: (providerId, attemptId, promptId, value) => ipcRenderer.invoke("lh:subscriptions:control", { op: "respond", providerId, attemptId, promptId, value }),
-		open: (providerId, attemptId, actionId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "open", providerId, attemptId, actionId }),
-		retry: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "retry", providerId }),
-		disconnect: (providerId) => ipcRenderer.invoke("lh:subscriptions:control", { op: "disconnect", providerId }),
-		consent: (providerId, enabled) => ipcRenderer.invoke("lh:subscriptions:control", { op: "consent", providerId, enabled }),
-		onChange: (cb) => {
-			const listener = () => cb();
-			ipcRenderer.on("lh:subscriptions:changed", listener);
-			return () => ipcRenderer.removeListener("lh:subscriptions:changed", listener);
-		},
-	},
+	// Sign-in and connections live in the always-on service; the renderer uses its HTTP API.
+	// Only opening the provider's page in the system browser needs the shell.
+	subscriptionTransport: "web",
+	openSubscriptionBrowser: (action) => ipcRenderer.invoke("lh:subscriptions:web-browser", action),
 	expandWindow: () => ipcRenderer.send("lh:expand-window"),
 	onZoom: (cb) => {
 		const listener = (_event, factor) => cb(factor);

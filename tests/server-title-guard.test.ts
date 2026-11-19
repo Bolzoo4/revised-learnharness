@@ -1,6 +1,5 @@
 /** Backend title isolation without launching Electron or touching a user profile. */
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -11,9 +10,6 @@ import { runInNewContext } from "node:vm";
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("../", import.meta.url));
-const mainFile = path.join(root, "electron/main.cjs");
-const mainSource = readFileSync(mainFile, "utf8");
-const mainRequire = createRequire(mainFile);
 const guardSource = readFileSync(path.join(root, "electron/server-title-guard.cjs"), "utf8");
 const backendEnv = { ELECTRON_RUN_AS_NODE: "1", LH_DESKTOP_SERVER: "1" };
 
@@ -90,48 +86,7 @@ describe("macOS backend process.title guard", () => {
 	}
 });
 
-async function serverLaunch(platform: string) {
-	let launch!: { binary: string; args: string[]; options: { cwd: string; env: Record<string, string>; stdio: string[] } };
-	const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter() });
-	const context = {
-		require: (id: string) => id === "electron" ? {
-			app: { setName() {}, requestSingleInstanceLock: () => false, quit() {}, getPath: () => "/fixture/user-data" },
-		} : id === "node:child_process" ? {
-			spawn(binary: string, args: string[], options: typeof launch.options) {
-				launch = JSON.parse(JSON.stringify({ binary, args, options }));
-				return child;
-			},
-		} : mainRequire(id),
-		process: { platform, argv: [], env: { FIXTURE: "kept" }, on() {}, execPath: "/fixture/LearnHarness", resourcesPath: "/fixture/resources with spaces" },
-		__dirname: path.dirname(mainFile),
-	};
-	runInNewContext(mainSource, context, { filename: mainFile });
-	await runInNewContext("startServer(54321)", context);
-	return launch;
-}
-
 describe("backend-only preload wiring and packaging", () => {
-	for (const platform of ["darwin", "win32", "linux"]) {
-		it(`${platform} uses the real server launch with the intended argument order`, async () => {
-			const launch = await serverLaunch(platform);
-			const entry = path.join("/fixture/resources with spaces", "server", "standalone", "server.js");
-			assert.equal(launch.binary, "/fixture/LearnHarness");
-			assert.deepEqual(launch.args, platform === "darwin"
-				? ["--require", path.join("/fixture/resources with spaces", "server-title-guard.cjs"), entry]
-				: [entry]);
-			assert.equal(launch.options.cwd, path.dirname(entry));
-			assert.equal(launch.options.env.NODE_OPTIONS, undefined, "do not add NODE_OPTIONS to the child environment");
-			assert.equal(launch.options.env.ELECTRON_RUN_AS_NODE, "1");
-			assert.equal(launch.options.env.LH_DESKTOP_SERVER, "1");
-			assert.equal(launch.options.env.LH_DATA_DIR, path.join("/fixture/user-data", "data"));
-			assert.equal(launch.options.env.LH_AUTH_FILE, path.join("/fixture/user-data", "auth.json"));
-			assert.equal(launch.options.env.PORT, "54321");
-			assert.equal(launch.options.env.HOSTNAME, "127.0.0.1");
-			assert.equal(launch.options.env.FIXTURE, "kept");
-			assert.deepEqual(launch.options.stdio, ["ignore", "pipe", "pipe", "ipc"]);
-		});
-	}
-
 	it("electron-builder copies the guard outside ASAR only on macOS, retaining shared resources", async () => {
 		const yaml = require("js-yaml");
 		const config = yaml.load(readFileSync(path.join(root, "electron-builder.yml"), "utf8"));

@@ -98,13 +98,17 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 					return settings;
 				}, mkdirSync() {}, appendFileSync() {},
 			};
+			// Recorded, never executed: the real launchctl would unload the user's service.
+			if (id === "node:child_process") return {
+				execFileSync: (_file: string, args: string[]) => { order.push(args[0]!); return ""; },
+				execFile: (_file: string, args: string[], callback: (error: null) => void) => { order.push(args[0]!); callback(null); },
+			};
 			return mainRequire(id);
 		},
-		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
+		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {}, getuid: () => 501 },
 		__dirname: path.dirname(mainFile), URL,
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},
-		fixtureChild: { kill: (signal: string) => order.push(signal) },
 	});
 	runInContext(mainSource, context, { filename: mainFile });
 	const run = (code: string) => runInContext(code, context);
@@ -221,15 +225,15 @@ describe("status observation never controls the updater", () => {
 		assert.equal(f.updater.checks, 3);
 	});
 
-	it("OFF does not cancel in-flight events or alter staging/install-on-quit; Restart kills server first", async () => {
+	it("OFF does not cancel in-flight events or alter staging/install-on-quit; Restart stops the service first", async () => {
 		const f = fixture(); f.run("setupAutoUpdater()");
 		f.updater.emit("update-available", { version: "0.3.8" });
 		f.setSettings({ general: { autoUpdate: false } });
 		f.updater.emit("update-downloaded", { version: "0.3.8" }); await f.check();
 		assert.equal(f.state().status, "downloaded"); assert.equal(f.updater.checks, 0);
 		assert.equal(f.updater.autoDownload, true); assert.equal(f.updater.autoInstallOnAppQuit, true);
-		f.run("serverProcess = fixtureChild; installUpdateNow()");
-		assert.deepEqual(f.order, ["SIGTERM", "install"]);
+		f.run("installUpdateNow()");
+		assert.deepEqual(f.order, ["bootout", "install"]);
 	});
 });
 
