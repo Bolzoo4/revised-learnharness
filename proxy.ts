@@ -28,4 +28,5 @@ export function proxy(request: NextRequest) {
 	return NextResponse.json({ error }, { status: decision.status, headers: { "Cache-Control": "no-store" } });
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
+// Anchored on purpose: only the framework's static files are skipped, not look-alikes.
+export const config = { matcher: ["/((?!_next/static/|_next/image$|favicon\\.ico$).*)"] };

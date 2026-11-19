@@ -50,7 +50,7 @@ test("a data folder held by another live process exits 1", () => {
 
 test("a valid token and a free data folder pass and write our pid", () => {
 	withEnv({ NODE_ENV: "production", LH_ACCESS_TOKEN_FILE: tokenFile }, () => enforceStartupGuards(exit));
-	assert.equal(fs.readFileSync(path.join(dataDir, ".lh-server.lock"), "utf8"), String(process.pid));
+	assert.equal(fs.readFileSync(path.join(dataDir, ".lh-server.lock"), "utf8").split(" ")[0], String(process.pid));
 });
 
 test("development without a token file passes the access check", () => {

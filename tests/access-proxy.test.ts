@@ -60,3 +60,18 @@ test("healthz and the sign-in routes stay reachable without a cookie", () => {
 	assert.equal(call("/healthz").headers.get("x-middleware-next"), "1");
 	assert.equal(call("/signin").headers.get("x-middleware-next"), "1");
 });
+
+test("the matcher skips only the exact static paths, not look-alikes", () => {
+	for (const p of ["/_next/static-evil/x", "/_next/staticfoo", "/_next/imagefoo", "/favicon.icox", "/favicon.ico/x", "/_next/data/build/x.json"]) {
+		assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + p }), p);
+	}
+});
+
+test("an empty Tailscale identity header is refused", () => {
+	assert.equal(call("/api/settings", { headers: { cookie, "tailscale-user-login": "" } }).status, 403);
+});
+
+test("a cross-origin POST with a valid cookie is refused, a same-origin one continues", () => {
+	assert.equal(call("/api/chat", { method: "POST", headers: { cookie, origin: "http://evil.example" } }).status, 403);
+	assert.equal(call("/api/chat", { method: "POST", headers: { cookie, origin } }).headers.get("x-middleware-next"), "1");
+});
