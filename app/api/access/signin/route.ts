@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { accessSettings } from "@/src/server/access/config";
-import { issueSession, SESSION_COOKIE } from "@/src/server/access/session";
-import { isLoopbackHost, signinLimiter, tokensMatch } from "@/src/server/access/signin";
+import { accessSettings, isLoopbackHost, issueSession, SESSION_COOKIE, signinLimiter, tokensMatch } from "@/src/server";
 
 const MAX_BODY_BYTES = 1024;
 

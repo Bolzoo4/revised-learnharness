@@ -56,3 +56,7 @@ export { claudeCodeInstallationResponse } from "./claude-code.ts";
 export * from "./custom-provider.ts";
 export { customProviderGet, customProviderMutation } from "./custom-provider-http.ts";
 export * from "./ext/index.ts";
+// The access gate's sign-in pieces (docs/service.md); proxy.ts imports the gate directly.
+export { accessSettings } from "./access/config.ts";
+export { issueSession, SESSION_COOKIE } from "./access/session.ts";
+export { isLoopbackHost, signinLimiter, tokensMatch } from "./access/signin.ts";
