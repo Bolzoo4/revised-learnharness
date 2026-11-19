@@ -2,6 +2,7 @@
 # Local, unsigned macOS (Apple Silicon) build of Revised LearnHarness.
 #   scripts/ext-build-mac-local.sh            build into dist/mac-arm64/LearnHarness.app
 #   scripts/ext-build-mac-local.sh --install  also ad-hoc sign it and copy it to /Applications
+#   (with --install the always-on service, if installed, is restarted onto the new build)
 # This is not the maintainer's signed/notarized path (`npm run desktop:dist`, which needs their
 # Apple team and keychain profile). The app is ad-hoc signed: macOS may ask you to allow it.
 # Video: if build/manim-runtime exists (scripts/manim-runtime/build.sh) it is shipped inside the app;
@@ -28,8 +29,17 @@ echo "== built: $APP"
 if [ "${1:-}" = "--install" ]; then
   find "$APP" \( -name "auth.json" -o -name "*-credentials.json*" -o -path "*/standalone/data" \) | head
   codesign --force --deep --sign - "$APP"
+  LABEL="org.revisedlearnharness.app"; SERVICE_PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  # The service runs from inside the app bundle: stop it before the bundle is replaced.
+  launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   osascript -e 'quit app "LearnHarness"' || true; sleep 3
   rm -rf /Applications/LearnHarness.app && cp -R "$APP" /Applications/LearnHarness.app
+  if [ -f "$SERVICE_PLIST" ]; then
+    launchctl bootstrap "gui/$(id -u)" "$SERVICE_PLIST" && launchctl kickstart -k "gui/$(id -u)/$LABEL"
+    echo "== service restarted"
+  else
+    echo "== service not installed yet: run scripts/service/install.sh"
+  fi
   open /Applications/LearnHarness.app
   echo "== installed to /Applications"
 fi
