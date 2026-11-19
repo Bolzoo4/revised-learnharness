@@ -29,7 +29,8 @@ test("the matcher covers pages and API, and skips only framework static assets",
 test("without a cookie a page redirects to /signin and the API returns 401 JSON", async () => {
 	const page = call("/chat/new");
 	assert.equal(page.status, 307);
-	assert.equal(page.headers.get("location"), "/signin");
+	assert.equal(new URL(page.headers.get("location") ?? "").pathname, "/signin");
+	assert(/^https?:\/\//.test(page.headers.get("location") ?? ""), "Location must be absolute");
 	const api = call("/api/settings");
 	assert.equal(api.status, 401);
 	assert.equal(api.headers.get("cache-control"), "no-store");

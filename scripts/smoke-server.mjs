@@ -190,6 +190,9 @@ async function main() {
 		// 2) The gate: no cookie → redirect/401, then sign in and use the session.
 		const anonymous = await get(url + "/api/settings");
 		if (anonymous !== 401) throw new Error(`GET /api/settings without a session → ${anonymous} (expected 401)`);
+		// A page without a session must redirect to the sign-in page (a 500 here once slipped through).
+		const pageAnonymous = await get(url + "/");
+		if (pageAnonymous !== 307) throw new Error(`GET / without a session → ${pageAnonymous} (expected 307 to /signin)`);
 		const cookie = await signIn(url, accessToken);
 		const authed = { cookie };
 		const root = await get(url, authed);

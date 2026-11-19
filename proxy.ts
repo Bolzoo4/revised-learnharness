@@ -22,8 +22,12 @@ export function proxy(request: NextRequest) {
 		Date.now(),
 	);
 	if (decision.kind === "allow") return NextResponse.next();
-	// Relative Location on purpose: the standalone request URL can carry an internal hostname.
-	if (decision.kind === "redirect") return new NextResponse(null, { status: 307, headers: { location: decision.to, "Cache-Control": "no-store" } });
+	// Absolute Location: Next's runtime rejects a relative one (ERR_INVALID_URL). Built from the
+	// Host header, which the gate has already checked against the allowlist.
+	if (decision.kind === "redirect") {
+		const target = new URL(decision.to, `${request.nextUrl.protocol}//${headers.get("host") ?? request.nextUrl.host}`);
+		return new NextResponse(null, { status: 307, headers: { location: target.toString(), "Cache-Control": "no-store" } });
+	}
 	const error = decision.status === 421 ? "Misdirected request" : decision.status === 503 ? "Access is not configured" : "Access denied";
 	return NextResponse.json({ error }, { status: decision.status, headers: { "Cache-Control": "no-store" } });
 }
