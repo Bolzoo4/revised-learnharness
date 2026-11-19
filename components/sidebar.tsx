@@ -682,7 +682,7 @@ function SessionsSidebar() {
 			)}
 			aria-hidden={!open}
 		>
-			<div className="flex h-full w-72 max-w-full flex-col border-r bg-background">
+			<div className={cn("flex h-full w-72 flex-col border-r bg-background", mobile && "max-w-full")}>
 				{/* LH wordmark — the owner's header; close toggle sits at the edge.
 				    Merged chrome (2026-09-17): in Electron this band is the
 				    window's drag surface and starts after the traffic lights
