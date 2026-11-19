@@ -12,7 +12,7 @@ const token = "p".repeat(64);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-proxy-"));
 fs.writeFileSync(path.join(dir, "token"), token, { mode: 0o600 });
 process.env.LH_ACCESS_TOKEN_FILE = path.join(dir, "token");
-process.env.LH_ACCESS_ALLOWED_HOSTS = "127.0.0.1:47890";
+process.env.LH_ACCESS_ALLOWED_HOSTS = "127.0.0.1:47890,mac.tail1234.ts.net:8444";
 
 const { proxy, config } = await import("../proxy.ts");
 const { issueSession } = await import("../src/server/access/session.ts");
@@ -75,4 +75,12 @@ test("an empty Tailscale identity header is refused", () => {
 test("a cross-origin POST with a valid cookie is refused, a same-origin one continues", () => {
 	assert.equal(call("/api/chat", { method: "POST", headers: { cookie, origin: "http://evil.example" } }).status, 403);
 	assert.equal(call("/api/chat", { method: "POST", headers: { cookie, origin } }).headers.get("x-middleware-next"), "1");
+});
+
+test("on a tailnet host the sign-in redirect is https, on loopback it keeps the connection's scheme", () => {
+	const tailnet = call("/chat/new", { headers: { host: "mac.tail1234.ts.net:8444" } });
+	assert.equal(tailnet.status, 307);
+	assert.equal(tailnet.headers.get("location"), "https://mac.tail1234.ts.net:8444/signin");
+	const loopback = call("/chat/new");
+	assert.equal(loopback.headers.get("location"), "http://127.0.0.1:47890/signin");
 });

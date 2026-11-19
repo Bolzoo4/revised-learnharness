@@ -91,8 +91,12 @@ fi
 
 UID_NUM="$(id -u)"
 launchctl bootout "gui/$UID_NUM/$LABEL" 2>/dev/null || true
-sleep 1   # bootout is asynchronous; bootstrap right after can fail
-launchctl bootstrap "gui/$UID_NUM" "$PLIST"
+# bootout is asynchronous: bootstrap right after can fail with "Input/output error". Retry.
+for attempt in 1 2 3 4 5 6; do
+	sleep 1
+	if launchctl bootstrap "gui/$UID_NUM" "$PLIST" 2>/dev/null; then break; fi
+	[ "$attempt" = 6 ] && { launchctl bootstrap "gui/$UID_NUM" "$PLIST"; }
+done
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 echo "LearnHarness service installed and started (port $PORT)."
 echo "Log: $LOG"
