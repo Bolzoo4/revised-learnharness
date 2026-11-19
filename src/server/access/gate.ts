@@ -23,6 +23,8 @@ const PUBLIC_PATHS = new Map<string, ReadonlySet<string>>([
 	["/healthz", new Set(["GET", "HEAD"])],
 	["/signin", new Set(["GET", "HEAD"])],
 	["/api/access/signin", new Set(["POST"])],
+	["/pair", new Set(["GET", "HEAD"])],
+	["/api/access/pair", new Set(["POST"])],
 ]);
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 

@@ -60,3 +60,5 @@ export * from "./ext/index.ts";
 export { accessSettings } from "./access/config.ts";
 export { issueSession, SESSION_COOKIE } from "./access/session.ts";
 export { isLoopbackHost, sessionTtlFor, signinLimiter, tokensMatch } from "./access/signin.ts";
+export { readCapped } from "./access/body.ts";
+export { pairingStore } from "./access/pairing.ts";

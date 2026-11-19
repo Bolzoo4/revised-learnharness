@@ -22,7 +22,7 @@ const call = (pathname: string, init: { method?: string; headers?: Record<string
 	proxy(new NextRequest(origin + pathname, { method: init.method, headers: { host: "127.0.0.1:47890", ...init.headers } }));
 
 test("the matcher covers pages and API, and skips only framework static assets", () => {
-	for (const p of ["/", "/chat/new", "/api/events", "/api/settings/models", "/healthz", "/signin"]) assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + p }), p);
+	for (const p of ["/", "/chat/new", "/api/events", "/api/settings/models", "/healthz", "/signin", "/pair", "/api/access/pair", "/api/access/pairing"]) assert(unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + p }), p);
 	for (const p of ["/_next/static/chunks/a.js", "/_next/image", "/favicon.ico"]) assert(!unstable_doesProxyMatch({ config, nextConfig: {}, url: origin + p }), p);
 });
 

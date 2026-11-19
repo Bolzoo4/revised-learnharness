@@ -134,3 +134,14 @@ test("precedence: host before identity, origin before the session check", () => 
 	assert.deepEqual(decide({ host: "evil.example", tailscaleLogin: "x@y.test" }), { kind: "deny", status: 421 });
 	assert.deepEqual(decide({ method: "POST", pathname: "/api/chat", origin: "http://evil.example" }), { kind: "deny", status: 403 });
 });
+
+test("/pair is public for GET and HEAD only, /api/access/pair for POST only, and /api/access/pairing needs a session", () => {
+	const origin = "http://127.0.0.1:47890";
+	assert.deepEqual(decide({ method: "GET", pathname: "/pair" }), allow);
+	assert.deepEqual(decide({ method: "HEAD", pathname: "/pair" }), allow);
+	assert.deepEqual(decide({ method: "POST", pathname: "/api/access/pair", origin }), allow);
+	assert.deepEqual(decide({ method: "POST", pathname: "/pair", origin }), { kind: "deny", status: 401 });
+	assert.deepEqual(decide({ method: "GET", pathname: "/api/access/pair" }), { kind: "deny", status: 401 });
+	assert.deepEqual(decide({ method: "POST", pathname: "/api/access/pairing", origin }), { kind: "deny", status: 401 });
+	assert.deepEqual(decide({ method: "POST", pathname: "/api/access/pairing", origin, cookie }), allow);
+});

@@ -1,23 +1,8 @@
 import { NextResponse } from "next/server";
-import { accessSettings, isLoopbackHost, issueSession, SESSION_COOKIE, sessionTtlFor, signinLimiter, tokensMatch } from "@/src/server";
+import { accessSettings, readCapped, signinLimiter, tokensMatch } from "@/src/server";
+import { setSessionCookie } from "../session-cookie";
 
 const MAX_BODY_BYTES = 1024;
-
-/** Read at most `limit` bytes of the body; null when it is longer (the rest is never buffered). */
-async function readCapped(request: Request, limit: number): Promise<string | null> {
-	const reader = request.body?.getReader();
-	if (!reader) return "";
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		total += value.byteLength;
-		if (total > limit) { await reader.cancel(); return null; }
-		chunks.push(value);
-	}
-	return Buffer.concat(chunks).toString("utf8");
-}
 
 /** Exchange the access token for a session cookie. The only place the token is accepted. */
 export async function POST(request: Request) {
@@ -48,11 +33,7 @@ export async function POST(request: Request) {
 	}
 
 	limiter.reset();
-	const session = issueSession(settings.token, now, sessionTtlFor(request.headers.get("host")));
 	const response = NextResponse.json({ ok: true });
-	response.cookies.set({
-		name: SESSION_COOKIE, value: session.value, httpOnly: true, sameSite: "strict", path: "/",
-		expires: new Date(session.expires), secure: !isLoopbackHost(request.headers.get("host")),
-	});
+	setSessionCookie(response, settings.token, request.headers.get("host"), now);
 	return response;
 }
