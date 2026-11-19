@@ -25,6 +25,12 @@ const PUBLIC_PATHS = new Map<string, ReadonlySet<string>>([
 	["/api/access/signin", new Set(["POST"])],
 	["/pair", new Set(["GET", "HEAD"])],
 	["/api/access/pair", new Set(["POST"])],
+	// iOS fetches these when adding to the home screen, possibly without the session cookie.
+	["/manifest.webmanifest", new Set(["GET", "HEAD"])],
+	["/icons/icon-192.png", new Set(["GET", "HEAD"])],
+	["/icons/icon-512.png", new Set(["GET", "HEAD"])],
+	["/icons/icon-maskable-512.png", new Set(["GET", "HEAD"])],
+	["/apple-touch-icon.png", new Set(["GET", "HEAD"])],
 ]);
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 

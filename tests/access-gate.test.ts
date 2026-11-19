@@ -145,3 +145,16 @@ test("/pair is public for GET and HEAD only, /api/access/pair for POST only, and
 	assert.deepEqual(decide({ method: "POST", pathname: "/api/access/pairing", origin }), { kind: "deny", status: 401 });
 	assert.deepEqual(decide({ method: "POST", pathname: "/api/access/pairing", origin, cookie }), allow);
 });
+
+test("the manifest and the icons are public for GET and HEAD at exact paths, and only those", () => {
+	const paths = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon-maskable-512.png", "/apple-touch-icon.png"];
+	for (const pathname of paths) {
+		assert.deepEqual(decide({ method: "GET", pathname }), allow, pathname);
+		assert.deepEqual(decide({ method: "HEAD", pathname }), allow, pathname);
+		assert.deepEqual(decide({ method: "POST", pathname, origin: "http://127.0.0.1:47890" }), { kind: "deny", status: 401 }, `POST ${pathname}`);
+		assert.deepEqual(decide({ method: "GET", pathname, host: "evil.example" }), { kind: "deny", status: 421 }, `host ${pathname}`);
+	}
+	for (const pathname of ["/icons/", "/icons/icon-192.png/x", "/icons/../api/settings", "/icons/other.png", "/manifest.webmanifest.bak", "/apple-touch-icon.png?x=1x"]) {
+		assert.notDeepEqual(decide({ method: "GET", pathname }), allow, pathname);
+	}
+});
