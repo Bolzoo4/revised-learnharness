@@ -43,7 +43,7 @@ test("a created code is exchanged for a 14-day Secure session cookie that verifi
 	assert.equal(response.status, 200);
 	const set = response.headers.get("set-cookie") ?? "";
 	assert(set.startsWith("lh_session="), set);
-	assert(/HttpOnly/i.test(set) && /SameSite=strict/i.test(set) && /;\s*Secure/i.test(set) && /Path=\//i.test(set), set);
+	assert(/HttpOnly/i.test(set) && /SameSite=lax/i.test(set) && /;\s*Secure/i.test(set) && /Path=\//i.test(set), set);
 	const value = decodeURIComponent(/^lh_session=([^;]+)/.exec(set)?.[1] ?? "");
 	assert(verifySession(value, token, Date.now()));
 	const days = Math.round((Date.parse(/expires=([^;]+)/i.exec(set)?.[1] ?? "") - Date.now()) / 86_400_000);

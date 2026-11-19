@@ -23,7 +23,7 @@ The service outlives the app: quitting the window does not stop it.
 
 A gate in `proxy.ts` (`src/server/access/`) checks every request except the framework's static files (`/_next/static/`, `/_next/image`, `/favicon.ico`). Every other page and API request needs a session cookie, except `/healthz`, `/signin`, `/api/access/signin`, `/pair` and `/api/access/pair` (the last two only redeem a one-time pairing code). The home-screen assets `/manifest.webmanifest`, `/icons/icon-192.png`, `/icons/icon-512.png`, `/icons/icon-maskable-512.png` and `/apple-touch-icon.png` are also served without a session (GET and HEAD only). The host and Tailscale checks below still apply to those paths.
 
-- Sign in at `/signin` with the token. The token is accepted only by `/api/access/signin`, compared in constant time. The cookie is signed, `HttpOnly`, `SameSite=Strict`, and lasts 90 days on loopback and 14 days on any other host (see Remote access).
+- Sign in at `/signin` with the token. The token is accepted only by `/api/access/signin`, compared in constant time. The cookie is signed, `HttpOnly`, `SameSite=Lax` (Strict drops the cookie when the link is opened from another app; non-safe methods stay protected by the Origin check), and lasts 90 days on loopback and 14 days on any other host (see Remote access).
 - `Secure` is set on the cookie unless the request's `Host` is loopback (`127.0.0.1:<port>` or `localhost:<port>`). The flag is derived from the `Host` header, not from the connection; behind Tailscale Serve this still has to be verified.
 - Requests whose `Host` is not listed in `LH_ACCESS_ALLOWED_HOSTS` get 421.
 - If a request carries `Tailscale-User-Login`, it must equal `LH_ACCESS_TAILSCALE_LOGIN`, otherwise it gets 403. If the header is absent, only the token applies.
@@ -44,7 +44,7 @@ The service can be reached from other devices on your tailnet over HTTPS. A phon
 4. **Security notes.**
    - This mode is TCP forwarding, not Tailscale's HTTP proxy, so Tailscale adds no identity header. Access rests on tailnet reachability plus the session cookie.
    - Funnel cannot publish this port (it publishes only 443, 8443 and 10000), so the service is not exposed to the public internet this way.
-   - Browsers share cookies across ports of the same host, so the session cookie is also sent to other apps on the same `*.ts.net` name. This is why remote sessions last 14 days. The cookie is `HttpOnly`, `Secure`, `SameSite=Strict`.
+   - Browsers share cookies across ports of the same host, so the session cookie is also sent to other apps on the same `*.ts.net` name. This is why remote sessions last 14 days. The cookie is `HttpOnly`, `Secure`, `SameSite=Lax` (Strict drops the cookie when the link is opened from another app; non-safe methods stay protected by the Origin check).
    - For any non-loopback host the service treats the scheme as `https`.
 5. **Mac sleep.** The service answers only while the Mac is awake. For always-on use, turn on "Prevent automatic sleeping when the display is off" in System Settings (Battery or Energy, depending on the macOS version), or an equivalent setting.
 6. **Install on the home screen.** In Safari, open the paired URL, tap Share, then "Add to Home Screen". The app then opens full screen. Sessions last 14 days. There is no App Store and no developer account involved. There is no offline mode: the Mac must be reachable.

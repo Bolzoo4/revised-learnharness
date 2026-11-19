@@ -5,7 +5,7 @@ import { isLoopbackHost, issueSession, SESSION_COOKIE, sessionTtlFor } from "@/s
 export function setSessionCookie(response: NextResponse, token: string, host: string | null, now: number): void {
 	const session = issueSession(token, now, sessionTtlFor(host));
 	response.cookies.set({
-		name: SESSION_COOKIE, value: session.value, httpOnly: true, sameSite: "strict", path: "/",
+		name: SESSION_COOKIE, value: session.value, httpOnly: true, sameSite: "lax", path: "/",
 		expires: new Date(session.expires), secure: !isLoopbackHost(host),
 	});
 }
