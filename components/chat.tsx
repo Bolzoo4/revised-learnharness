@@ -71,6 +71,7 @@ import {
 } from "@/components/compaction-divider";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
+import { firstShownMessage, PHONE_MESSAGE_WINDOW, useIsMobile } from "@/components/mobile";
 import {
 	activeProblemOf,
 	pendingQuestionOf,
@@ -1260,6 +1261,12 @@ export function Chat({
 		doSend();
 	};
 
+	/* On a phone a long transcript is drawn from its newest messages only; older ones come on request. Drawing the
+	   whole thing at once (markdown, math, diagrams) is what froze the first open of a big chat. */
+	const isMobile = useIsMobile();
+	const [shownOnPhone, setShownOnPhone] = useState(PHONE_MESSAGE_WINDOW);
+	const firstShown = firstShownMessage(isMobile, messages.length, shownOnPhone);
+
 	return (
 		<ChatActionsContext.Provider
 			value={{
@@ -1418,8 +1425,18 @@ export function Chat({
 								/>
 							)}
 
+							{firstShown > 0 && (
+								<button
+									type="button"
+									className="lh-touch self-center rounded-md border px-3 text-sm text-muted-foreground"
+									onClick={() => setShownOnPhone((n) => n + PHONE_MESSAGE_WINDOW)}
+								>
+									Show {Math.min(firstShown, PHONE_MESSAGE_WINDOW)} earlier messages ({firstShown} hidden)
+								</button>
+							)}
+
 							{messages.map((m, mi) =>
-								m.role === "user" && isSubagentSteer(m) ? (
+								mi < firstShown ? null : m.role === "user" && isSubagentSteer(m) ? (
 									// Sub-agent delivery (wake-pipeline steer): NO message bubble — the
 									// artifact card sits in the transcript column directly, full width
 									// and centered like the teacher's artifacts (contracts.ts "THE ASYNC

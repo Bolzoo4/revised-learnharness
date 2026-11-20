@@ -5,6 +5,12 @@ export const MOBILE_BREAKPOINT_PX = 768;
 /** Same range as Tailwind's `max-md`; app/globals.css repeats it and tests/mobile.test.ts checks they match. */
 export const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 0.02}px)`;
 /** Minimum hit area for a shell control on a phone (Apple's guideline). */
+/** How many of the newest messages a phone draws before the reader asks for earlier ones. */
+export const PHONE_MESSAGE_WINDOW = 30;
+/** Index of the first message to draw: all of them off a phone, else only the newest `shown`. */
+export function firstShownMessage(mobile: boolean, total: number, shown: number): number {
+	return mobile ? Math.max(0, total - shown) : 0;
+}
 export const TOUCH_TARGET_PX = 44;
 
 const canMatchMedia = () => typeof window !== "undefined" && typeof window.matchMedia === "function";
