@@ -71,7 +71,7 @@ import {
 } from "@/components/compaction-divider";
 import { CoverageRing } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
-import { firstShownMessage, PHONE_MESSAGE_WINDOW, useIsMobile } from "@/components/mobile";
+import { firstShownMessage, MOBILE_QUERY, PHONE_MESSAGE_WINDOW } from "@/components/mobile";
 import {
 	activeProblemOf,
 	pendingQuestionOf,
@@ -1261,11 +1261,15 @@ export function Chat({
 		doSend();
 	};
 
-	/* On a phone a long transcript is drawn from its newest messages only; older ones come on request. Drawing the
-	   whole thing at once (markdown, math, diagrams) is what froze the first open of a big chat. */
-	const isMobile = useIsMobile();
+	/* A long transcript is first drawn from its newest messages only, by the server and on hydration alike: neither knows
+	   the device, and drawing everything (markdown, math, diagrams) froze the first open on a phone. A computer widens to
+	   the whole transcript right after mount; a phone keeps the window and offers earlier messages on request. */
+	const [windowed, setWindowed] = useState(true);
 	const [shownOnPhone, setShownOnPhone] = useState(PHONE_MESSAGE_WINDOW);
-	const firstShown = firstShownMessage(isMobile, messages.length, shownOnPhone);
+	useIsoLayoutEffect(() => {
+		if (typeof window.matchMedia !== "function" || !window.matchMedia(MOBILE_QUERY).matches) setWindowed(false);
+	}, []);
+	const firstShown = firstShownMessage(windowed, messages.length, shownOnPhone);
 
 	return (
 		<ChatActionsContext.Provider
