@@ -523,6 +523,18 @@ body {
 		padding-bottom: env(safe-area-inset-bottom);
 		padding-left: env(safe-area-inset-left);
 	}
+	/* The padding above shrinks the content box, so a page that is h-dvh must fill that box, not the whole screen
+	   (otherwise it overflows by the inset, the page scrolls, and the bar under the notch / the composer under the home bar are hidden). */
+	.lh-safe .h-dvh {
+		height: 100%;
+	}
+	/* The app scrolls inside its own panes, never the page: when the keyboard opens the browser would otherwise scroll the
+	   whole page up to the focused field and push the top bar under the notch. */
+	html:has(.lh-app-height),
+	body:has(.lh-app-height) {
+		overflow: hidden;
+		overscroll-behavior: none;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
