@@ -18,6 +18,7 @@ import { createLedger } from "../../store/ext/ledger.ts";
 import { createResearchStore } from "../../store/ext/research-store.ts";
 import { createReviewStore } from "../../store/ext/review-store.ts";
 import { parseFocusEvent } from "../../core/ext/review-focus.ts";
+import { parseLinkEvent } from "../../core/ext/links.ts";
 import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
 import { createSessionNotesStore } from "../../store/ext/session-notes-store.ts";
@@ -52,6 +53,8 @@ export const extStores = {
 	reviewFocusLedger: createLedger(EXT_PATHS.dir, "review-focus.jsonl", parseFocusEvent),
 	officeHoursLedger: createLedger(EXT_PATHS.dir, "office-hours.jsonl", parseOfficeHoursEvent),
 	exercisesLedger: createLedger(EXT_PATHS.dir, "exercises.jsonl", parseExerciseEvent),
+	/** Typed links between graph nodes (core/ext/links.ts); separate from chains. */
+	linksLedger: createLedger(EXT_PATHS.dir, "links.jsonl", parseLinkEvent),
 	explanationsStore: createExplanationsStore(EXT_PATHS.dir),
 	/** ONE store per data dir: the cycle's busy guard is keyed on its `log` object (and `lockKey`). */
 	researchStore: createResearchStore(EXT_PATHS.dir),
