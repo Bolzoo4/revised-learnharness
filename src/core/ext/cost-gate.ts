@@ -65,3 +65,19 @@ export function createCostGate(deps: { store: CostStore; ceilingUsd: number; now
 		},
 	};
 }
+
+/** The source of agent-triggered spend (the study agent's file imports, REQ-graph-agent-18). */
+export const AGENT_SPEND_SOURCE = "agent";
+/** Its own daily ceiling, equal to the verification default by design. */
+export const DEFAULT_AGENT_CEILING_USD = 2;
+
+/**
+ * A view of the ledger that keeps only agent spend, so the agent kind has its own ceiling.
+ * Writes go to the same ledger, so total spend stays visible; the shared gate still counts every event.
+ */
+export function agentSpendOnly(store: CostStore): CostStore {
+	return {
+		appendEvent: (event) => store.appendEvent(event),
+		readEvents: () => store.readEvents().filter((e) => e.source === AGENT_SPEND_SOURCE),
+	};
+}

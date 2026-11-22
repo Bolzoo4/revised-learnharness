@@ -37,3 +37,19 @@ describe("cost gate (REQ-src-16 / REQ-cost-01)", () => {
 		assert.equal(events.length, 0);
 	});
 });
+
+describe("agent spend kind (REQ-graph-agent-18)", () => {
+	it("counts only agent-kind spend against its own ceiling", async () => {
+		const { agentSpendOnly, AGENT_SPEND_SOURCE, DEFAULT_AGENT_CEILING_USD } = await import("../src/core/ext/cost-gate.ts");
+		assert.equal(AGENT_SPEND_SOURCE, "agent");
+		assert.equal(DEFAULT_AGENT_CEILING_USD, 2, "default equals the verification ceiling");
+		const { store, events } = mem();
+		const shared = createCostGate({ store, ceilingUsd: 1, now: () => "2026-11-22T10:00:00.000Z" });
+		const agent = createCostGate({ store: agentSpendOnly(store), ceilingUsd: 1, now: () => "2026-11-22T10:00:00.000Z" });
+		shared.record(5, "verification");
+		assert.equal(agent.allowed(), true, "verification spend does not close the agent kind");
+		agent.record(1, AGENT_SPEND_SOURCE);
+		assert.equal(agent.allowed(), false, "agent spend closes the agent kind at its ceiling");
+		assert.equal(events.length, 2, "agent spend lands in the same ledger");
+	});
+});

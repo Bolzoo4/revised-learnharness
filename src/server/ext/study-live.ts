@@ -27,7 +27,7 @@ import { extStores } from "./stores.ts";
 import { writerDeps } from "./study-engine.ts";
 import { createStudyService } from "./study-service.ts";
 
-const sourceIdOf = (filePath: string): string => `src_${crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
+export const sourceIdOf = (filePath: string): string => `src_${crypto.createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
 
 const reviewDeps = () => ({
 	graphStore: stores.graphStore,

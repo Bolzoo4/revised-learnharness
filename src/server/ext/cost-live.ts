@@ -7,7 +7,7 @@
  */
 
 import type { StepPricer } from "../../agent/ext/lecture/structured.ts";
-import { createCostGate, type CostGate } from "../../core/ext/cost-gate.ts";
+import { agentSpendOnly, createCostGate, DEFAULT_AGENT_CEILING_USD, type CostGate } from "../../core/ext/cost-gate.ts";
 import { callCost } from "../pricing.ts";
 import { providerPauseView } from "./provider-pause.ts";
 import { extStores } from "./stores.ts";
@@ -48,6 +48,25 @@ export const liveAudioGate: CostGate = {
 
 function audioGate(): CostGate {
 	return createCostGate({ store: extStores.audioCostStore, ceilingUsd: audioCeilingUsd() });
+}
+
+function agentCeilingUsd(): number {
+	const raw = Number(process.env.LH_EXT_AGENT_CEILING_USD);
+	return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AGENT_CEILING_USD;
+}
+
+/**
+ * The agent kind's own daily ceiling (LH_EXT_AGENT_CEILING_USD, default equal to the verification one), counting
+ * only agent-triggered spend in the shared model ledger. A provider's usage pause also closes it.
+ */
+export const liveAgentGate: CostGate = {
+	allowed: () => agentGate().allowed(),
+	reason: () => agentGate().reason?.() ?? null,
+	record: (usd, source) => agentGate().record(usd, source),
+};
+
+function agentGate(): CostGate {
+	return createCostGate({ store: agentSpendOnly(extStores.costStore), ceilingUsd: agentCeilingUsd(), providerPause: providerPauseView });
 }
 
 /** USD of one billed step; an unpriced model counts as 0 (the same rule as the verification stage). */
