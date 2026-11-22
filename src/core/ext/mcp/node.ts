@@ -50,6 +50,16 @@ export function getNode(call: Call, input: Record<string, unknown>, opts: RunOpt
 		name: capText(panel.node.name, LIMITS.nameChars),
 		statement: capText(panel.node.statement, LIMITS.statementChars),
 		aliases: textPage(panel.node.aliases, LIMITS.aliasesMax, LIMITS.nameChars),
+		// Every source that asserted the node, in order (graph-provenance); anchors are null when absent.
+		provenance: (() => {
+			const all = (getGraph(call.graph).nodes.find((n) => n.id === id)?.provenance ?? []).map((pt) => ({
+				chatId: pt.chatId,
+				messageId: pt.messageId,
+				page: pt.page ?? null,
+				passage: pt.passage ?? null,
+			}));
+			return page(all, LIMITS.provenancePerNodeMax);
+		})(),
 		trust: { level: trust?.level ?? "unverified", checkedAt: trust?.at ?? null, evidence: evidencePage(trust?.evidence ?? []) },
 		explanation: {
 			state: ex.state,

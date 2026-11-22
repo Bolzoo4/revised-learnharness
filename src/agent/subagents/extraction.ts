@@ -199,8 +199,26 @@ const chainsDescription =
 	"ones; conclusions reusable by id as premises of later chains; bare ideas (no argument) ride " +
 	"the propositions list alone; pass [] when none — never omit the field.";
 
+// The DOCUMENT anchors (graph-provenance): a notes-door proposition may name
+// the page it is stated on (from the source's "--- Page N ---" markers) and
+// the passage it comes from. Both optional: a source without markers omits them.
+const documentPropositionProps = {
+	...propositionProps,
+	page: Type.Optional(
+		Type.Integer({
+			minimum: 1,
+			description: 'The page this proposition is stated on — the N of the nearest "--- Page N ---" marker above it.',
+		}),
+	),
+	passage: Type.Optional(
+		Type.String({
+			description: "The sentence this proposition comes from, copied verbatim (at most 300 characters).",
+		}),
+	),
+};
+
 const findingsSchema = Type.Object({
-	propositions: Type.Array(Type.Object(propositionProps), {
+	propositions: Type.Array(Type.Object(documentPropositionProps), {
 		description: propositionsDescription,
 	}),
 	chains: Type.Array(chainSchema, {
@@ -457,7 +475,11 @@ relationships. A sketch need not spell out every intermediate step, but a topic 
 dependency alone is not a derivation. Where the notes just state an idea, record it as a proposition
 rather than constructing an argument for it. Select enough detail to preserve the knowledge, without
 expanding the note into a full treatment of the subject.`,
-);
+) +
+	"\n\n" +
+	"PAGES: when the source carries \"--- Page N ---\" markers, set page on each proposition to the N of the page " +
+	"that states it, and passage to the sentence it comes from, copied verbatim (at most 300 characters). " +
+	"Without page markers, omit both fields.";
 
 // ── the same-source digest (owner, 2026-09-30 evening) ──
 //

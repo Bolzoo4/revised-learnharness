@@ -80,6 +80,13 @@ export interface ProvenancePoint {
 	 *  recorded through the mapping line + the source record). */
 	chatId: string;
 	messageId: string;
+	/** OPTIONAL document anchor: the 1-based page of a document source where
+	 *  the proposition is stated. Absent on chats, notes, and every entry
+	 *  written before anchors existed. */
+	page?: number;
+	/** OPTIONAL document anchor: the passage the proposition comes from,
+	 *  truncated to 300 characters by the merger. */
+	passage?: string;
 }
 
 /** One imported notes file — the format-agnostic front door's bookkeeping
@@ -243,6 +250,14 @@ export interface ExtractedProposition {
 	 *  undefined → messageId "" (chat-level), so NO persisted shape or
 	 *  format version changes (GraphNode / ProvenancePoint untouched). */
 	messageId?: string;
+	/** OPTIONAL, DOCUMENT PATH ONLY (graph-provenance): the 1-based page
+	 *  of the source the proposition is stated on, copied from the
+	 *  "--- Page N ---" markers in the source text. The merger stamps it
+	 *  into the provenance point's `page`. */
+	page?: number;
+	/** OPTIONAL, DOCUMENT PATH ONLY: the passage the proposition comes
+	 *  from (the merger truncates it to 300 characters). */
+	passage?: string;
 }
 
 /** One proposed argument (extractor redesign, 2026-09-30). Endpoints are

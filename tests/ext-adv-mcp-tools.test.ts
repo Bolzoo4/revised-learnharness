@@ -1341,6 +1341,7 @@ describe("get_node", () => {
 			"goals",
 			"id",
 			"name",
+			"provenance",
 			"review",
 			"reviewUnavailable",
 			"statement",

@@ -118,12 +118,33 @@ export interface MergeSource {
  *  message id — the extractor-copied messageId, validated at the submit
  *  seam against the current batch. Chains, notes imports, and
  *  legacy/core callers lacking an anchor keep "" (chat-level). */
-function pointOf(chatId: string, messageId?: string): ProvenancePoint[] {
-	return [{ chatId, messageId: messageId ?? "" }];
+function pointOf(chatId: string, messageId?: string, anchor: DocumentAnchor = {}): ProvenancePoint[] {
+	const point: ProvenancePoint = { chatId, messageId: messageId ?? "" };
+	if (anchor.page !== undefined) point.page = anchor.page;
+	if (anchor.passage !== undefined) point.passage = anchor.passage;
+	return [point];
 }
 
+/** A document anchor after sanitizing (graph-provenance): page is a positive
+ *  integer, passage is at most 300 characters. Anything else is dropped. */
+interface DocumentAnchor {
+	page?: number;
+	passage?: string;
+}
+
+const PASSAGE_MAX_CHARS = 300;
+
+function anchorOf(p: { page?: unknown; passage?: unknown }): DocumentAnchor {
+	const anchor: DocumentAnchor = {};
+	if (typeof p.page === "number" && Number.isInteger(p.page) && p.page >= 1) anchor.page = p.page;
+	if (typeof p.passage === "string" && p.passage.length > 0) anchor.passage = [...p.passage].slice(0, PASSAGE_MAX_CHARS).join("");
+	return anchor;
+}
+
+/** Two points are the same entry when chat, message and page agree; the
+ *  passage text is not part of identity. */
 const samePoint = (a: ProvenancePoint, b: ProvenancePoint): boolean =>
-	a.chatId === b.chatId && a.messageId === b.messageId;
+	a.chatId === b.chatId && a.messageId === b.messageId && a.page === b.page;
 
 // ─── the merger (extraction pipeline stage 3 — deterministic) ────────────────
 
@@ -176,7 +197,7 @@ export function mergeFindings(
 		// passage's messageId — it rides BOTH the create and the link-append
 		// line (each re-encounter anchors to ITS passage); absent (notes,
 		// legacy/core callers) → "", chat-level as before.
-		const points = pointOf(chatId, p.messageId);
+		const points = pointOf(chatId, p.messageId, anchorOf(p));
 		const linkTo = linkOf.get(p.id);
 		let graphNodeId: string;
 		if (linkTo !== undefined && existingIds.has(linkTo)) {

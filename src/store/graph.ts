@@ -90,9 +90,15 @@ function readValid<T>(file: string, isValid: (v: unknown) => v is T): T[] {
 	return readRawLines(file).filter(isValid);
 }
 
-/** Provenance points are (chatId, messageId) pairs — message-granular. */
+/** Provenance points are (chatId, messageId) pairs — message-granular — and
+ *  may carry the optional document anchors (graph-provenance): a page (a
+ *  positive integer) and a passage (a string). Anchorless points stay valid. */
 const isProvenancePoint = (v: unknown): v is ProvenancePoint =>
-	isRecord(v) && isString(v.chatId) && isString(v.messageId);
+	isRecord(v) &&
+	isString(v.chatId) &&
+	isString(v.messageId) &&
+	(v.page === undefined || (typeof v.page === "number" && Number.isInteger(v.page) && v.page >= 1)) &&
+	(v.passage === undefined || isString(v.passage));
 
 
 const isGraphNode = (v: unknown): v is GraphNode =>

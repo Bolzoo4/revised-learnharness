@@ -34,12 +34,13 @@ describe("pdf facts", () => {
 		assert.match(pages[0]!, /alpha page/);
 		assert.match(pages[1]!, /beta page/);
 	});
-	it("extracts a chapter's plain text without page headers", async () => {
+	it("extracts a chapter's text with its page markers (graph-provenance anchors)", async () => {
 		const pdf = write("d.pdf", buildOutlinePdf(["alpha page", "beta page", "gamma page"]));
 		const text = await readChapterText(pdf, { index: 1, title: "t", pageStart: 1, pageEnd: 2 });
 		assert.match(text, /alpha page/);
 		assert.match(text, /beta page/);
 		assert.doesNotMatch(text, /gamma/);
-		assert.doesNotMatch(text, /--- Page/);
+		assert.match(text, /--- Page 1 ---/);
+			assert.match(text, /--- Page 2 ---/);
 	});
 });

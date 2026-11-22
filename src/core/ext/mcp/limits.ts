@@ -34,6 +34,7 @@ export const LIMITS = Object.freeze({
 	conclusionsMax: 20,
 	citingLecturesMax: 20,
 	goalsPerNodeMax: 20,
+	provenancePerNodeMax: 200,
 	neighbourNodesMax: 60,
 	neighbourEdgesMax: 120,
 	targetsMax: 20,
