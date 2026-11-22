@@ -291,11 +291,11 @@ export function newGraphContextMessage(picks: readonly GraphContextPick[], chain
 		"[Session context] — picked from the learner's knowledge map when starting this session:",
 		"",
 		// Extractor honesty (owner, 2026-11-22): these propositions were written by an extraction model from the
-		// learner's sources, not by the source's author — the teacher must know that, and re-read when unsure.
+		// learner's sources and condense them; the teacher must know that, so a later request for more can be met.
 		"These propositions were extracted automatically by a model from the learner's sources (earlier sessions, notes, PDFs). " +
-			"They can be incomplete, too general or wrong, and a source can say more than its proposition does. " +
-			"Treat each as a lead, not as established fact: when you are unsure of one, or a detail matters for what you teach, " +
-			"go back to the source and read it again before relying on it (his files, or the earlier session), and tell him when you did. " +
+			"They condense the source: they can be incomplete, too general or wrong, and the source can say more than its proposition does. " +
+			"Teach from them, but if a specification is needed later — he asks for more detail, or you are unsure of one — " +
+			"go back to the source and read it again (his files, or the earlier session) rather than guessing. " +
 			"A [trust: sourced] tag means a quotation was confirmed in the source text; any other tag means it was not.",
 		"",
 		"Propositions (id — name: statement; the problem tool's target field uses these ids):",
