@@ -44,6 +44,8 @@ export type GoalEvent =
 			priority: number;
 			/** Absent = DEFAULT_WEIGHTS (events written before weights existed). */
 			weights?: GoalWeights;
+			/** The idempotency key of an agent-created goal (REQ-graph-agent-08); absent on every other goal. */
+			idemKey?: string;
 			at: string;
 	  }
 	| { type: "status"; goalId: string; status: GoalStatus; at: string }
@@ -131,6 +133,8 @@ export function parseGoalEvent(raw: unknown): GoalEvent | null {
 			if (!w.ok) return null;
 			weights = w.weights;
 		}
+		if (r.idemKey !== undefined && (typeof r.idemKey !== "string" || r.idemKey === "")) return null;
+		const idemKey = r.idemKey as string | undefined;
 		return {
 			type: "created",
 			goalId: r.goalId,
@@ -140,6 +144,7 @@ export function parseGoalEvent(raw: unknown): GoalEvent | null {
 			targetNodeIds: [...(r.targetNodeIds as string[])],
 			priority: r.priority,
 			...(weights ? { weights } : {}),
+			...(idemKey !== undefined ? { idemKey } : {}),
 			at: r.at,
 		};
 	}

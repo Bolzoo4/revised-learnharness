@@ -17,6 +17,11 @@ export const NOT_RUNNING_MESSAGE = "the LearnHarness app is not running or not p
 const TIMEOUT_MESSAGE = "the LearnHarness app did not answer in time; try again.";
 const DEFAULT_PORT = 47890;
 const TIMEOUT_MS = 30_000;
+/** create_goal runs the whole PDF extraction before it answers, so it alone gets ten minutes (REQ-graph-agent-08). */
+export const CREATE_GOAL_TIMEOUT_MS = 10 * 60 * 1000;
+const CREATE_GOAL_PATH = "/api/ext/agent/goals";
+export const GOAL_TIMEOUT_MESSAGE =
+	"the LearnHarness app did not answer create_goal in time, and it may still be working. Call list_goals before trying again, so that the goal is not created twice.";
 const COOKIE = "lh_session";
 const ERROR_TEXT_CHARS = 500;
 
@@ -28,6 +33,8 @@ export interface AppApiOptions {
 	fetch?: typeof fetch;
 	readFile?: (file: string) => string;
 	timeoutMs?: number;
+	/** The create_goal timeout (default CREATE_GOAL_TIMEOUT_MS). */
+	createGoalTimeoutMs?: number;
 }
 
 /** The loopback port: the 127.0.0.1 entry of LH_ACCESS_ALLOWED_HOSTS, else the localhost entry, else 47890. */
@@ -77,6 +84,7 @@ export function createAppApi(opts: AppApiOptions): AppApiPort {
 	const doFetch = opts.fetch ?? fetch;
 	const readFile = opts.readFile ?? ((file: string) => fs.readFileSync(file, "utf8"));
 	const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
+	const createGoalTimeoutMs = opts.createGoalTimeoutMs ?? CREATE_GOAL_TIMEOUT_MS;
 	let session: string | null = null;
 
 	function readToken(): string {
@@ -93,10 +101,12 @@ export function createAppApi(opts: AppApiOptions): AppApiPort {
 	async function send(method: string, path: string, body: unknown, cookie: string | null): Promise<Response> {
 		const headers: Record<string, string> = { Host: host, Origin: origin, "Content-Type": "application/json" };
 		if (cookie !== null) headers.Cookie = `${COOKIE}=${cookie}`;
+		// A create_goal POST is never resent on a timeout: the app may still be creating the goal.
+		const isCreateGoal = method === "POST" && path === CREATE_GOAL_PATH;
 		try {
-			return await doFetch(`${origin}${path}`, { method, headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+			return await doFetch(`${origin}${path}`, { method, headers, body: JSON.stringify(body), signal: AbortSignal.timeout(isCreateGoal ? createGoalTimeoutMs : timeoutMs) });
 		} catch (error) {
-			throw new ToolError("app_unreachable", isTimeout(error) ? TIMEOUT_MESSAGE : NOT_RUNNING_MESSAGE);
+			throw new ToolError("app_unreachable", isTimeout(error) ? (isCreateGoal ? GOAL_TIMEOUT_MESSAGE : TIMEOUT_MESSAGE) : NOT_RUNNING_MESSAGE);
 		}
 	}
 

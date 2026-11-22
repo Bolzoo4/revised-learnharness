@@ -197,3 +197,53 @@ describe("the app is not reachable (REQ-graph-agent-16)", () => {
 		assert.equal(err.code, "app_rejected");
 	});
 });
+
+describe("timeouts: create_goal may run long, and is never resent (REQ-graph-agent-08)", () => {
+	type Seen = { method: string; url: string };
+	/** A fetch that answers after `delayMs`, or rejects with a TimeoutError when its signal aborts first. */
+	function slowFetch(delayMs: number, answer: (url: string) => Response) {
+		const seen: Seen[] = [];
+		const impl = (input: string | URL | Request, init?: RequestInit) => {
+			const url = String(input);
+			seen.push({ method: init?.method ?? "GET", url });
+			if (url.endsWith("/api/access/signin")) return Promise.resolve(signinOk("c"));
+			return new Promise<Response>((resolve, reject) => {
+				const timer = setTimeout(() => resolve(answer(url)), delayMs);
+				init?.signal?.addEventListener("abort", () => {
+					clearTimeout(timer);
+					reject(Object.assign(new Error("aborted"), { name: "TimeoutError" }));
+				});
+			});
+		};
+		return { fetch: impl as unknown as typeof fetch, seen };
+	}
+
+	it("the create_goal POST uses its own, longer timeout: a 60 ms answer succeeds when the ordinary timeout is 20 ms", async () => {
+		const f = slowFetch(60, () => json(200, { goalId: "goal_slow", nodeIds: [] }));
+		const port = createAppApi({ tokenFile: "/t", allowedHosts: `127.0.0.1:${PORT}`, readFile: () => TOKEN, fetch: f.fetch, timeoutMs: 20, createGoalTimeoutMs: 5_000 });
+		assert.deepEqual(await port.post("/api/ext/agent/goals", { title: "slow" }), { goalId: "goal_slow", nodeIds: [] });
+	});
+
+	it("any other call keeps the ordinary timeout: a 60 ms GET with a 20 ms timeout is refused as not answered", async () => {
+		const f = slowFetch(60, () => json(200, {}));
+		const port = createAppApi({ tokenFile: "/t", allowedHosts: `127.0.0.1:${PORT}`, readFile: () => TOKEN, fetch: f.fetch, timeoutMs: 20, createGoalTimeoutMs: 5_000 });
+		const err = await failure(port.get("/api/ext/agent/sandbox"));
+		assert.ok(err.message.includes("did not answer"), err.message);
+		assert.ok(!err.message.includes("list_goals"));
+	});
+
+	it("a create_goal that times out says the app may still be working and names list_goals, and is sent exactly once", async () => {
+		const f = slowFetch(10_000, () => json(200, {}));
+		const port = createAppApi({ tokenFile: "/t", allowedHosts: `127.0.0.1:${PORT}`, readFile: () => TOKEN, fetch: f.fetch, timeoutMs: 30_000, createGoalTimeoutMs: 20 });
+		const err = await failure(port.post("/api/ext/agent/goals", { title: "stalls" }));
+		assert.equal(err.code, "app_unreachable");
+		assert.ok(err.message.includes("may still be working"), err.message);
+		assert.ok(err.message.includes("list_goals"), err.message);
+		assert.equal(f.seen.filter((s) => s.method === "POST" && s.url.endsWith("/api/ext/agent/goals")).length, 1, "a POST is never resent on timeout");
+	});
+
+	it("the default create_goal timeout is ten minutes", async () => {
+		const mod = await import("../src/server/ext/mcp/app-api.ts");
+		assert.equal(mod.CREATE_GOAL_TIMEOUT_MS, 10 * 60 * 1000);
+	});
+});

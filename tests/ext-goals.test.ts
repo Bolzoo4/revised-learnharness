@@ -227,3 +227,23 @@ describe("goalScopeWeighted", () => {
 		assert.equal(m.has("n_v"), false);
 	});
 });
+
+describe("parseGoalEvent: the idempotency key of an agent-created goal (REQ-graph-agent-08)", () => {
+	const KEY = "a".repeat(64);
+	const base = { type: "created", goalId: "goal_k", title: "T", origin: "agent", originRef: "T", targetNodeIds: ["n_1"], priority: 3, at: "2026-11-22T10:00:00.000Z" };
+
+	it("keeps a valid idemKey", () => {
+		assert.deepEqual(parseGoalEvent({ ...base, idemKey: KEY }), { ...base, idemKey: KEY } as never);
+	});
+
+	it("an event without idemKey (written before the key existed) still parses, with no key", () => {
+		const parsed = parseGoalEvent(base) as Record<string, unknown>;
+		assert.ok(parsed);
+		assert.equal("idemKey" in parsed, false);
+	});
+
+	it("an idemKey that is not a non-empty string makes the event invalid", () => {
+		assert.equal(parseGoalEvent({ ...base, idemKey: 7 }), null);
+		assert.equal(parseGoalEvent({ ...base, idemKey: "" }), null);
+	});
+});

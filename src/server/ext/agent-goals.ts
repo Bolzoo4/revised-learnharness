@@ -7,10 +7,10 @@
  * write, and a goal created here never marks anything learned.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mergeFindings, type GraphDeps } from "../../core/graph.ts";
 import type { SessionFindings } from "../../core/contracts.ts";
-import type { CostGate } from "../../core/ext/cost-gate.ts";
+import type { CostGate, SpendHold } from "../../core/ext/cost-gate.ts";
 import { AGENT_SPEND_SOURCE } from "../../core/ext/cost-gate.ts";
 import {
 	DEFAULT_GOAL_PRIORITY,
@@ -64,11 +64,20 @@ export interface SandboxPort {
 	read(name: string): Promise<{ ok: true; bytes: Uint8Array } | SandboxRefusal>;
 }
 
+/** The agent kind's ceiling: checked and reserved in one step, so concurrent requests share it (REQ-graph-agent-18). */
+export interface AgentSpendGate {
+	allowed(): boolean;
+	reserve(usd: number, source: string): SpendHold | null;
+}
+
+/** A created goal, or the one an identical earlier request made (reused: true). */
+export type AgentCreated = { goalId: string; nodeIds: string[]; reused: boolean };
+
 export interface AgentGoalsDeps {
 	graphStore: GraphStore;
 	goalsStore: GoalsStore;
 	linksStore: { readLinks(): Link[]; appendLink(input: { from: string; to: string; linkType: LinkType; origin: LinkOrigin }, nodeIds: ReadonlySet<string>): Link };
-	gate: Pick<CostGate, "allowed" | "record">;
+	gate: AgentSpendGate;
 	documents: DocumentImportPort;
 	sandbox: SandboxPort;
 	now?: () => string;
@@ -171,11 +180,66 @@ export async function readAgentSandbox(deps: { sandbox: SandboxPort }): Promise<
 }
 
 /**
- * POST /api/ext/agent/goals. Gate first (429, nothing written), then validation (400, nothing written), then every
- * named file read from the sandbox (400 naming the first refused file, nothing imported), then the writes.
+ * The idempotency key of an agent goal: the title, the sorted target statements and the attached files (name and
+ * size, sorted). The same request always gives the same key (REQ-graph-agent-08).
  */
-export async function createAgentGoal(input: AgentGoalInput, deps: AgentGoalsDeps): Promise<AgentResult<{ goalId: string; nodeIds: string[] }>> {
-	if (!gateOpen(deps.gate)) return fail(429, "the daily spending ceiling for agent work is reached; try again tomorrow");
+export function agentGoalKey(input: { title: string; targets: string[]; files: Array<{ name: string; size: number }> }): string {
+	const files = input.files.map((f) => [f.name, f.size] as const).sort((a, b) => (a[0] === b[0] ? a[1] - b[1] : a[0] < b[0] ? -1 : 1));
+	return createHash("sha256")
+		.update(JSON.stringify([input.title, [...input.targets].sort(), files]))
+		.digest("hex");
+}
+
+/** Requests being served now, by key: an identical request that arrives meanwhile joins the first one, never a second goal. */
+const inFlight = new Map<string, Promise<AgentResult<AgentCreated>>>();
+const NO_HOLD: SpendHold = { commit: () => undefined, release: () => undefined };
+
+/** Creates the goal, its nodes and its spend hold; the hold is released on every path, committed only on success. */
+async function performCreate(checked: { title: string; targets: string[]; weights?: Record<string, number>; priority: number }, attached: Uint8Array[], key: string, deps: AgentGoalsDeps): Promise<AgentResult<AgentCreated>> {
+	const hold = attached.length > 0 ? deps.gate.reserve(attached.length * ESTIMATED_IMPORT_USD_PER_FILE, AGENT_SPEND_SOURCE) : NO_HOLD;
+	if (hold === null) return fail(429, "the daily spending ceiling for agent work is reached; try again tomorrow");
+	try {
+		const now = (deps.now ?? (() => new Date().toISOString()))();
+		const goalId = (deps.newGoalId ?? newGoalId)();
+
+		const sourceIds = new Set<string>();
+		for (const bytes of attached) sourceIds.add((await deps.documents.importPdf(bytes)).sourceId);
+		const fileNodeIds = nodeIdsWithProvenance(deps.graphStore, (id) => sourceIds.has(id));
+
+		const findings: SessionFindings = {
+			propositions: checked.targets.map((statement, i) => ({ id: `p${i + 1}`, name: statement.slice(0, 120), statement, aliases: [] })),
+			chains: [],
+		};
+		mergeFindings(goalId, findings, { links: [] }, { chatStore: noChatStore, graphStore: deps.graphStore } as GraphDeps, { foldedAt: now });
+		const targetNodeIds = nodeIdsWithProvenance(deps.graphStore, (id) => id === goalId);
+		if (targetNodeIds.length === 0) throw new Error("agent goals: the merger did not create the target nodes");
+
+		deps.goalsStore.appendEvent({
+			type: "created",
+			goalId,
+			title: checked.title,
+			origin: "agent",
+			originRef: checked.title,
+			targetNodeIds,
+			priority: checked.priority,
+			...(checked.weights ? { weights: checked.weights as Goal["weights"] } : {}),
+			idemKey: key,
+			at: now,
+		});
+		hold.commit();
+		return { ok: true, goalId, nodeIds: [...new Set([...targetNodeIds, ...fileNodeIds])], reused: false };
+	} finally {
+		hold.release();
+	}
+}
+
+/**
+ * POST /api/ext/agent/goals. Validation first (400, nothing written); then every named file is read from the sandbox
+ * (400 naming the first refused file, nothing imported). A goal already made with the same key is answered with
+ * reused: true and no work or spend; an identical request still running is joined. Otherwise the ceiling is checked
+ * and the spend reserved in one synchronous step (429 when it would be exceeded), before any import.
+ */
+export async function createAgentGoal(input: AgentGoalInput, deps: AgentGoalsDeps): Promise<AgentResult<AgentCreated>> {
 	let checked: ReturnType<typeof validateCreate>;
 	try {
 		checked = validateCreate(input);
@@ -191,35 +255,25 @@ export async function createAgentGoal(input: AgentGoalInput, deps: AgentGoalsDep
 		if (!read.ok) return fail(400, `${fileLabel(i, name)} ${read.reason}`);
 		attached.push(read.bytes);
 	}
+	const key = agentGoalKey({ title: checked.title, targets: checked.targets, files: attached.map((bytes, i) => ({ name: checked.names[i]!, size: bytes.byteLength })) });
 
-	const now = (deps.now ?? (() => new Date().toISOString()))();
-	const goalId = (deps.newGoalId ?? newGoalId)();
+	const existing = deps.goalsStore.readEvents().find((e) => e.type === "created" && e.origin === "agent" && e.idemKey === key);
+	if (existing?.type === "created") return { ok: true, goalId: existing.goalId, nodeIds: [...existing.targetNodeIds], reused: true };
 
-	const sourceIds = new Set<string>();
-	for (const bytes of attached) sourceIds.add((await deps.documents.importPdf(bytes)).sourceId);
-	const fileNodeIds = nodeIdsWithProvenance(deps.graphStore, (id) => sourceIds.has(id));
+	const running = inFlight.get(key);
+	if (running !== undefined) {
+		const answer = await running;
+		return answer.ok ? { ...answer, reused: true } : answer;
+	}
+	if (!gateOpen(deps.gate)) return fail(429, "the daily spending ceiling for agent work is reached; try again tomorrow");
 
-	const findings: SessionFindings = {
-		propositions: checked.targets.map((statement, i) => ({ id: `p${i + 1}`, name: statement.slice(0, 120), statement, aliases: [] })),
-		chains: [],
-	};
-	mergeFindings(goalId, findings, { links: [] }, { chatStore: noChatStore, graphStore: deps.graphStore } as GraphDeps, { foldedAt: now });
-	const targetNodeIds = nodeIdsWithProvenance(deps.graphStore, (id) => id === goalId);
-	if (targetNodeIds.length === 0) throw new Error("agent goals: the merger did not create the target nodes");
-
-	deps.goalsStore.appendEvent({
-		type: "created",
-		goalId,
-		title: checked.title,
-		origin: "agent",
-		originRef: checked.title,
-		targetNodeIds,
-		priority: checked.priority,
-		...(checked.weights ? { weights: checked.weights as Goal["weights"] } : {}),
-		at: now,
-	});
-	if (attached.length > 0) deps.gate.record(attached.length * ESTIMATED_IMPORT_USD_PER_FILE, AGENT_SPEND_SOURCE);
-	return { ok: true, goalId, nodeIds: [...new Set([...targetNodeIds, ...fileNodeIds])] };
+	const work = performCreate(checked, attached, key, deps);
+	inFlight.set(key, work);
+	try {
+		return await work;
+	} finally {
+		inFlight.delete(key);
+	}
 }
 
 /** PUT /api/ext/agent/goals/[id]/weights: partial weights merged onto the goal's current ones. */

@@ -7,6 +7,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { readDocumentPages } from "../../agent/ext/study/pdf-pages.ts";
+import { type AttachmentPorts, importAttachedPdf } from "./agent-attachment.ts";
 import { emit } from "../../core/events.ts";
 import { sourceDirectory } from "../source-organization.ts";
 import { stores } from "../stores.ts";
@@ -18,32 +19,43 @@ import { extStores } from "./stores.ts";
 import { sourceIdOf, studyService } from "./study-live.ts";
 
 /**
- * Stores an attached PDF exactly as a user upload is stored (studyService.registerDocument), then runs the
- * notes extraction on the stored copy so its nodes carry that copy's src_ provenance (REQ-graph-agent-12).
- * The bytes come from the sandbox file, which stays where it is (REQ-graph-agent-25).
+ * The live ports of an attached PDF: a private staged copy, the document store a user upload goes through
+ * (studyService.registerDocument), and the notes extraction on the stored copy (REQ-graph-agent-12, REQ-02 page
+ * anchors via agent-attachment.ts). The sandbox file itself stays where it is (REQ-graph-agent-25).
  */
-async function importAgentPdf(bytes: Uint8Array): Promise<{ sourceId: string }> {
-	const root = uploadTempRoot();
-	await fs.mkdir(root, { recursive: true, mode: 0o700 });
-	const dir = await fs.mkdtemp(path.join(root, "upload-"));
-	try {
-		const staged = path.join(dir, "agent-attachment.pdf");
-		await fs.writeFile(staged, bytes, { mode: 0o600 });
-		const document = await studyService.registerDocument({ path: staged, title: DEFAULT_UPLOAD_TITLE });
-		const storedPath = studyService.pdfFile(document.id);
-		const { pages } = await readDocumentPages(storedPath);
+const attachmentPorts: AttachmentPorts = {
+	async stageCopy(bytes) {
+		const root = uploadTempRoot();
+		await fs.mkdir(root, { recursive: true, mode: 0o700 });
+		const dir = await fs.mkdtemp(path.join(root, "upload-"));
+		const file = path.join(dir, "agent-attachment.pdf");
+		await fs.writeFile(file, bytes, { mode: 0o600 });
+		return { path: file, release: () => fs.rm(dir, { recursive: true, force: true }) };
+	},
+	async storeDocument(stagedPath) {
+		const document = await studyService.registerDocument({ path: stagedPath, title: DEFAULT_UPLOAD_TITLE });
+		return studyService.pdfFile(document.id);
+	},
+	async readPages(storedPath) {
+		return (await readDocumentPages(storedPath)).pages;
+	},
+	async importNotes(storedPath, text) {
 		const { extraction } = await import("../chat-handler.ts");
 		sourceDirectory.registerImport(storedPath);
 		try {
-			await extraction.importNotes({ filePath: storedPath, text: pages.join("\n\n") });
+			await extraction.importNotes({ filePath: storedPath, text });
 		} finally {
 			emit("sources-changed", {});
 		}
-		return { sourceId: sourceIdOf(storedPath) };
-	} finally {
-		await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
-	}
+	},
+	sourceIdOf,
+};
+
+/** Stores an attached PDF exactly as a user upload is stored, then extracts its notes with page anchors. */
+function importAgentPdf(bytes: Uint8Array): Promise<{ sourceId: string }> {
+	return importAttachedPdf(bytes, attachmentPorts);
 }
+
 
 /** Built per call, so the stores and the gate are read fresh. */
 function liveDeps(): AgentGoalsDeps {

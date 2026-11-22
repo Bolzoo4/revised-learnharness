@@ -198,7 +198,21 @@ function serviceDeps(root: string) {
 				throw new Error("no links in this test");
 			},
 		},
-		gate: { allowed: () => true, record: () => void (gateRecords += 1) },
+		gate: {
+			allowed: () => true,
+			reserve: () => {
+				let done = false;
+				return {
+					commit: () => {
+						if (!done) gateRecords += 1;
+						done = true;
+					},
+					release: () => {
+						done = true;
+					},
+				};
+			},
+		},
 		documents: {
 			async importPdf(bytes: Uint8Array) {
 				imported.push(bytes);
@@ -350,5 +364,60 @@ describe("the MCP module performs no file system reads (REQ-graph-agent-23)", ()
 		const source = fs.readFileSync(path.resolve(import.meta.dirname, "..", "src", "core", "ext", "mcp", "write.ts"), "utf-8");
 		assert.doesNotMatch(source, /from\s+["'](node:)?fs(\/promises)?["']/);
 		assert.doesNotMatch(source, /from\s+["'](node:)?path["']/);
+	});
+});
+
+describe("the sandbox file is read through one descriptor (REQ-graph-agent-24, no check-then-read)", () => {
+	async function reader() {
+		return (await import("../src/server/ext/sandbox-live.ts")).readSandboxFile;
+	}
+
+	it("a regular file is read whole, from the descriptor it was opened with", async () => {
+		const { root } = sandboxAt();
+		const file = put(root, "whole.pdf", PDF);
+		const result = await (await reader())(file);
+		assert.equal(result.ok, true);
+		if (result.ok) assert.deepEqual(Buffer.from(result.bytes), Buffer.from(PDF));
+	});
+
+	it("a path that is a symbolic link at open time is refused (O_NOFOLLOW, ELOOP)", async () => {
+		const { base, root } = sandboxAt();
+		const target = put(base, "target/real.pdf", PDF);
+		const link = path.join(root, "swapped.pdf");
+		fs.symlinkSync(target, link);
+		const result = await (await reader())(link);
+		assert.equal(result.ok, false);
+	});
+
+	it("a directory is refused: the descriptor is not a regular file", async () => {
+		const { root } = sandboxAt();
+		const dir = path.join(root, "folder.pdf");
+		fs.mkdirSync(dir);
+		const result = await (await reader())(dir);
+		assert.equal(result.ok, false);
+	});
+
+	it("a file that grows past the 20 MB cap while it is being read is refused", async () => {
+		const { root } = sandboxAt();
+		const file = put(root, "grows.pdf", Buffer.concat([Buffer.from(PDF), Buffer.alloc(64 * 1024, 0x20)]));
+		let grown = false;
+		const result = await (await reader())(file, {
+			chunkBytes: 16 * 1024,
+			afterChunk: () => {
+				if (grown) return;
+				grown = true;
+				fs.truncateSync(file, SANDBOX_MAX_FILE_BYTES + 1);
+			},
+		});
+		assert.equal(result.ok, false);
+		assert.equal(grown, true, "the file did grow while being read");
+	});
+
+	it("a file over the cap when it is opened is refused by size, before any bytes are read", async () => {
+		const { root } = sandboxAt();
+		const big = put(root, "opened-big.pdf", PDF);
+		fs.truncateSync(big, SANDBOX_MAX_FILE_BYTES + 1);
+		const result = await (await reader())(big);
+		assert.equal(result.ok, false);
 	});
 });

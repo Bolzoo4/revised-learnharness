@@ -13,6 +13,8 @@ import {
 	type AgentGoalInput,
 } from "../src/server/ext/agent-goals.ts";
 import { createMemoryGraphStore } from "./helpers/memory-graph-store.ts";
+import { createCostGate, type CostEvent } from "../src/core/ext/cost-gate.ts";
+import { ESTIMATED_IMPORT_USD_PER_FILE } from "../src/server/ext/agent-goals.ts";
 
 const PDF_BYTES = new TextEncoder().encode("%PDF-1.4 sample");
 const NOW = "2026-11-22T10:00:00.000Z";
@@ -55,13 +57,32 @@ function memoryLinks() {
 
 function recordingGate(open = true) {
 	const records: Array<{ usd: number; source: string }> = [];
+	let held = 0;
 	return {
 		records,
+		heldTotal: () => held,
 		setOpen(value: boolean) {
 			open = value;
 		},
 		allowed: () => open,
-		record: (usd: number, source: string) => void records.push({ usd, source }),
+		reserve(usd: number, source: string) {
+			if (!open) return null;
+			held += usd;
+			let live = true;
+			const drop = () => {
+				if (!live) return;
+				live = false;
+				held -= usd;
+			};
+			return {
+				commit: () => {
+					if (!live) return;
+					records.push({ usd, source });
+					drop();
+				},
+				release: drop,
+			};
+		},
 	};
 }
 
@@ -283,5 +304,113 @@ describe("createAgentLink", () => {
 		const dup = createAgentLink({ from: b, to: a, linkType: "analogy" }, s.deps);
 		assert.equal(!dup.ok && dup.status, 400);
 		assert.equal(s.linksStore.links.length, 1);
+	});
+});
+
+describe("createAgentGoal: the same request is reused, joined, and reserved before import (REQ-graph-agent-08, 18)", () => {
+	it("the same request again returns the goal it made: reused, no import, no spend, and the key is stored on the event", async () => {
+		const s = setup();
+		s.sandbox.put("notes.pdf");
+		const first = await createAgentGoal(validInput({ files: [{ name: "notes.pdf" }] }), s.deps);
+		const second = await createAgentGoal(validInput({ files: [{ name: "notes.pdf" }] }), s.deps);
+		assert.equal(first.ok && second.ok, true);
+		if (!first.ok || !second.ok) return;
+		assert.equal(first.reused, false);
+		assert.equal(second.reused, true);
+		assert.equal(second.goalId, first.goalId);
+		for (const id of second.nodeIds) assert.ok(first.nodeIds.includes(id), "the reused answer names nodes of the goal");
+		assert.equal(s.documents.imported.length, 1);
+		assert.equal(s.gate.records.length, 1);
+		assert.equal(s.goalsStore.events.length, 1);
+		const created = s.goalsStore.events[0]!;
+		assert.match(created.type === "created" && created.idemKey ? created.idemKey : "", /^[0-9a-f]{64}$/);
+	});
+
+	it("a request that differs in its targets is a different goal", async () => {
+		const s = setup();
+		const a = await createAgentGoal(validInput({ targets: ["A holds."] }), s.deps);
+		const b = await createAgentGoal(validInput({ targets: ["B holds."] }), s.deps);
+		assert.equal(a.ok && b.ok, true);
+		if (!a.ok || !b.ok) return;
+		assert.notEqual(a.goalId, b.goalId);
+		assert.equal(b.reused, false);
+	});
+
+	it("an identical request while the first is still importing is joined: one goal, one import", async () => {
+		const s = setup();
+		s.sandbox.put("slow.pdf");
+		let open!: () => void;
+		const gate = new Promise<void>((resolve) => (open = resolve));
+		const deps: AgentGoalsDeps = {
+			...s.deps,
+			documents: {
+				importPdf: async (bytes: Uint8Array) => {
+					await gate;
+					return s.documents.importPdf(bytes);
+				},
+			},
+		};
+		const input = validInput({ files: [{ name: "slow.pdf" }] });
+		const first = createAgentGoal(input, deps);
+		const second = createAgentGoal(input, deps);
+		open();
+		const [a, b] = await Promise.all([first, second]);
+		assert.equal(a.ok && b.ok, true);
+		if (!a.ok || !b.ok) return;
+		assert.equal(a.goalId, b.goalId);
+		assert.equal([a.reused, b.reused].filter(Boolean).length, 1, "exactly one of the two is the joined answer");
+		assert.equal(s.documents.imported.length, 1);
+		assert.equal(s.goalsStore.events.length, 1);
+	});
+
+	it("an existing goal is answered (reused) even when the ceiling is now spent, and nothing is spent", async () => {
+		const s = setup();
+		await createAgentGoal(validInput(), s.deps);
+		s.gate.setOpen(false);
+		const again = await createAgentGoal(validInput(), s.deps);
+		assert.equal(again.ok && again.reused, true);
+		assert.equal(s.gate.records.length, 0);
+	});
+
+	it("two parallel requests that each need more than half of the remaining budget: only one passes", async () => {
+		const store: { events: CostEvent[]; appendEvent(e: CostEvent): void; readEvents(): CostEvent[] } = {
+			events: [],
+			appendEvent(e) {
+				this.events.push(e);
+			},
+			readEvents() {
+				return [...this.events];
+			},
+		};
+		const ceiling = createCostGate({ store, ceilingUsd: 0.15, now: () => NOW });
+		const s = setup({
+			gate: { allowed: () => ceiling.allowed(), reserve: (usd, source) => ceiling.reserve?.(usd, source) ?? null },
+			documents: {
+				importPdf: async (bytes: Uint8Array) => {
+					await new Promise((resolve) => setTimeout(resolve, 5));
+					return s.documents.importPdf(bytes);
+				},
+			},
+		});
+		for (const name of ["a1.pdf", "a2.pdf", "b1.pdf", "b2.pdf"]) s.sandbox.put(name);
+		const [one, two] = await Promise.all([
+			createAgentGoal(validInput({ title: "One", files: [{ name: "a1.pdf" }, { name: "a2.pdf" }] }), s.deps),
+			createAgentGoal(validInput({ title: "Two", files: [{ name: "b1.pdf" }, { name: "b2.pdf" }] }), s.deps),
+		]);
+		const results = [one, two];
+		assert.equal(results.filter((r) => r.ok).length, 1, "exactly one request is admitted");
+		const refused = results.find((r) => !r.ok);
+		assert.equal(!refused?.ok && refused?.status, 429);
+		assert.equal(store.events.length, 1, "the admitted request is the only spend, and it is recorded once");
+		assert.equal(store.events[0]!.usd, 2 * ESTIMATED_IMPORT_USD_PER_FILE);
+	});
+
+	it("a failed import releases its reservation: the budget is free again and nothing is recorded", async () => {
+		const s = setup();
+		s.sandbox.put("x.pdf");
+		const failing: AgentGoalsDeps = { ...s.deps, documents: { importPdf: async () => Promise.reject(new Error("extraction failed")) } };
+		await assert.rejects(createAgentGoal(validInput({ files: [{ name: "x.pdf" }] }), failing), /extraction failed/);
+		assert.equal(s.gate.heldTotal(), 0);
+		assert.equal(s.gate.records.length, 0);
 	});
 });

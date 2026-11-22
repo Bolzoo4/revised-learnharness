@@ -100,7 +100,7 @@ export const CATALOG: Record<string, ToolSpec> = {
 	create_goal: {
 		title: "Create a study goal",
 		description:
-			"Use when the learner asks to start learning a topic. Creates a goal from a title, optional target statements the goal must reach (up to 20; the app needs at least one), optional PDFs named relative to the agent sandbox folder (up to 5 names from get_sandbox; the app reads each file, which must be a PDF of at most 20 MB, and the file stays where it is), optional weights per link type and a priority from 1 to 5. Returns goalId and nodeIds. Needs the running LearnHarness app. A refusal from the app (for example the daily agent spending ceiling) is returned as is. Writes through the app only.",
+			"Use when the learner asks to start learning a topic. Creates a goal from a title, optional target statements the goal must reach (up to 20; the app needs at least one), optional PDFs named relative to the agent sandbox folder (up to 5 names from get_sandbox; the app reads each file, which must be a PDF of at most 20 MB, and the file stays where it is), optional weights per link type and a priority from 1 to 5. Returns goalId, nodeIds and reused (true when an identical request already made the goal, so nothing was done again). Can take minutes while the PDFs are read; if it times out, call list_goals before trying again. Needs the running LearnHarness app. A refusal from the app (for example the daily agent spending ceiling) is returned as is. Writes through the app only.",
 		input: strict({
 			title: z.string().min(1).max(LIMITS.titleChars),
 			targets: z.array(z.string().min(1).max(WRITE_LIMITS.targetChars)).max(WRITE_LIMITS.targetsMax).optional(),

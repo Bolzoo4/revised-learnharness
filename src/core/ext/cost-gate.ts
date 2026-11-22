@@ -29,9 +29,40 @@ export interface CostStore {
 
 export type CostGateRefusal = "ceiling" | "provider-limit";
 
+export interface SpendHold {
+	/** Writes the amount to the ledger and frees the hold. Idempotent. */
+	commit(): void;
+	/** Frees the hold without spend. Idempotent. */
+	release(): void;
+}
+
+/** The amounts reserved by calls in flight, shared by every gate instance that must respect the same ceiling. */
+export interface SpendReservations {
+	total(): number;
+	hold(usd: number): () => void;
+}
+
+export function createSpendReservations(): SpendReservations {
+	let held = 0;
+	return {
+		total: () => held,
+		hold(usd) {
+			held += usd;
+			let live = true;
+			return () => {
+				if (!live) return;
+				live = false;
+				held = Math.max(0, held - usd);
+			};
+		},
+	};
+}
+
 export interface CostGate {
 	allowed(): boolean;
 	record(usd: number, source: string): void;
+	/** Holds usd against the ceiling before a call spends it: refused (null) when the ceiling, counting every hold, would be exceeded. */
+	reserve?(usd: number, source: string): SpendHold | null;
 	/** Why the gate is closed, or null when it is open. Optional: a gate without it is read as "ceiling" when closed. */
 	reason?(): CostGateRefusal | null;
 }
@@ -50,18 +81,45 @@ export function spentOnDay(events: readonly CostEvent[], day: string): number {
 	return total;
 }
 
-export function createCostGate(deps: { store: CostStore; ceilingUsd: number; now?: () => string; providerPause?: ProviderPause }): CostGate {
+export function createCostGate(deps: { store: CostStore; ceilingUsd: number; now?: () => string; providerPause?: ProviderPause; reservations?: SpendReservations }): CostGate {
 	const now = deps.now ?? (() => new Date().toISOString());
+	const holds = deps.reservations ?? createSpendReservations();
+	const spentToday = () => spentOnDay(deps.store.readEvents(), now().slice(0, 10));
 	const reason = (): CostGateRefusal | null => {
 		if (deps.providerPause?.isPaused(Date.parse(now())) === true) return "provider-limit";
-		return spentOnDay(deps.store.readEvents(), now().slice(0, 10)) < deps.ceilingUsd ? null : "ceiling";
+		return spentToday() + holds.total() < deps.ceilingUsd ? null : "ceiling";
+	};
+	const record = (usd: number, source: string) => {
+		if (!Number.isFinite(usd) || usd < 0) return;
+		deps.store.appendEvent({ type: "spend", usd, source, at: now() });
 	};
 	return {
 		allowed: () => reason() === null,
 		reason,
-		record(usd, source) {
-			if (!Number.isFinite(usd) || usd < 0) return;
-			deps.store.appendEvent({ type: "spend", usd, source, at: now() });
+		record,
+		reserve(usd, source) {
+			// One synchronous step: the check and the hold cannot interleave with another call.
+			if (!Number.isFinite(usd) || usd < 0) return null;
+			if (deps.providerPause?.isPaused(Date.parse(now())) === true) return null;
+			if (spentToday() + holds.total() + usd > deps.ceilingUsd) return null;
+			const drop = holds.hold(usd);
+			let open = true;
+			return {
+				commit() {
+					if (!open) return;
+					open = false;
+					try {
+						record(usd, source);
+					} finally {
+						drop();
+					}
+				},
+				release() {
+					if (!open) return;
+					open = false;
+					drop();
+				},
+			};
 		},
 	};
 }
