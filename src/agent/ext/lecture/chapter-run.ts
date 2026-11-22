@@ -82,6 +82,7 @@ export interface ChapterRunDeps {
 	stageGraph(): StagedChapterGraph;
 	/** The chapter's graph when it is already active in the real graph, or null. */
 	activeGraph(filePath: string): { sourceId: string; nodes: ReadonlyArray<GraphNodeView> } | null;
+	/** The chapter text the GRAPH import reads: with its page markers (graph-provenance). */
 	readChapterText(chapter: Chapter): Promise<string>;
 	writeOutline(chapter: Chapter, chapterText: string): Promise<OutlineBlock[]>;
 	writeLecture(input: LectureWriteInput): Promise<LectureDraft>;

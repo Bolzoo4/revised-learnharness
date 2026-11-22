@@ -54,7 +54,7 @@ function setup(over: Partial<LectureServiceDeps> & { run?: BookRun[]; exists?: b
 			exists: (p) => (over.exists ?? true) && p === PDF,
 			readBookmarks: async () => ({ pageCount: 40, bookmarks: [{ title: "Measurable spaces", page: 1 }, { title: "Sigma algebras", page: 10 }, { title: "Measures", page: 20 }] }),
 			readPageTexts: async () => [],
-			readChapterText: async () => "Unrelated source text for this chapter.",
+			readChapterText: async () => "Unrelated source text for this chapter.", readChapterTextWithPages: async () => "Unrelated source text for this chapter.",
 		},
 		writers: {
 			detectChaptersWithLlm: async () => [],
@@ -171,7 +171,7 @@ describe("restart", () => {
 				throw new Error("not used: the store cannot be read");
 			},
 			activeGraph: () => null,
-			pdf: { exists: () => true, readBookmarks: async () => ({ pageCount: 1, bookmarks: [] }), readPageTexts: async () => [], readChapterText: async () => "" },
+			pdf: { exists: () => true, readBookmarks: async () => ({ pageCount: 1, bookmarks: [] }), readPageTexts: async () => [], readChapterText: async () => "", readChapterTextWithPages: async () => "" },
 			writers: { detectChaptersWithLlm: async () => [], writeOutline: async () => [], writeLecture: async () => draft },
 			runs,
 			runStore: throwing,

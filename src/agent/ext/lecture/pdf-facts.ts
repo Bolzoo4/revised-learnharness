@@ -6,7 +6,7 @@
  */
 
 import * as fs from "node:fs/promises";
-import { normalizeBookmarks, type Chapter, type ChapterStart } from "../../../core/ext/lecture/chapters.ts";
+import { normalizeBookmarks, plainChapterText, type Chapter, type ChapterStart } from "../../../core/ext/lecture/chapters.ts";
 import { pdfExtract, standardFontsDir } from "../../subagents/pdf-ops.ts";
 
 async function open(pdfPath: string) {
@@ -74,9 +74,13 @@ export async function readPageTexts(pdfPath: string): Promise<string[]> {
 	}
 }
 
-/** The text of one chapter, via the math-aware extraction pdf-ops uses everywhere else. The
- *  "--- Page N ---" markers are KEPT (graph-provenance): the notes extractor reads them to anchor
- *  each proposition to its page. */
+/** The plain text of one chapter, via the math-aware extraction pdf-ops uses everywhere else. */
 export async function readChapterText(pdfPath: string, chapter: Chapter): Promise<string> {
+	return plainChapterText(await pdfExtract(pdfPath, `${chapter.pageStart}-${chapter.pageEnd}`));
+}
+
+/** The same chapter text WITH its "--- Page N ---" markers (graph-provenance): read only by the
+ *  graph import, so the notes extractor can anchor each proposition to its page. */
+export async function readChapterTextWithPages(pdfPath: string, chapter: Chapter): Promise<string> {
 	return (await pdfExtract(pdfPath, `${chapter.pageStart}-${chapter.pageEnd}`)).trim();
 }

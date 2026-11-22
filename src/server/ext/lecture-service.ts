@@ -56,6 +56,8 @@ export interface LectureServiceDeps {
 		readBookmarks(pdfPath: string): Promise<{ pageCount: number; bookmarks: ChapterStart[] }>;
 		readPageTexts(pdfPath: string): Promise<string[]>;
 		readChapterText(pdfPath: string, chapter: Chapter): Promise<string>;
+			/** The chapter text with its page markers: the graph import's source (graph-provenance). */
+			readChapterTextWithPages(pdfPath: string, chapter: Chapter): Promise<string>;
 	};
 	writers: {
 		detectChaptersWithLlm(excerpt: string, pageCount: number): Promise<ChapterStart[]>;
@@ -178,7 +180,7 @@ export function createLectureService(deps: LectureServiceDeps) {
 			lectures: deps.lectures,
 			stageGraph: deps.stageGraph,
 			activeGraph: deps.activeGraph,
-			readChapterText: (c) => deps.pdf.readChapterText(status.pdfPath, c),
+			readChapterText: (c) => deps.pdf.readChapterTextWithPages(status.pdfPath, c),
 			writeOutline: deps.writers.writeOutline,
 			writeLecture: deps.writers.writeLecture,
 			now,

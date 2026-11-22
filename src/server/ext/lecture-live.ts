@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createExtractionPipeline, extractionStatuses } from "../../agent/subagents/extraction.ts";
-import { readBookmarks, readChapterText, readPageTexts } from "../../agent/ext/lecture/pdf-facts.ts";
+import { readBookmarks, readChapterText, readChapterTextWithPages, readPageTexts } from "../../agent/ext/lecture/pdf-facts.ts";
 import { sourceIdForPath, type GraphNodeView, type StagedChapterGraph } from "../../agent/ext/lecture/chapter-run.ts";
 import { detectChaptersWithLlm, writeLectureDraft, writeOutline } from "../../agent/ext/lecture/writers.ts";
 import { emit } from "../../core/events.ts";
@@ -124,7 +124,7 @@ export const lectureService = createLectureService({
 	graphNodes: () => getGraph(stores.graphStore).nodes,
 	stageGraph: stageChapterGraph,
 	activeGraph: activeChapterGraph,
-	pdf: { exists: (p) => fs.existsSync(p), readBookmarks, readPageTexts, readChapterText },
+	pdf: { exists: (p) => fs.existsSync(p), readBookmarks, readPageTexts, readChapterText, readChapterTextWithPages },
 	writers: {
 		detectChaptersWithLlm: (excerpt, pageCount) => detectChaptersWithLlm(writerDeps(), excerpt, pageCount),
 		writeOutline: (chapter, text) => writeOutline(writerDeps(), chapter, text),

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
-import { readBookmarks, readChapterText, readPageTexts } from "../src/agent/ext/lecture/pdf-facts.ts";
+import { readBookmarks, readChapterText, readChapterTextWithPages, readPageTexts } from "../src/agent/ext/lecture/pdf-facts.ts";
 import { buildOutlinePdf } from "./helpers/outline-pdf.ts";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-pdf-"));
@@ -34,13 +34,19 @@ describe("pdf facts", () => {
 		assert.match(pages[0]!, /alpha page/);
 		assert.match(pages[1]!, /beta page/);
 	});
-	it("extracts a chapter's text with its page markers (graph-provenance anchors)", async () => {
+	it("extracts a chapter's text WITH its page markers for the graph import (graph-provenance)", async () => {
+			const pdf = write("e.pdf", buildOutlinePdf(["alpha page", "beta page", "gamma page"]));
+			const text = await readChapterTextWithPages(pdf, { index: 1, title: "t", pageStart: 1, pageEnd: 2 });
+			assert.match(text, /--- Page 1 ---\nalpha page/);
+			assert.match(text, /--- Page 2 ---\nbeta page/);
+			assert.doesNotMatch(text, /gamma/);
+		});
+		it("extracts a chapter's plain text without page headers", async () => {
 		const pdf = write("d.pdf", buildOutlinePdf(["alpha page", "beta page", "gamma page"]));
 		const text = await readChapterText(pdf, { index: 1, title: "t", pageStart: 1, pageEnd: 2 });
 		assert.match(text, /alpha page/);
 		assert.match(text, /beta page/);
 		assert.doesNotMatch(text, /gamma/);
-		assert.match(text, /--- Page 1 ---/);
-			assert.match(text, /--- Page 2 ---/);
+		assert.doesNotMatch(text, /--- Page/);
 	});
 });

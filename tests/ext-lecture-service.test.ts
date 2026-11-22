@@ -25,7 +25,7 @@ function setup(over: Partial<LectureServiceDeps> = {}) {
 			exists: (p) => p === PDF,
 			readBookmarks: async () => ({ pageCount: 20, bookmarks: [{ title: "Measurable spaces", page: 1 }] }),
 			readPageTexts: async () => [],
-			readChapterText: async () => "Unrelated source text for this chapter.",
+			readChapterText: async () => "Unrelated source text for this chapter.", readChapterTextWithPages: async () => "Unrelated source text for this chapter.",
 		},
 		writers: {
 			detectChaptersWithLlm: async () => [],
@@ -78,7 +78,7 @@ describe("startBookIngest", () => {
 		const orig = console.error;
 		console.error = (...a: unknown[]) => void logged.push(a);
 		try {
-			const { svc, runs } = setup({ pdf: { exists: (p) => p === PDF, readBookmarks: async () => { throw new Error("secret /path/boom"); }, readPageTexts: async () => [], readChapterText: async () => "" } });
+			const { svc, runs } = setup({ pdf: { exists: (p) => p === PDF, readBookmarks: async () => { throw new Error("secret /path/boom"); }, readPageTexts: async () => [], readChapterText: async () => "", readChapterTextWithPages: async () => "" } });
 			const { bookId, finished } = svc.startBookIngest({ pdfPath: PDF });
 			await finished;
 			const st = runs.get(bookId)!;
