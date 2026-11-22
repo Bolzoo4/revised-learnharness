@@ -291,6 +291,32 @@ export type Dictation = {
 export interface VoiceListener {
 	onWords(text: string, final: boolean): void;
 	onUtteranceEnd(): void;
+	/** The run ended outside the listener's own stop (teardown of a live run: ⌘D, Esc, a socket or microphone error). */
+	onStop?(): void;
+}
+
+/**
+ * Whether a dictation instance owns the page's keyboard seams (⌘D, Esc) and the finisher that submit paths
+ * await. A voice listener owns none of them, so voice mode never starts a second stream or takes Esc from the turn.
+ */
+export function ownsKeyboardSeams(voice: VoiceListener | undefined): boolean {
+	return voice === undefined;
+}
+
+/**
+ * Creates and resumes the shared audio context (iOS starts audio only inside a user gesture: call this inside
+ * the click). Resolves true when the audio can run; false when the context or the worklet could not start.
+ */
+export function primeDictationAudio(): Promise<boolean> {
+	try {
+		const { ctx, module } = ensureAudioGraph();
+		return Promise.all([ctx.resume(), module]).then(
+			() => ctx.state === "running",
+			() => false,
+		);
+	} catch {
+		return Promise.resolve(false);
+	}
 }
 
 export function useDictation({ append, voice }: { append: (text: string) => void; voice?: VoiceListener }): Dictation {
@@ -349,8 +375,10 @@ export function useDictation({ append, voice }: { append: (text: string) => void
 
 	/** Full teardown of one run's machinery. Idempotent; generation-guarded by callers. */
 	const cleanup = useCallback((warmNext = true) => {
+		const wasRunning = wsRef.current !== null || streamRef.current !== null;
 		genRef.current++;
-		setDictationActive(false);
+		if (ownsKeyboardSeams(voiceRef.current)) setDictationActive(false);
+		if (wasRunning) voiceRef.current?.onStop?.();
 		flush(); // the deferred transcript appears when the run ends (owner round 2)
 		if (safetyRef.current) {
 			clearTimeout(safetyRef.current);
@@ -458,7 +486,7 @@ export function useDictation({ append, voice }: { append: (text: string) => void
 	);
 
 	const start = useCallback(async () => {
-		setDictationActive(true);
+		if (ownsKeyboardSeams(voiceRef.current)) setDictationActive(true);
 		setError(null);
 		setPhase("connecting");
 		reconnectsRef.current = 0;
@@ -610,6 +638,7 @@ export function useDictation({ append, voice }: { append: (text: string) => void
 	// Publish finish() for the sibling subtrees (the pending question's
 	// dock) — registered for as long as this page owns the hook.
 	useEffect(() => {
+		if (!ownsKeyboardSeams(voiceRef.current)) return;
 		dictationFinisher = finish;
 		return () => {
 			if (dictationFinisher === finish) dictationFinisher = null;
@@ -635,11 +664,14 @@ export function useDictation({ append, voice }: { append: (text: string) => void
 			cleanup(false);
 		};
 	}, [cleanup]);
+	// A voice listener takes no keyboard seam: ⌘D and Esc belong to the normal dictation and the turn.
 	useEffect(() => {
+		if (!ownsKeyboardSeams(voiceRef.current)) return;
 		window.addEventListener("lh:kbd-toggle-dictation", toggle);
 		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
 	}, [toggle]);
 	useEffect(() => {
+		if (!ownsKeyboardSeams(voiceRef.current)) return;
 		window.addEventListener("lh:kbd-cancel-dictation", cancel);
 		return () => window.removeEventListener("lh:kbd-cancel-dictation", cancel);
 	}, [cancel]);

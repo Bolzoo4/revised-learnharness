@@ -2,18 +2,33 @@
 // components/session-overflow-menu.tsx
 /**
  * The session's overflow menu, in the chat header (REQ-chat-tts-08). Voice mode is an item here, never a control
- * in the composer. The flag is read from the session when the menu opens, and saved by its own route.
- * Turning voice mode on unlocks the audio element inside the click (iOS needs the gesture), before the save.
+ * in the composer. The flag is read from the session when the menu opens, saved by its own route, and followed
+ * when the page changes it (a budget or unavailable speech turns it off).
+ *
+ * Turning voice mode on, inside the click (iOS starts audio only from a gesture): the speech element is unlocked,
+ * and the shared audio context is created and resumed (primeDictationAudio). The save follows once the audio
+ * can run; when it cannot, voice mode stays off and the menu says so.
  */
 
 import { useEffect, useState } from "react";
 import { EllipsisIcon } from "lucide-react";
+import { primeDictationAudio } from "./dictation";
 import { getSpeechPlayer, type SpeechPlayer } from "./use-speech-player";
-import { announceVoiceMode } from "./use-voice-mode";
+import { announceVoiceMode, VOICE_EVENT } from "./use-voice-mode";
 
 export const VOICE_MODE_SAVE_FAILED = "Voice mode could not be changed.";
+export const VOICE_MIC_FAILED = "The microphone could not start, so voice mode stays off.";
 
-export function SessionOverflowMenu({ chatId, player }: { chatId: string; player?: SpeechPlayer | null }) {
+export function SessionOverflowMenu({
+	chatId,
+	player,
+	prime = primeDictationAudio,
+}: {
+	chatId: string;
+	player?: SpeechPlayer | null;
+	/** Creates and resumes the audio for listening; resolves true when it can run. Injected for tests. */
+	prime?: () => Promise<boolean>;
+}) {
 	const [open, setOpen] = useState(false);
 	/** null until the session's flag has been read. */
 	const [voiceMode, setVoiceMode] = useState<boolean | null>(null);
@@ -34,13 +49,19 @@ export function SessionOverflowMenu({ chatId, player }: { chatId: string; player
 		};
 	}, [open, voiceMode, chatId]);
 
-	function toggleVoiceMode() {
-		const next = voiceMode !== true;
-		// The unlock: synchronous, inside this click, before the save (see use-speech-player.ts).
-		if (next) active?.unlock();
-		else active?.stop();
-		setVoiceMode(next);
-		setNote(null);
+	// The page turns the flag off by itself when speech is spent or unavailable: the menu follows.
+	useEffect(() => {
+		const onToggle = (event: Event) => {
+			const detail = (event as CustomEvent<{ chatId: string; on: boolean }>).detail;
+			if (detail.chatId !== chatId) return;
+			setVoiceMode(detail.on);
+			setNote(null);
+		};
+		window.addEventListener(VOICE_EVENT, onToggle);
+		return () => window.removeEventListener(VOICE_EVENT, onToggle);
+	}, [chatId]);
+
+	function save(next: boolean, previous: boolean) {
 		fetch(`/api/chats/${chatId}/voice-mode`, {
 			method: "PUT",
 			headers: { "Content-Type": "application/json" },
@@ -51,9 +72,32 @@ export function SessionOverflowMenu({ chatId, player }: { chatId: string; player
 				announceVoiceMode(chatId, next);
 			})
 			.catch(() => {
-				setVoiceMode(!next);
+				setVoiceMode(previous);
 				setNote(VOICE_MODE_SAVE_FAILED);
 			});
+	}
+
+	function toggleVoiceMode() {
+		const current = voiceMode === true;
+		if (current) {
+			active?.stop();
+			setVoiceMode(false);
+			setNote(null);
+			save(false, true);
+			return;
+		}
+		// Inside the click: the audio is created and resumed, and the speech element unlocked, before any await.
+		const ready = prime();
+		active?.unlock();
+		void ready.then((ok) => {
+			if (!ok) {
+				setNote(VOICE_MIC_FAILED);
+				return;
+			}
+			setVoiceMode(true);
+			setNote(null);
+			save(true, false);
+		});
 	}
 
 	return (

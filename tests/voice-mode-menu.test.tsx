@@ -24,7 +24,7 @@ function fakePlayer(log: string[]): SpeechPlayer {
 	};
 }
 
-async function mount(opts: { voiceMode: boolean; putOk?: boolean; log: string[] }) {
+async function mount(opts: { voiceMode: boolean; putOk?: boolean; log: string[]; prime?: () => Promise<boolean> }) {
 	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
 	const requests: Array<{ method: string; url: string; body?: unknown }> = [];
 	const fetchFn = async (url: string, init?: RequestInit) => {
@@ -48,7 +48,7 @@ async function mount(opts: { voiceMode: boolean; putOk?: boolean; log: string[] 
 	const { SessionOverflowMenu } = await import("../components/session-overflow-menu.tsx");
 	const root = createRoot(doc.getElementById("root")!);
 	await act(async () => {
-		root.render(<SessionOverflowMenu chatId={CHAT} player={fakePlayer(opts.log)} />);
+		root.render(<SessionOverflowMenu chatId={CHAT} player={fakePlayer(opts.log)} prime={opts.prime ?? (async () => true)} />);
 	});
 	dispose = () => {
 		act(() => root.unmount());
@@ -102,5 +102,40 @@ describe("session overflow menu", () => {
 		});
 		assert.equal(q('[role="menuitemcheckbox"]')!.getAttribute("aria-checked"), "false");
 		assert.match(q('[role="status"]')?.textContent ?? "", /could not be changed/);
+	});
+
+	it("turning on starts the microphone's audio inside the click; when it cannot start, voice mode stays off and says so", async () => {
+		const calls: string[] = [];
+		const { q, open, requests } = await mount({
+			voiceMode: false,
+			log: [],
+			prime: async () => {
+				calls.push("prime");
+				return false;
+			},
+		});
+		await open();
+		await act(async () => q<HTMLButtonElement>('[role="menuitemcheckbox"]')!.click());
+		assert.deepEqual(calls, ["prime"], "the audio is primed when the click happens");
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		assert.equal(q('[role="menuitemcheckbox"]')!.getAttribute("aria-checked"), "false");
+		assert.ok(!requests.some((r) => r.method === "PUT"), "nothing is saved");
+		assert.match(q('[role="status"]')?.textContent ?? "", /microphone could not start/);
+	});
+
+	it("follows the flag when the page turns voice mode off (budget or unavailable)", async () => {
+		const { q, open } = await mount({ voiceMode: false, log: [] });
+		await open();
+		await act(async () => q<HTMLButtonElement>('[role="menuitemcheckbox"]')!.click());
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		assert.equal(q('[role="menuitemcheckbox"]')!.getAttribute("aria-checked"), "true");
+		await act(async () => {
+			window.dispatchEvent(new CustomEvent("lh:voice-mode", { detail: { chatId: CHAT, on: false } }));
+		});
+		assert.equal(q('[role="menuitemcheckbox"]')!.getAttribute("aria-checked"), "false");
 	});
 });

@@ -17,11 +17,13 @@ import { buildAnswer, guessLanguage, speechText, type LhViewMessage, type Pendin
 
 export const VOICE_BUDGET_NOTICE = "Voice mode is off: today's audio budget is spent. The lesson continues in text.";
 export const VOICE_UNAVAILABLE_NOTICE = "Voice mode is off: speech is not available here. The lesson continues in text.";
-const VOICE_EVENT = "lh:voice-mode";
+export const VOICE_LISTEN_STOPPED_NOTICE = "Listening stopped. Tap the card to answer.";
+export const VOICE_PROSE_FAILED_NOTICE = "This reply could not be read aloud. The question follows.";
+export const VOICE_EVENT = "lh:voice-mode";
 const QUESTION_TOOLS = ["ask_user_question", "quiz"];
 
 /** The pending question of a reply, as the machine reads it: an option question with its options, or an open one. */
-export function pendingQuestionOf(parts: readonly { type: string; state?: unknown; input?: unknown }[]): PendingQuestion | null {
+export function pendingQuestionOf(parts: readonly { type: string; state?: unknown; input?: unknown; text?: unknown }[]): PendingQuestion | null {
 	const call = [...parts].reverse().find((p) => QUESTION_TOOLS.some((t) => p.type === `tool-${t}`) && p.state === "input-available");
 	if (call === undefined) return null;
 	const input = (call.input ?? {}) as { options?: Array<{ label?: unknown; value?: unknown }> };
@@ -81,8 +83,10 @@ export function useVoiceMode({
 					const req = answer.kind === "option" ? { values: [answer.value] } : { text: answer.text };
 					submitRef.current(buildAnswer(qd, req, p.tool));
 				},
+				notice: (reason) => setNotice(reason === "listenStopped" ? VOICE_LISTEN_STOPPED_NOTICE : VOICE_PROSE_FAILED_NOTICE),
 				disable: (reason) => {
 					setOn(false);
+					announceVoiceMode(chatRef.current, false);
 					setNotice(reason === "budget" ? VOICE_BUDGET_NOTICE : VOICE_UNAVAILABLE_NOTICE);
 					void fetch(`/api/chats/${chatRef.current}/voice-mode`, {
 						method: "PUT",
@@ -99,6 +103,7 @@ export function useVoiceMode({
 		() => ({
 			onWords: (text: string, final: boolean) => controller.onWords(text, final),
 			onUtteranceEnd: () => controller.onUtteranceEnd(),
+			onStop: () => controller.onStopped(),
 		}),
 		[controller],
 	);
@@ -162,6 +167,8 @@ export function useVoiceMode({
 		notice,
 		/** A tap on the question card: the voice layer stops speaking and listening; the card submits. */
 		noteTap: () => controller.noteTap(),
+		/** Manual Listen on a reply while voice mode is on. */
+		manual: (messageId: string) => controller.manual(messageId),
 		on,
 	};
 }

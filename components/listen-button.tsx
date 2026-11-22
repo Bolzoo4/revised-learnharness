@@ -21,12 +21,15 @@ export function ListenButton({
 	messageId,
 	parts,
 	player,
+	onPress,
 }: {
 	sessionId: string;
 	messageId: string;
 	parts: readonly SpeechPart[];
 	/** The player to use; defaults to the page's one (see getSpeechPlayer). */
 	player?: SpeechPlayer | null;
+	/** Voice mode: a press is handed to the voice layer (which stops listening first) instead of playing directly. */
+	onPress?: (messageId: string) => void;
 }) {
 	const active = player === undefined ? getSpeechPlayer() : player;
 	const snap = useSyncExternalStore(
@@ -51,7 +54,8 @@ export function ListenButton({
 			data-state={state?.status ?? "idle"}
 			className="lh-touch inline-flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
 			onClick={() => {
-				void active?.play(sessionId, messageId);
+				if (onPress) onPress(messageId);
+				else void active?.play(sessionId, messageId);
 			}}
 		>
 			{loading ? <LoaderCircleIcon className="size-4 animate-spin" /> : playing ? <SquareIcon className="size-4" /> : <Volume2Icon className="size-4" />}

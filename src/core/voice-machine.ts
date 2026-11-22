@@ -11,6 +11,8 @@
 import { resolveOption, type OptionResolution, type ResolvableOption } from "./answer-resolver.ts";
 
 export type VoiceLanguage = "it" | "en";
+/** Notices the learner sees: the listening stopped; the reply's prose could not be read (the question follows). */
+export type VoiceNotice = "listenStopped" | "proseFailed";
 export type VoiceMode = "off" | "idle" | "speaking" | "listening" | "resolving";
 /** What the teacher asked: an open question, or an option question (ask_user_question or quiz) with its options. */
 export type PendingQuestion = { kind: "open" } | { kind: "option"; options: ResolvableOption[] };
@@ -23,8 +25,8 @@ export interface VoiceState {
 	mode: VoiceMode;
 	/** The question of the latest reply, until it is answered. */
 	pending: { messageId: string; question: PendingQuestion } | null;
-	/** What is being spoken: the prose, the question's spoken form, or the retry phrase. */
-	phase: "prose" | "question" | "retry" | null;
+	/** What is being spoken: the prose, the question's spoken form, the retry phrase, or a manual Listen. */
+	phase: "prose" | "question" | "retry" | "manual" | null;
 	language: VoiceLanguage;
 	/** Failed answers to the pending question. */
 	failures: number;
@@ -38,7 +40,11 @@ export type VoiceEvent =
 	| { type: "speechFailed"; kind: "budget" | "unavailable" | "other" }
 	| { type: "turnEnded"; transcript: string }
 	| { type: "resolved"; result: OptionResolution }
-	| { type: "tap"; answer: Answer };
+	| { type: "tap"; answer: Answer }
+	/** The listening ended outside the machine (a stream or microphone error, or ⌘D / Esc). */
+	| { type: "listenFailed" }
+	/** The learner pressed Listen on a reply: the clip plays; a listening turn stops first. */
+	| { type: "manualPlay"; messageId: string };
 
 export type VoiceEffect =
 	| { type: "play"; messageId: string }
@@ -49,7 +55,8 @@ export type VoiceEffect =
 	| { type: "stopPlaying" }
 	| { type: "resolve"; transcript: string; options: ResolvableOption[]; language: VoiceLanguage }
 	| { type: "submitAnswer"; answer: Answer }
-	| { type: "disableModeWithMessage"; reason: "budget" | "unavailable" };
+	| { type: "disableModeWithMessage"; reason: "budget" | "unavailable" }
+	| { type: "notice"; reason: VoiceNotice };
 
 export interface VoiceStep {
 	state: VoiceState;
@@ -92,6 +99,8 @@ export function step(s: VoiceState, event: VoiceEvent): VoiceStep {
 
 		case "speechEnded": {
 			if (s.mode !== "speaking") return { state: s, effects: [] };
+			// A manual Listen is not part of the question: when it ends, the machine rests.
+			if (s.phase === "manual") return { state: IDLE(s), effects: [] };
 			if (s.phase === "prose") {
 				if (s.pending === null) return { state: IDLE(s), effects: [] };
 				return {
@@ -146,6 +155,23 @@ export function step(s: VoiceState, event: VoiceEvent): VoiceStep {
 				};
 			}
 			return failed(s);
+		}
+
+		case "listenFailed": {
+			if (s.mode !== "listening" && s.mode !== "resolving") return { state: s, effects: [] };
+			return {
+				state: { ...s, mode: "idle", phase: null },
+				effects: [{ type: "stopListening" }, { type: "notice", reason: "listenStopped" }],
+			};
+		}
+
+		case "manualPlay": {
+			if (s.mode === "off") return { state: s, effects: [] };
+			const effects: VoiceEffect[] = [];
+			if (s.mode === "listening") effects.push({ type: "stopListening" });
+			if (s.mode === "speaking") effects.push({ type: "stopPlaying" });
+			effects.push({ type: "play", messageId: event.messageId });
+			return { state: { ...s, mode: "speaking", phase: "manual" }, effects };
 		}
 
 		case "tap": {

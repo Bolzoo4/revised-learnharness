@@ -6,7 +6,8 @@
  *
  * Speech arrives as settlements of the shared player's clips (see settled); the microphone's words and
  * utterance ends feed the turn detector (src/core/turn-detector.ts), whose end is the machine's turnEnded.
- * A turn's countdowns are cancelled when it stops, so a stale timer can never end a later turn.
+ * A turn that hears no word for VOICE_LISTEN_TIMEOUT_MS ends empty (one retry). A turn's countdowns are
+ * cancelled when it stops, so a stale timer can never end a later turn.
  */
 
 import {
@@ -20,9 +21,13 @@ import {
 	type PendingQuestion,
 	type VoiceEffect,
 	type VoiceEvent,
+	type VoiceNotice,
 	type VoiceState,
 } from "@/src/core";
-import type { SpeechOutcome, SpeechRequest } from "./use-speech-player";
+import { clipKey, type SpeechOutcome, type SpeechRequest } from "./use-speech-player";
+
+/** The silence that ends a listening turn with no word at all (counts as one retry). */
+export const VOICE_LISTEN_TIMEOUT_MS = 25_000;
 
 export interface VoiceEnv {
 	/** Plays a message's prose (no request), its question, or its retry phrase. */
@@ -30,12 +35,14 @@ export interface VoiceEnv {
 	stopPlaying(): void;
 	startListening(): void;
 	stopListening(): void;
-	/** The turn's countdown, in ms. Returns the cancel function. */
+	/** A countdown, in ms. Returns the cancel function. */
 	schedule(delayMs: number, fire: () => void): () => void;
-	/** Submits the learner's answer through the question card's own submit path. */
+	/** Submits the learner's answer through the question card's submit path. */
 	submit(answer: Answer): void;
 	/** Voice mode turned itself off: the reason is shown to the learner. */
 	disable(reason: "budget" | "unavailable"): void;
+	/** A short notice for the learner (the reason is the machine's). */
+	notice(reason: VoiceNotice): void;
 	now(): number;
 }
 
@@ -50,6 +57,10 @@ interface Turn {
 export class VoiceController {
 	private state: VoiceState = initialVoiceState();
 	private turn: Turn | null = null;
+	/** The clip the machine is waiting for (its clip key): settlements of any other clip are not the machine's. */
+	private awaiting: string | null = null;
+	/** Set when the controller itself stops the listening, so the stop it causes is not reported as a failure. */
+	private expectingStop = false;
 	/** Set while the card's own submit runs (a tap): the machine's submit is then the card's, not a second one. */
 	private cardSubmitting = false;
 
@@ -66,14 +77,18 @@ export class VoiceController {
 		for (const effect of out.effects) this.run(effect);
 	}
 
-	/** A reply arrived (or the page turned voice mode on or off, via modeOn/modeOff events). */
+	/** A reply arrived (the page's replyArrived event). */
 	replyArrived(event: Extract<VoiceEvent, { type: "replyArrived" }>): void {
 		this.dispatch(event);
 	}
 
-	/** A playback of this controller's clip settled. Stopped clips are the controller's own doing and are not reported. */
+	/**
+	 * A clip of the shared player settled. Only the clip the machine is waiting for counts: a manual Listen or a
+	 * stale clip is not the machine's, so its end moves nothing. Stopped clips are the controller's own doing.
+	 */
 	settled(key: string, outcome: SpeechOutcome): void {
-		if (outcome.type === "stopped") return;
+		if (outcome.type === "stopped" || key !== this.awaiting) return;
+		this.awaiting = null;
 		if (outcome.type === "ended") this.dispatch({ type: "speechEnded" });
 		else this.dispatch({ type: "speechFailed", kind: outcome.kind });
 	}
@@ -93,6 +108,20 @@ export class VoiceController {
 
 	onUtteranceEnd(): void {
 		this.turn?.detector.event({ type: "utteranceEnd", at: this.env.now() });
+	}
+
+	/** The dictation stopped (the listener's onStop). A stop the controller asked for is expected; any other is a failure. */
+	onStopped(): void {
+		if (this.expectingStop) {
+			this.expectingStop = false;
+			return;
+		}
+		this.dispatch({ type: "listenFailed" });
+	}
+
+	/** The learner pressed Listen on a reply while voice mode is on: the machine stops the mic, then plays the clip. */
+	manual(messageId: string): void {
+		this.dispatch({ type: "manualPlay", messageId });
 	}
 
 	/**
@@ -117,17 +146,25 @@ export class VoiceController {
 	private run(effect: VoiceEffect): void {
 		switch (effect.type) {
 			case "play":
+				this.awaiting = clipKey(effect.messageId);
 				this.env.play(effect.messageId);
 				return;
-			case "playQuestion":
-				this.env.play(effect.messageId, { part: "question" });
+			case "playQuestion": {
+				const request = { part: "question" } as const;
+				this.awaiting = clipKey(effect.messageId, request);
+				this.env.play(effect.messageId, request);
 				return;
+			}
 			case "speakRetry": {
 				const pending = this.state.pending;
-				if (pending !== null) this.env.play(pending.messageId, { part: "retry", language: effect.language });
+				if (pending === null) return;
+				const request = { part: "retry", language: effect.language } as const;
+				this.awaiting = clipKey(pending.messageId, request);
+				this.env.play(pending.messageId, request);
 				return;
 			}
 			case "stopPlaying":
+				this.awaiting = null;
 				this.env.stopPlaying();
 				return;
 			case "startListening":
@@ -136,6 +173,7 @@ export class VoiceController {
 				return;
 			case "stopListening":
 				this.endTurn();
+				this.expectingStop = true;
 				this.env.stopListening();
 				return;
 			case "resolve": {
@@ -149,23 +187,28 @@ export class VoiceController {
 			case "disableModeWithMessage":
 				this.env.disable(effect.reason);
 				return;
+			case "notice":
+				this.env.notice(effect.reason);
+				return;
 		}
 	}
 
 	private beginTurn(): void {
 		this.endTurn();
+		this.expectingStop = false;
 		const pending: PendingQuestion | null = this.state.pending?.question ?? null;
 		const cancels: Array<() => void> = [];
+		const schedule = (ms: number, fire: () => void) => {
+			const cancel = this.env.schedule(ms, fire);
+			cancels.push(cancel);
+			return cancel;
+		};
 		const turn: Turn = {
 			cancels,
 			committed: "",
 			interim: "",
 			detector: createTurnDetector({
-				schedule: (ms, fire) => {
-					const cancel = this.env.schedule(ms, fire);
-					cancels.push(cancel);
-					return cancel;
-				},
+				schedule,
 				onEnd: () => {
 					// Only the live turn ends the machine's turn.
 					if (this.turn === turn) this.dispatch({ type: "turnEnded", transcript: this.transcript() });
@@ -174,6 +217,10 @@ export class VoiceController {
 			}),
 		};
 		this.turn = turn;
+		// Nothing heard for the whole timeout: the turn ends empty (one retry).
+		schedule(VOICE_LISTEN_TIMEOUT_MS, () => {
+			if (this.turn === turn && turn.committed === "" && turn.interim === "") this.dispatch({ type: "turnEnded", transcript: "" });
+		});
 	}
 
 	private endTurn(): void {
@@ -182,4 +229,3 @@ export class VoiceController {
 		for (const cancel of turn?.cancels ?? []) cancel();
 	}
 }
-

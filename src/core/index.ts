@@ -57,6 +57,7 @@ export {
 	type VoiceEffect,
 	type VoiceLanguage,
 	type VoiceMode,
+	type VoiceNotice,
 	type PendingQuestion,
 	type Answer as VoiceAnswer,
 } from "./voice-machine.ts";

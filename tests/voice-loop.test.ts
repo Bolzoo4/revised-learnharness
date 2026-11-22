@@ -57,6 +57,9 @@ function fakeEnv() {
 			disabled.push(reason);
 			log.push(`disable ${reason}`);
 		},
+		notice(reason) {
+			log.push(`notice ${reason}`);
+		},
 		now: () => now,
 	};
 	return {

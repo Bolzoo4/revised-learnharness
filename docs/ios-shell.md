@@ -17,6 +17,8 @@ xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
 xcrun devicectl device install app --device <device id> ios/DerivedData/Build/Products/Debug-iphoneos/App.app
 ```
 
+Microphone: the app asks for the microphone for dictation and voice mode, with the text in `Info.plist` (`NSMicrophoneUsageDescription`). WKWebView needs no extra capture flag: the usage string is what iOS shows. A change to `Info.plist` takes effect only in a build that is installed again, so the phone app must be reinstalled (the command below) before the prompt appears.
+
 Device ids: `xcrun devicectl list devices`. The team id is not committed (find it in Xcode, Settings, Accounts). On the phone, trust the developer once in Settings, General, VPN & Device Management.
 
 ## Sign in

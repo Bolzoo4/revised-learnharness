@@ -1681,7 +1681,7 @@ export function Chat({
 												}
 											})}
 										</MessageContent>
-										<ListenButton sessionId={chatId} messageId={m.id} parts={m.parts} />
+										<ListenButton sessionId={chatId} messageId={m.id} parts={m.parts} onPress={voice.on ? voice.manual : undefined} />
 									</Message>
 									)}
 								</Fragment>

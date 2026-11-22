@@ -175,7 +175,7 @@ afterEach(() => {
 	dispose = undefined;
 });
 
-async function mountButton(opts: { player: SpeechPlayer; parts: unknown[] }) {
+async function mountButton(opts: { player: SpeechPlayer; parts: unknown[]; onPress?: (messageId: string) => void }) {
 	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
 	const globals: Record<string, unknown> = {
 		React,
@@ -199,7 +199,7 @@ async function mountButton(opts: { player: SpeechPlayer; parts: unknown[] }) {
 	const { ListenButton } = await import("../components/listen-button.tsx");
 	const root = createRoot(doc.getElementById("root")!);
 	await act(async () => {
-		root.render(<ListenButton sessionId={SESSION} messageId="msg_1" parts={opts.parts as never} player={opts.player} />);
+		root.render(<ListenButton sessionId={SESSION} messageId="msg_1" parts={opts.parts as never} player={opts.player} onPress={opts.onPress} />);
 	});
 	dispose = () => {
 		act(() => root.unmount());
@@ -324,5 +324,14 @@ describe("speech player: parts and settlement (voice mode)", () => {
 		const { BUDGET_TEXT } = await import("../src/server/ext/lecture-audio.ts");
 		const { SPEECH_BUDGET_TEXT } = await import("../components/use-speech-player.ts");
 		assert.equal(SPEECH_BUDGET_TEXT, BUDGET_TEXT);
+	});
+
+	it("with an onPress (voice mode on), a click hands the message to it instead of playing it directly", async () => {
+		const { player, audio } = setup();
+		const pressed: string[] = [];
+		const { button } = await mountButton({ player, parts: SPEAKABLE, onPress: (id) => void pressed.push(id) });
+		button()!.click();
+		assert.deepEqual(pressed, ["msg_1"]);
+		assert.equal(audio.plays.length, 0, "the player is not called directly");
 	});
 });

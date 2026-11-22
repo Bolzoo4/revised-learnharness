@@ -264,7 +264,9 @@ describe("voice machine: the speaker and the microphone never run together", () 
 	function randomEvent(next: () => number): VoiceEvent {
 		const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(next() * xs.length)]!;
 		const question = pick<PendingQuestion | null>([null, OPEN, CHOICE]);
-		switch (Math.floor(next() * 11)) {
+		switch (Math.floor(next() * 13)) {
+			case 11: return { type: "listenFailed" };
+			case 12: return { type: "manualPlay", messageId: pick(["m1", "m2"]) };
 			case 0: return { type: "modeOn" };
 			case 1: return { type: "modeOff" };
 			case 2: return { type: "replyArrived", messageId: pick(["m1", "m2"]), speakable: next() < 0.7, question, language: pick(["it", "en"] as const) };
@@ -307,5 +309,51 @@ describe("voice machine: the speaker and the microphone never run together", () 
 				state = out.state;
 			}
 		}
+	});
+});
+
+describe("voice machine: an external stop of the listening (review)", () => {
+	it("listenFailed while listening releases the mic, shows a notice, goes idle and keeps the question pending", () => {
+		const { state } = run([{ type: "modeOn" }, reply(CHOICE), { type: "speechEnded" }, { type: "speechEnded" }]);
+		const out = step(state, { type: "listenFailed" });
+		assert.equal(out.state.mode, "idle");
+		assert.ok(out.state.pending, "the card stays pending for tapping");
+		assert.deepEqual(out.effects, [{ type: "stopListening" }, { type: "notice", reason: "listenStopped" }]);
+	});
+
+	it("listenFailed while resolving does the same", () => {
+		const { state } = run([{ type: "modeOn" }, reply(CHOICE), { type: "speechEnded" }, { type: "speechEnded" }, { type: "turnEnded", transcript: "la B" }]);
+		assert.equal(step(state, { type: "listenFailed" }).state.mode, "idle");
+	});
+
+	it("listenFailed when not listening is ignored", () => {
+		const { state } = run([{ type: "modeOn" }, reply(null)]);
+		assert.deepEqual(step(state, { type: "listenFailed" }).effects, []);
+	});
+});
+
+describe("voice machine: a manual Listen is a clip the machine knows about (review)", () => {
+	it("from listening: stops the mic, then plays the clip; nothing listens after it", () => {
+		const { state } = run([{ type: "modeOn" }, reply(CHOICE), { type: "speechEnded" }, { type: "speechEnded" }]);
+		const out = step(state, { type: "manualPlay", messageId: "m2" });
+		assert.equal(out.state.mode, "speaking");
+		assert.deepEqual(out.effects, [{ type: "stopListening" }, { type: "play", messageId: "m2" }]);
+		const done = step(out.state, { type: "speechEnded" });
+		assert.equal(done.state.mode, "idle");
+		assert.deepEqual(done.effects, []);
+	});
+
+	it("from speaking: stops the speech, then plays the clip", () => {
+		const { state } = run([{ type: "modeOn" }, reply(null)]);
+		assert.deepEqual(step(state, { type: "manualPlay", messageId: "m2" }).effects, [{ type: "stopPlaying" }, { type: "play", messageId: "m2" }]);
+	});
+
+	it("keeps the pending question for later", () => {
+		const { state } = run([{ type: "modeOn" }, reply(CHOICE)]);
+		assert.ok(step(state, { type: "manualPlay", messageId: "m2" }).state.pending);
+	});
+
+	it("is ignored while voice mode is off", () => {
+		assert.deepEqual(step(initialVoiceState(), { type: "manualPlay", messageId: "m2" }).effects, []);
 	});
 });
