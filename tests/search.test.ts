@@ -11,15 +11,17 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveSearchEngineFor, tavilyProvider, braveProvider, exaProvider, firecrawlProvider, ollamaProvider } from "../src/server/search.ts";
-import { KEYED_SEARCH_ENGINES, SEARCH_ENGINES, isSearchEngineId, type SearchEngineId } from "../src/core/search.ts";
+import { resolveSearchEngineFor, providerForResolution, fallbackChain, tavilyProvider, braveProvider, exaProvider, firecrawlProvider, ollamaProvider } from "../src/server/search.ts";
+import { KEYED_SEARCH_ENGINES, KEYLESS_SEARCH_ENGINES, SEARCH_ENGINES, isSearchEngineId, type SearchEngineId, type SearchHit, type SearchProvider } from "../src/core/search.ts";
 
 describe("resolveSearchEngineFor (the auto-detect decision)", () => {
-	it("no keys: honestly unavailable, no default", () => {
+	it("no keys: the keyless engines are live, SearXNG first (REQ-search-04)", () => {
 		const out = resolveSearchEngineFor(undefined, {});
-		assert.ok(!out.available);
-		assert.equal(out.engine, null);
-		assert.match(out.reason, /no search engine configured/i);
+		assert.ok(out.available);
+		assert.equal(out.engine, "searxng");
+		assert.deepEqual(out.chain, ["searxng", "openalex", "wikipedia"]);
+		assert.equal(out.key, null);
+		assert.match(out.reason, /auto/);
 	});
 
 	it("a key alone is enough — no engine choice needed", () => {
@@ -298,8 +300,8 @@ describe("five-engine catalog and resolution", () => {
 			const configured = KEYED_SEARCH_ENGINES.filter((_, index) => mask & (1 << index));
 			const keys = Object.fromEntries(configured.map(({ id }) => [id, `fake-${id}`]));
 			const result = resolveSearchEngineFor(undefined, keys);
-			assert.equal(result.engine, configured[0]?.id ?? null, `key mask ${mask}`);
-			assert.equal(result.available, configured.length > 0);
+			assert.equal(result.engine, configured[0]?.id ?? "searxng", `key mask ${mask}`);
+			assert.equal(result.available, true, `key mask ${mask}`);
 		}
 	});
 
@@ -366,3 +368,88 @@ it("Firecrawl drops invalid result rows and normalizes only search descriptions"
 		{ title: "https://example.com", url: "https://example.com", snippet: "" },
 	]);
 });
+
+describe("keyless engines (REQ-search-04)", () => {
+	it("every keyless engine is live without any key when pinned", () => {
+		for (const { id } of KEYLESS_SEARCH_ENGINES) {
+			const out = resolveSearchEngineFor(id, {});
+			assert.equal(out.available, true, id);
+			assert.equal(out.engine, id);
+			assert.deepEqual(out.chain, [id]);
+			assert.equal(out.key, null);
+		}
+	});
+
+	it("an explicit keyless pin wins over a keyed key", () => {
+		const out = resolveSearchEngineFor("openalex", { tavily: "tvly-throwaway-key-00001" });
+		assert.equal(out.engine, "openalex");
+		assert.deepEqual(out.chain, ["openalex"]);
+	});
+
+	it("a keyed pin without its key does not fall back to a keyless engine", () => {
+		const out = resolveSearchEngineFor("tavily", {});
+		assert.equal(out.available, false);
+		assert.equal(out.engine, null);
+		assert.deepEqual(out.chain, []);
+	});
+
+	it("without a pin, a keyed engine still wins over every keyless one", () => {
+		const out = resolveSearchEngineFor(undefined, { exa: "exa-test-key" });
+		assert.equal(out.engine, "exa");
+		assert.deepEqual(out.chain, ["exa"]);
+	});
+
+	it("without a pin and without keys, the automatic chain is SearXNG, OpenAlex, Wikipedia", () => {
+		const out = resolveSearchEngineFor(undefined, {});
+		assert.deepEqual(out.chain, KEYLESS_SEARCH_ENGINES.map(({ id }) => id));
+		assert.deepEqual(out.chain, ["searxng", "openalex", "wikipedia"]);
+	});
+
+	it("a single-engine resolution names that engine as the provider", () => {
+		assert.equal(providerForResolution(resolveSearchEngineFor("wikipedia", {}))?.id, "wikipedia");
+		assert.equal(providerForResolution(resolveSearchEngineFor(undefined, {}))?.id, "searxng");
+		assert.equal(providerForResolution(resolveSearchEngineFor("tavily", {})), null);
+	});
+});
+
+describe("fallbackChain (automatic keyless engines, tried in order)", () => {
+	const hit: SearchHit = { title: "t", url: "https://e.example/", snippet: "" };
+	function engine(id: SearchEngineId, impl: () => Promise<SearchHit[]>, calls: string[]): SearchProvider {
+		return { id, async search() { calls.push(id); return impl(); } };
+	}
+
+	it("returns the first engine that answers and never asks the rest", async () => {
+		const calls: string[] = [];
+		const chain = fallbackChain([
+			engine("searxng", async () => { throw new Error("down"); }, calls),
+			engine("openalex", async () => [hit], calls),
+			engine("wikipedia", async () => [hit], calls),
+		]);
+		assert.deepEqual(await chain.search("q", 5), [hit]);
+		assert.deepEqual(calls, ["searxng", "openalex"]);
+	});
+
+	it("an empty answer is an answer, not a reason to ask the next engine", async () => {
+		const calls: string[] = [];
+		const chain = fallbackChain([
+			engine("searxng", async () => [], calls),
+			engine("openalex", async () => [hit], calls),
+		]);
+		assert.deepEqual(await chain.search("q", 5), []);
+		assert.deepEqual(calls, ["searxng"]);
+	});
+
+	it("fails only when every engine failed, and names each reason", async () => {
+		const calls: string[] = [];
+		const chain = fallbackChain([
+			engine("searxng", async () => { throw new Error("SearXNG is down"); }, calls),
+			engine("openalex", async () => { throw new Error("OpenAlex 503"); }, calls),
+		]);
+		await assert.rejects(chain.search("q", 5), (err: Error) => {
+			assert.match(err.message, /SearXNG is down/);
+			assert.match(err.message, /OpenAlex 503/);
+			return true;
+		});
+	});
+});
+

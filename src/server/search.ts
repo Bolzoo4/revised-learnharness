@@ -20,7 +20,7 @@
  */
 
 import { guessLanguage } from "../core/ext/lecture/audio.ts";
-import { KEYED_SEARCH_ENGINES, SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../core/search.ts";
+import { KEYED_SEARCH_ENGINES, KEYLESS_SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../core/search.ts";
 import { keyValue } from "./keys.ts";
 import { effectiveSettings } from "./stores.ts";
 
@@ -364,7 +364,7 @@ function engineKey(id: SearchEngineId): string | null {
 	return value ? value : null;
 }
 
-/** Every engine's live key, read fresh (the resolver's input). */
+/** Every keyed engine's live key, read fresh (the resolver's input). */
 function engineKeys(): Partial<Record<SearchEngineId, string>> {
 	const keys: Partial<Record<SearchEngineId, string>> = {};
 	for (const { id } of KEYED_SEARCH_ENGINES) {
@@ -374,39 +374,122 @@ function engineKeys(): Partial<Record<SearchEngineId, string>> {
 	return keys;
 }
 
-/** Resolve the search state PURELY from the given pins (testable): the
- *  explicit engine (if pinned) wins but must be keyed; absent pin → first
- *  keyed engine in preference order. Never throws. */
+/** The resolved state. `chain` is the ordered engines a search may use:
+ *  one engine for a pin or a keyed auto-pick, every keyless engine (in
+ *  table order) for automatic keyless search. `key` is set only for keyed. */
+export type SearchResolution = SearchStatus & { key: string | null; chain: SearchEngineId[] };
+
+/** Resolve the search state PURELY from the given pins (testable). Rules:
+ *  - An explicit pin wins. A keyless pin is live as it stands; a keyed pin
+ *    needs its key. A pin never falls back to another engine.
+ *  - Without a pin, the first keyed engine with a key wins (Tavily first).
+ *  - Without a pin and without any keyed key, the keyless engines are used
+ *    in table order (SearXNG, OpenAlex, Wikipedia); a failed one hands over
+ *    to the next (see fallbackChain). */
 export function resolveSearchEngineFor(
 	pinned: SearchEngineId | undefined,
 	/** Per-engine live keys (absent engine = absent property is fine). */
 	keys: Partial<Record<SearchEngineId, string | undefined>>,
-): SearchStatus & { key: string | null } {
-	const pinnedKey = pinned ? keys[pinned] ?? null : null;
+): SearchResolution {
 	if (pinned) {
+		if (KEYLESS_SEARCH_ENGINES.some((e) => e.id === pinned)) {
+			return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen, no key needed)`, key: null, chain: [pinned] };
+		}
+		const pinnedKey = keys[pinned] ?? null;
 		if (!pinnedKey) {
 			return {
 				available: false,
 				engine: null,
 				reason: `search engine is set to "${pinned}" but its API key is missing — set the ${KEYED_SEARCH_ENGINES.find((e) => e.id === pinned)?.envVar} key`,
 				key: null,
+				chain: [],
 			};
 		}
-		return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen)`, key: pinnedKey };
+		return { available: true, engine: pinned, reason: `search engine: ${pinned} (chosen)`, key: pinnedKey, chain: [pinned] };
 	}
-	for (const { id } of SEARCH_ENGINES) {
+	for (const { id } of KEYED_SEARCH_ENGINES) {
 		const key = keys[id] ?? null;
-		if (key) return { available: true, engine: id, reason: `search engine: ${id} (auto)`, key };
+		if (key) return { available: true, engine: id, reason: `search engine: ${id} (auto)`, key, chain: [id] };
 	}
+	const keyless = KEYLESS_SEARCH_ENGINES.map(({ id }) => id);
 	return {
-		available: false,
-		engine: null,
-		reason: "no search engine configured — set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key",
+		available: true,
+		engine: keyless[0] ?? null,
+		reason: `search engine: ${keyless.join(", then ")} (auto, no key needed)`,
 		key: null,
+		chain: keyless,
 	};
 }
 
-/** The live search state (the honest availability signal): reads the
+/** Automatic keyless search: try each engine in order, skip a failed one,
+ *  return the first answer. An empty answer is an answer. Fails only when
+ *  every engine failed, and the message keeps each reason. */
+export function fallbackChain(providers: SearchProvider[]): SearchProvider {
+	return {
+		id: providers[0]?.id ?? "searxng",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const reasons: string[] = [];
+			for (const provider of providers) {
+				try {
+					return await provider.search(query, count);
+				} catch (err) {
+					reasons.push(`${provider.id}: ${err instanceof Error ? err.message : String(err)}`);
+				}
+			}
+			throw new Error(`no keyless search engine answered (${reasons.join("; ")})`);
+		},
+	};
+}
+
+/** The SearXNG instance: SEARXNG_URL when set, else the local default. */
+function searxngBaseUrl(): string {
+	const configured = process.env.SEARXNG_URL?.trim();
+	return configured ? configured : "http://127.0.0.1:8888";
+}
+
+/** The keyed adapter for a resolved key. */
+function keyedAdapter(id: SearchEngineId, key: string): SearchProvider | null {
+	switch (id) {
+		case "tavily":
+			return tavilyProvider(key);
+		case "brave":
+			return braveProvider(key);
+		case "exa":
+			return exaProvider(key);
+		case "firecrawl":
+			return firecrawlProvider(key);
+		case "ollama":
+			return ollamaProvider(key);
+		default:
+			return null;
+	}
+}
+
+/** The keyless adapter for an engine id. */
+function keylessAdapter(id: SearchEngineId): SearchProvider | null {
+	switch (id) {
+		case "searxng":
+			return searxngProvider(searxngBaseUrl());
+		case "openalex":
+			return openAlexProvider();
+		case "wikipedia":
+			return wikipediaProvider();
+		default:
+			return null;
+	}
+}
+
+/** The live adapter for a resolution: a pin or a keyed pick is one adapter;
+ *  automatic keyless search is the fallback chain over the keyless adapters. */
+export function providerForResolution(resolved: SearchResolution): SearchProvider | null {
+	if (!resolved.available || resolved.chain.length === 0) return null;
+	if (resolved.key) return keyedAdapter(resolved.chain[0]!, resolved.key);
+	const adapters = resolved.chain.map(keylessAdapter).filter((p): p is SearchProvider => p !== null);
+	if (adapters.length === 0) return null;
+	return adapters.length === 1 ? adapters[0]! : fallbackChain(adapters);
+}
+
+/** The engine-level status (the honest availability signal): reads the
  *  settings record's pin + the auth store fresh each call, so a key saved
  *  mid-session activates on the next check (no restart). */
 export function searchStatus(): SearchStatus {
@@ -426,20 +509,5 @@ export function searchAvailable(): boolean {
  *  the tool layer (Teacher stream) calls this once per search, so key
  *  rotations take effect immediately. */
 export function searchProvider(): SearchProvider | null {
-	const resolved = resolveSearchEngineFor(effectiveSettings().agent.search?.engine, engineKeys());
-	if (!resolved.available || !resolved.key) return null;
-	switch (resolved.engine) {
-		case "tavily":
-			return tavilyProvider(resolved.key);
-		case "brave":
-			return braveProvider(resolved.key);
-		case "exa":
-			return exaProvider(resolved.key);
-		case "firecrawl":
-			return firecrawlProvider(resolved.key);
-		case "ollama":
-			return ollamaProvider(resolved.key);
-		default:
-			return null;
-	}
+	return providerForResolution(resolveSearchEngineFor(effectiveSettings().agent.search?.engine, engineKeys()));
 }

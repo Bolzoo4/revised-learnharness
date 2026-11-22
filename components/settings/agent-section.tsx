@@ -499,6 +499,7 @@ export function AgentSection({
 		active: boolean,
 		live: boolean | null,
 		onPick: () => void,
+		keyless = false,
 	) => (
 		<button
 			key={id}
@@ -511,7 +512,7 @@ export function AgentSection({
 		>
 			<span>{label}</span>
 			<span className="text-muted-foreground">
-				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>✓ key</span> : <span aria-hidden>· no key</span>}
+				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>{keyless ? "✓ free" : "✓ key"}</span> : <span aria-hidden>· no key</span>}
 			</span>
 		</button>
 	);
@@ -904,14 +905,12 @@ export function AgentSection({
 				})()}
 				{(() => {
 					const engine = agent?.search?.engine ?? null;
-					const anyKey = KEYED_SEARCH_ENGINES.some(({ id }) => engineKeys[id] === true);
 					const open = openMenu?.target === "search";
 					return (
 						<SettingsRow
 							label="Search engine"
 							hint={search?.reason ?? undefined}
 							testid="search-engine-row"
-							dimmed={!anyKey}
 						>
 							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
 								<MenuTrigger
@@ -922,7 +921,6 @@ export function AgentSection({
 									open={open}
 									onClick={() => setOpenMenu(open ? null : { target: "search", kind: "engine" })}
 									widthClass="min-w-20"
-									disabled={!anyKey}
 								/>
 								{open && (
 									<MenuShell
@@ -935,12 +933,13 @@ export function AgentSection({
 											onSectionChange(composeSearchEngine(agent, null));
 											setOpenMenu(null);
 										})}
-										{KEYED_SEARCH_ENGINES.map(({ id, label }) =>
-											engineOption(id, label, engine === id, engineKeys[id] ?? false, () => {
+										{SEARCH_ENGINES.map(({ id, label }) => {
+											const keyless = !KEYED_SEARCH_ENGINES.some((e) => e.id === id);
+											return engineOption(id, label, engine === id, keyless ? true : (engineKeys[id] ?? false), () => {
 												onSectionChange(composeSearchEngine(agent, id));
 												setOpenMenu(null);
-											}),
-										)}
+											}, keyless);
+										})}
 									</MenuShell>
 								)}
 							</span>

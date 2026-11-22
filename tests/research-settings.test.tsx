@@ -5,7 +5,7 @@ import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import { AgentSection } from "../components/settings/agent-section.tsx";
 import type { AgentSettings } from "../src/core/index.ts";
-import { KEYED_SEARCH_ENGINES } from "../src/core/search.ts";
+import { KEYED_SEARCH_ENGINES, SEARCH_ENGINES } from "../src/core/search.ts";
 
 it("keyless settings keep Research interactive while search-engine setup retains its own disabled state", async () => {
 	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
@@ -23,6 +23,9 @@ it("keyless settings keep Research interactive while search-engine setup retains
 		document: dom.document,
 		navigator: globals.navigator ?? { userAgent: "", platform: "" },
 		HTMLElement: dom.window.HTMLElement,
+		CustomEvent: dom.window.CustomEvent,
+		requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0),
+		cancelAnimationFrame: (id: number) => clearTimeout(id),
 		IS_REACT_ACT_ENVIRONMENT: true,
 		fetch: async (url: string) => {
 			assert.ok(url in bodies, `unexpected request: ${url}`);
@@ -57,9 +60,10 @@ it("keyless settings keep Research interactive while search-engine setup retains
 		act(() => { toggle.click(); });
 		assert.equal(written?.tools?.research, false, "the keyless toggle emits the same stored boolean");
 		const engine = document.querySelector<HTMLButtonElement>('[data-testid="search-engine-trigger"]')!;
-		assert.ok(engine.className.includes("cursor-not-allowed"), "search engine preference retains its own key gate");
+		assert.ok(!engine.hasAttribute("disabled"), "keyless engines are live, so the engine preference is usable without a key");
 		act(() => { engine.click(); });
-		assert.equal(document.querySelector('[data-testid="search-engine-menu"]'), null, "keyless engine preference does not open");
+		assert.ok(document.querySelector('[data-testid="search-engine-menu"]'), "the engine menu opens with no keys");
+		assert.ok(document.querySelector('[data-testid="engine-option-searxng"]')?.textContent?.includes("free"), "keyless options say so");
 		assert.ok(document.querySelector('[data-testid="search-engine-row"]')?.textContent?.includes(reason));
 	} finally {
 		act(() => { root.unmount(); });
@@ -106,7 +110,7 @@ it(`a ${label}-only key enables the engine menu and selecting ${label} saves the
 		assert.ok(!trigger.hasAttribute("disabled"));
 		await act(async () => trigger.click());
 		const optionIds = [...document.querySelectorAll('[data-testid^="engine-option-"]')].map((row) => row.getAttribute("data-testid"));
-		assert.deepEqual(optionIds, ["engine-option-auto", ...KEYED_SEARCH_ENGINES.map(({ id }) => `engine-option-${id}`)]);
+		assert.deepEqual(optionIds, ["engine-option-auto", ...SEARCH_ENGINES.map(({ id }) => `engine-option-${id}`)]);
 		const option = document.querySelector<HTMLButtonElement>(`[data-testid="engine-option-${id}"]`);
 		assert.ok(option);
 		assert.ok(option.textContent?.includes(label));

@@ -54,6 +54,12 @@ export const KEYED_SEARCH_ENGINES: readonly KeyedSearchEngine[] = SEARCH_ENGINES
 	(engine): engine is KeyedSearchEngine => "envVar" in engine,
 );
 
+/** The engines that need no key: live as soon as they are chosen or reached. */
+export type KeylessSearchEngine = Extract<(typeof SEARCH_ENGINES)[number], { keyless: true }>;
+export const KEYLESS_SEARCH_ENGINES: readonly KeylessSearchEngine[] = SEARCH_ENGINES.filter(
+	(engine): engine is KeylessSearchEngine => "keyless" in engine,
+);
+
 /** The read/write guards' membership check (settings record + PUT body). */
 export function isSearchEngineId(value: unknown): value is SearchEngineId {
 	return SEARCH_ENGINES.some((engine) => engine.id === value);
