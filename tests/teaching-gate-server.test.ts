@@ -14,7 +14,9 @@ import type { PiEngine } from "../src/agent/models.ts";
 import { newPlanBlockMessage, type LhMessage } from "../src/core/native-messages.ts";
 import { coverageOf } from "../src/core/coverage.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
-import { clearNotExtracted as trackClear } from "../src/server/teaching-gate.ts";
+import { clearNotExtracted } from "../src/server/teaching-gate.ts";
+import { messageFingerprint } from "../src/core/coverage.ts";
+import type { CoverageEntry } from "../src/core/contracts.ts";
 import {
 	forceExtractionFor,
 	markNotExtracted,
@@ -299,12 +301,107 @@ describe("extraction after every plan turn (REQ-graph-agent-19)", () => {
 			setTeachingGateLedger(makeTeachingGateLedger(dir)); // a fresh process reads the ledger
 			assert.deepEqual([...notExtractedIds("chat-durable")].sort(), ["a-1", "a-2"]);
 			setTeachingGateLedger(makeTeachingGateLedger(dir));
-			trackClear("chat-durable");
+			clearNotExtracted("chat-durable", ["a-1", "a-2"]);
 			setTeachingGateLedger(makeTeachingGateLedger(dir));
 			assert.equal(notExtractedIds("chat-durable").size, 0, "a successful run clears the marker durably");
 		} finally {
 			setTeachingGateLedger(makeTeachingGateLedger(tmpLedgerDir));
 			fs.rmSync(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("the wait and the forced run are scoped to plans and marks (fix B2)", () => {
+	it("a chat without a plan does not wait for an in-flight extraction", async () => {
+		setTeachingGateTiming(null);
+		const chat = chatStore.createChat("Test: no plan, no wait");
+		createdChats.push(chat.id);
+		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		await runTurn(chat.id, "just chatting", scriptedTeacher([textTurn("Short.")]));
+		trackExtraction(chat.id, new Promise(() => {})); // never settles
+
+		let modelCalls = 0;
+		const ackP = handleChatRequest(post(chat.id, "again"), countingFactory(scriptedTeacher([textTurn("Again.")]), () => modelCalls++));
+		await waitFor(() => modelCalls === 1, 2000, "model call without waiting");
+		assert.equal((await ackP).status, 200);
+		await waitFor(() => !isTurnRunning(chat.id), 8000, "turn settle");
+	});
+
+	it("a chat without a plan starts no below-budget run while another run is in flight", () => {
+		const chat = chatStore.createChat("Test: no plan, no forced run");
+		createdChats.push(chat.id);
+		chatStore.saveMessages(chat.id, [
+			{ id: "a-plain", role: "assistant", content: [{ type: "text", text: "Plain prose." }] },
+		] as unknown as LhMessage[]);
+		const fake = fakeExtraction(new Promise(() => {}));
+		assert.ok(startExtractionIfDue({ chatStore, graphStore: liveGraphStore }, fake.pipeline, chat.id, 1_000_000) === null, "nothing due: no plan, no marks, below budget");
+		trackExtraction(chat.id, new Promise(() => {}));
+		assert.equal(startExtractionIfDue({ chatStore, graphStore: liveGraphStore }, fake.pipeline, chat.id, 1), null, "a run in flight owns the chat");
+		assert.deepEqual(fake.calls, []);
+	});
+
+	it("a chat without a plan but with marks does wait", async () => {
+		setTeachingGateTiming(null);
+		const chat = chatStore.createChat("Test: marks wait");
+		createdChats.push(chat.id);
+		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		await runTurn(chat.id, "just chatting", scriptedTeacher([textTurn("Short.")]));
+		markNotExtracted(chat.id, ["a-marked"]);
+		let resolveRun!: (v: unknown) => void;
+		trackExtraction(chat.id, new Promise((r) => (resolveRun = r)));
+
+		let modelCalls = 0;
+		const ackP = handleChatRequest(post(chat.id, "again"), countingFactory(scriptedTeacher([textTurn("Again.")]), () => modelCalls++));
+		await new Promise((r) => setTimeout(r, 60));
+		assert.equal(modelCalls, 0, "a marked chat waits for its in-flight run");
+		resolveRun({});
+		assert.equal((await ackP).status, 200);
+		await waitFor(() => !isTurnRunning(chat.id), 8000, "turn settle");
+	});
+});
+
+describe("marks are cleared per run, only for what the run covered (fix B2)", () => {
+	it("a mark for B set during a run covering A survives that run and is cleared by the run covering B, also after restart", async () => {
+		const chat = createConfiguredChat("Test: per-run clears");
+		createdChats.push(chat.id);
+		chatStore.saveMessages(chat.id, [
+			{ id: "a-A", role: "assistant", content: [{ type: "text", text: "Prose A." }] },
+			{ id: "a-B", role: "assistant", content: [{ type: "text", text: "Prose B." }] },
+		] as unknown as LhMessage[]);
+		const covered: CoverageEntry[] = [];
+		const graph = { readCoverage: () => covered } as unknown as typeof liveGraphStore;
+		const msg = (id: string) => chatStore.getChat(chat.id)!.messages.find((m) => m.id === id)!;
+		const coverFor = (id: string) => covered.push({ chatId: chat.id, fp: messageFingerprint(msg(id)), tokens: 1, foldedAt: "2026-11-22T00:00:00.000Z" });
+
+		markNotExtracted(chat.id, ["a-A"]);
+		let resolveA!: () => void;
+		const runA = new Promise<void>((r) => (resolveA = r));
+		const first = fakeExtraction(runA);
+		const startedA = startExtractionIfDue({ chatStore, graphStore: graph }, first.pipeline, chat.id, 1_000_000);
+		assert.ok(startedA);
+
+		markNotExtracted(chat.id, ["a-B"]); // set while run A is in flight
+		coverFor("a-A");
+		resolveA();
+		await startedA;
+		assert.deepEqual([...notExtractedIds(chat.id)], ["a-B"], "A is cleared by the run that covered it; B survives");
+		assert.equal(forceExtractionFor(chat.id), true);
+
+		// A fresh process replays the ledger: the same survivor.
+		setTeachingGateLedger(makeTeachingGateLedger(tmpLedgerDir));
+		assert.deepEqual([...notExtractedIds(chat.id)], ["a-B"], "replay keeps B");
+
+		let resolveB!: () => void;
+		const runB = new Promise<void>((r) => (resolveB = r));
+		const second = fakeExtraction(runB);
+		const startedB = startExtractionIfDue({ chatStore, graphStore: graph }, second.pipeline, chat.id, 1_000_000);
+		assert.ok(startedB, "the surviving mark forces the next run below the budget");
+		coverFor("a-B");
+		resolveB();
+		await startedB;
+		assert.equal(notExtractedIds(chat.id).size, 0, "the run covering B clears it");
+
+		setTeachingGateLedger(makeTeachingGateLedger(tmpLedgerDir));
+		assert.equal(notExtractedIds(chat.id).size, 0, "replay after the clear is empty too");
 	});
 });

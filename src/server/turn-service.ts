@@ -143,9 +143,17 @@ export function startExtractionIfDue(
 	const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
 	const due = planInProgress(record) || covered.uncoveredTokens >= chunkTokens || forceExtractionFor(chatId);
 	if (!due) return null;
+	// The prose this run owns: what is uncovered when it starts (fix B2).
+	const startIds = covered.uncovered.map((i) => covered.slots[i]!.message.id);
 	const run = extraction.runExtraction(chatId);
 	trackExtraction(chatId, run);
-	void run.then(() => clearNotExtracted(chatId)).catch((err) => {
+	void run.then(() => {
+		// Clear only the marks this run actually covered; a batch that failed
+		// (absorbed by the pipeline) keeps its marks for the next run.
+		const after = coverageOf(deps.chatStore.getChat(chatId)?.messages ?? record.messages, deps.graphStore.readCoverage(), chatId);
+		const stillOpen = new Set(after.uncovered.map((i) => after.slots[i]!.message.id));
+		clearNotExtracted(chatId, startIds.filter((id) => !stillOpen.has(id)));
+	}).catch((err) => {
 		// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
 		// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the
 		// coverage ledger keeps the messages uncovered — the next trigger

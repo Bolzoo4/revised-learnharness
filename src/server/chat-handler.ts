@@ -437,7 +437,7 @@ export async function handleChatInput(
 	// finishes before this turn's model call, at most 60 s. On a stall or a
 	// failure the teacher goes on and the un-extracted prose is marked, so the
 	// next extraction run catches it up.
-	await waitForTeaching(chatId, merged, stores.graphStore.readCoverage());
+	await waitForTeaching(chatId, { tree: record.tree, messages: merged }, stores.graphStore.readCoverage());
 
 	// MONEY CHANNEL (wave 4): one collector per request, fed by the agent's
 	// message_end events. Every model call's usage lands in the chat record's

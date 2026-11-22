@@ -20,17 +20,15 @@ import { EXT_PATHS } from "../store/ext/paths.ts";
 
 export type TeachingGateEvent =
 	| { kind: "mark"; chatId: string; messageIds: string[] }
-	| { kind: "clear"; chatId: string };
+	| { kind: "clear"; chatId: string; messageIds: string[] };
 
 export function parseTeachingGateEvent(raw: unknown): TeachingGateEvent | null {
 	if (!raw || typeof raw !== "object") return null;
 	const e = raw as { kind?: unknown; chatId?: unknown; messageIds?: unknown };
 	if (typeof e.chatId !== "string") return null;
-	if (e.kind === "clear") return { kind: "clear", chatId: e.chatId };
-	if (e.kind === "mark" && Array.isArray(e.messageIds) && e.messageIds.every((id) => typeof id === "string")) {
-		return { kind: "mark", chatId: e.chatId, messageIds: e.messageIds as string[] };
-	}
-	return null;
+	if ((e.kind !== "mark" && e.kind !== "clear") || !Array.isArray(e.messageIds)) return null;
+	if (!e.messageIds.every((id) => typeof id === "string")) return null;
+	return { kind: e.kind, chatId: e.chatId, messageIds: e.messageIds as string[] };
 }
 
 /** A marker ledger rooted at `dir` (the production root is EXT_PATHS.dir). */
@@ -47,8 +45,14 @@ function activeLedger(): Ledger<TeachingGateEvent> {
 }
 
 function apply(into: Map<string, Set<string>>, e: TeachingGateEvent): void {
-	if (e.kind === "clear") into.delete(e.chatId);
-	else into.set(e.chatId, new Set([...(into.get(e.chatId) ?? []), ...e.messageIds]));
+	if (e.kind === "mark") {
+		into.set(e.chatId, new Set([...(into.get(e.chatId) ?? []), ...e.messageIds]));
+		return;
+	}
+	const set = into.get(e.chatId);
+	if (!set) return;
+	for (const id of e.messageIds) set.delete(id);
+	if (set.size === 0) into.delete(e.chatId);
 }
 
 function state(): Map<string, Set<string>> {
@@ -128,6 +132,8 @@ export function planInProgress(chat: { tree?: PlanTree | null; messages: readonl
 
 /**
  * Wait for the chat's in-flight extraction, capped at 60 s; never throws.
+ * Scoped (fix B2): only a chat following a plan, or one with not-extracted
+ * marks, waits; any other chat proceeds at once.
  * Marks the teacher prose the run left uncovered (timeout, failure, or a run
  * that finished with prose still unmerged, i.e. a failed batch) so the next
  * extraction run catches it up. `messages`/`entries` are the record and the
@@ -135,9 +141,11 @@ export function planInProgress(chat: { tree?: PlanTree | null; messages: readonl
  */
 export async function waitForTeaching(
 	chatId: string,
-	messages: readonly LhMessage[],
+	chat: { tree?: PlanTree | null; messages: readonly LhMessage[] },
 	entries: readonly CoverageEntry[],
 ): Promise<GateStatus> {
+	if (!planInProgress(chat) && !forceExtractionFor(chatId)) return "none";
+	const messages = chat.messages;
 	const pending = pendingExtraction(chatId);
 	const status: GateStatus =
 		pending === null && failedRuns.delete(chatId)
@@ -167,8 +175,11 @@ export function forceExtractionFor(chatId: string): boolean {
 	return notExtractedIds(chatId).size > 0;
 }
 
-/** A successful extraction run caught the marked turns up. */
-export function clearNotExtracted(chatId: string): void {
-	if (!state().has(chatId)) return;
-	record({ kind: "clear", chatId });
+/** A successful run caught these marked turns up: clear exactly these ids.
+ *  Marks for other messages (set while the run was in flight) survive. */
+export function clearNotExtracted(chatId: string, messageIds: readonly string[]): void {
+	const marked = notExtractedIds(chatId);
+	const ids = messageIds.filter((id) => marked.has(id));
+	if (ids.length === 0) return;
+	record({ kind: "clear", chatId, messageIds: ids });
 }
