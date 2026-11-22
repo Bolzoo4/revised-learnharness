@@ -45,6 +45,8 @@ export * from "./math-delims.ts";
 // pure logic, browser-safe.
 export * from "./native-messages.ts";
 export * from "./chat-speech.ts";
+export * from "./question-speech.ts";
+export * from "./answer-resolver.ts";
 export * from "./compaction.ts";
 export * from "./input-events.ts";
 export { parseFilePaths, quoteFilePath, filePathLabel, isDirectoryReference, directoryReferencePath } from "./file-paths.ts";
