@@ -64,6 +64,7 @@ import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.t
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { waitForTeaching } from "./teaching-gate.ts";
 import { sessionNotesAfterBatch, verifyAfterMerge, withPostMerge } from "./ext/index.ts";
+import { scheduleSemanticRefresh } from "./ext/semantic-live.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens, projectedContextTokens } from "./compaction.ts";
@@ -160,7 +161,10 @@ export const extraction = withPostMerge(createExtractionPipeline({
 		providerKeyPresent(provider) ? null : providerKeyMissingEnvelope(provider, [tier]),
 	// Session notes (REQ-sn-02): the merged batch's learner words feed the chat's study note.
 	onBatchMerged: sessionNotesAfterBatch,
-}), verifyAfterMerge);
+}), () => {
+	scheduleSemanticRefresh();
+	return verifyAfterMerge();
+});
 
 
 // Wake-pipeline wiring (contracts.ts "THE ASYNC PROTOCOL" §4): the pipeline
