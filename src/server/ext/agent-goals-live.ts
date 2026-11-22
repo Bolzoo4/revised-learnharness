@@ -12,7 +12,8 @@ import { emit } from "../../core/events.ts";
 import { sourceDirectory } from "../source-organization.ts";
 import { stores } from "../stores.ts";
 import { liveAgentGate } from "./cost-live.ts";
-import { type AgentGoalInput, type AgentGoalsDeps, type AgentResult, createAgentGoal, createAgentLink, readAgentSandbox, setAgentGoalWeights } from "./agent-goals.ts";
+import { type AgentGoalInput, type AgentGoalsDeps, type AgentResult, type IdentityPort, createAgentGoal, createAgentLink, readAgentSandbox, setAgentGoalWeights } from "./agent-goals.ts";
+import { extractionModelDeps } from "./extraction-deps.ts";
 import { DEFAULT_UPLOAD_TITLE, uploadTempRoot } from "./pdf-upload.ts";
 import { liveSandbox } from "./sandbox-live.ts";
 import { extStores } from "./stores.ts";
@@ -57,6 +58,19 @@ function importAgentPdf(bytes: Uint8Array): Promise<{ sourceId: string }> {
 }
 
 
+/**
+ * The identity judge of REQ-graph-agent-27: the extraction pipeline's auditor stage, run over the unmatched targets
+ * against the existing graph (extraction.ts judgeIdentities). Its engine is read fresh per call; without one it throws,
+ * and the goal keeps its targets as new nodes.
+ */
+const liveIdentity: IdentityPort = {
+	async identify(statements) {
+		const { judgeIdentities } = await import("../../agent/subagents/extraction.ts");
+		const engine = extractionModelDeps().engineFor("auditor");
+		return judgeIdentities(statements, { graphStore: stores.graphStore, chatStore: stores.chatStore, engine, label: "agent-goal-identity" });
+	},
+};
+
 /** Built per call, so the stores and the gate are read fresh. */
 function liveDeps(): AgentGoalsDeps {
 	return {
@@ -66,6 +80,7 @@ function liveDeps(): AgentGoalsDeps {
 		gate: liveAgentGate,
 		documents: { importPdf: importAgentPdf },
 		sandbox: liveSandbox,
+		identity: liveIdentity,
 	};
 }
 

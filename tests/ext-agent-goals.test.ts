@@ -1,7 +1,7 @@
 // tests/ext-agent-goals.test.ts
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mergeFindings, type GraphDeps } from "../src/core/graph.ts";
+import { getGraph, mergeFindings, type GraphDeps } from "../src/core/graph.ts";
 import { deriveGoals, type GoalEvent } from "../src/core/ext/goals.ts";
 import type { GoalsStore } from "../src/core/ext/ports.ts";
 import type { Link, LinkOrigin, LinkType } from "../src/core/ext/links.ts";
@@ -14,7 +14,7 @@ import {
 } from "../src/server/ext/agent-goals.ts";
 import { createMemoryGraphStore } from "./helpers/memory-graph-store.ts";
 import { createCostGate, type CostEvent } from "../src/core/ext/cost-gate.ts";
-import { ESTIMATED_IMPORT_USD_PER_FILE } from "../src/server/ext/agent-goals.ts";
+import { ESTIMATED_IDENTITY_USD_PER_CALL, ESTIMATED_IMPORT_USD_PER_FILE } from "../src/server/ext/agent-goals.ts";
 
 const PDF_BYTES = new TextEncoder().encode("%PDF-1.4 sample");
 const NOW = "2026-11-22T10:00:00.000Z";
@@ -412,5 +412,108 @@ describe("createAgentGoal: the same request is reused, joined, and reserved befo
 		await assert.rejects(createAgentGoal(validInput({ files: [{ name: "x.pdf" }] }), failing), /extraction failed/);
 		assert.equal(s.gate.heldTotal(), 0);
 		assert.equal(s.gate.records.length, 0);
+	});
+});
+
+describe("createAgentGoal: a target already in the graph attaches to the existing node (REQ-graph-agent-26, 27)", () => {
+	/** A judge that records what it was asked and answers with `answer` (index into the statements it was given). */
+	function fakeIdentity(answer: (statements: string[]) => Map<number, string | null> | Promise<Map<number, string | null>>) {
+		const seen: string[][] = [];
+		return {
+			seen,
+			port: {
+				identify: async (statements: string[]) => {
+					seen.push([...statements]);
+					return answer(statements);
+				},
+			},
+		};
+	}
+	const nodeCount = (s: ReturnType<typeof setup>) => getGraph(s.graphStore).nodes.length;
+
+	it("a target that equals an existing node after normalisation attaches to it: no new node, the goal's provenance is added, the judge is not called", async () => {
+		const judge = fakeIdentity(() => new Map());
+		const s = setup({ identity: judge.port });
+		const first = await createAgentGoal(validInput({ targets: ["Convergenza dominata."] }), s.deps);
+		assert.equal(first.ok, true);
+		if (!first.ok) return;
+		const existing = first.nodeIds[0]!;
+		judge.seen.length = 0;
+		const second = await createAgentGoal(validInput({ title: "Second", targets: ["convergenza DOMINATA"] }), s.deps);
+		assert.equal(second.ok, true);
+		if (!second.ok) return;
+		assert.equal(nodeCount(s), 1, "no second node");
+		assert.equal(second.matchedExisting, 1);
+		assert.equal(second.identityChecked, true);
+		assert.deepEqual(second.nodeIds, [existing]);
+		assert.deepEqual(judge.seen, [], "the model judgement is spared");
+		const node = getGraph(s.graphStore).nodes.find((n) => n.id === existing)!;
+		assert.ok(node.provenance.some((p) => p.chatId === second.goalId), "the node gains the goal's provenance");
+		const created = deriveGoals(s.goalsStore.readEvents()).find((g) => g.id === second.goalId);
+		assert.deepEqual(created?.targetNodeIds, [existing]);
+	});
+
+	it("the judge sees only the statements the first pass did not match, and a verdict naming an existing node attaches the target to it", async () => {
+		let existing = "";
+		const judge = fakeIdentity((statements) => (statements.length === 1 ? new Map([[0, existing]]) : new Map()));
+		const s = setup({ identity: judge.port });
+		const first = await createAgentGoal(validInput({ targets: ["Dominated convergence holds."] }), s.deps);
+		if (!first.ok) return assert.fail("first goal");
+		existing = first.nodeIds[0]!;
+		judge.seen.length = 0;
+		s.gate.records.length = 0;
+		const second = await createAgentGoal(validInput({ title: "Second", targets: ["dominated convergence holds", "Under domination the integrals converge."] }), s.deps);
+		assert.equal(second.ok, true);
+		if (!second.ok) return;
+		assert.deepEqual(judge.seen, [["Under domination the integrals converge."]]);
+		assert.equal(second.matchedExisting, 2, "one by the first pass, one by the judgement");
+		assert.equal(nodeCount(s), 1);
+		assert.equal(s.gate.records.length, 1, "the judgement's estimated spend is recorded once, as agent spend");
+		assert.deepEqual(s.gate.records[0], { usd: ESTIMATED_IDENTITY_USD_PER_CALL, source: "agent" });
+		assert.equal(s.gate.heldTotal(), 0);
+	});
+
+	it("a verdict naming a node that is not in the graph is ignored: the target becomes a new node", async () => {
+		const s = setup({ identity: fakeIdentity(() => new Map([[0, "node_ghost"]])).port });
+		const result = await createAgentGoal(validInput({ targets: ["A new claim."] }), s.deps);
+		assert.equal(result.ok, true);
+		if (!result.ok) return;
+		assert.equal(result.matchedExisting, 0);
+		assert.equal(result.identityChecked, true);
+		assert.equal(nodeCount(s), 1);
+	});
+
+	it("an auditor failure never blocks the goal: the targets become new nodes, identityChecked is false, the reservation is released and nothing is spent", async () => {
+		const s = setup({
+			identity: fakeIdentity(() => {
+				throw new Error("model unavailable");
+			}).port,
+		});
+		const result = await createAgentGoal(validInput({ targets: ["A claim the judge cannot reach."] }), s.deps);
+		assert.equal(result.ok, true);
+		if (!result.ok) return;
+		assert.equal(result.identityChecked, false);
+		assert.equal(result.matchedExisting, 0);
+		assert.equal(nodeCount(s), 1);
+		assert.equal(s.gate.heldTotal(), 0);
+		assert.equal(s.gate.records.length, 0);
+	});
+
+	it("without a judge (no model configured), unmatched targets become new nodes and identityChecked is false", async () => {
+		const s = setup();
+		const result = await createAgentGoal(validInput({ targets: ["Only a fresh claim."] }), s.deps);
+		assert.equal(result.ok, true);
+		if (!result.ok) return;
+		assert.equal(result.identityChecked, false);
+		assert.equal(nodeCount(s), 1);
+	});
+
+	it("a reused answer repeats the matchedExisting and identityChecked of the goal it made", async () => {
+		const s = setup({ identity: fakeIdentity(() => new Map()).port });
+		await createAgentGoal(validInput({ targets: ["Matched claim."] }), s.deps);
+		const again = await createAgentGoal(validInput({ targets: ["Matched claim."] }), s.deps);
+		assert.equal(again.ok && again.reused, true);
+		assert.equal(again.ok && again.matchedExisting, 0);
+		assert.equal(again.ok && again.identityChecked, true);
 	});
 });

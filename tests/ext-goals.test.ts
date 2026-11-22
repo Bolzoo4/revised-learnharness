@@ -247,3 +247,18 @@ describe("parseGoalEvent: the idempotency key of an agent-created goal (REQ-grap
 		assert.equal(parseGoalEvent({ ...base, idemKey: "" }), null);
 	});
 });
+
+describe("parseGoalEvent: matchedExisting and identityChecked of an agent goal (REQ-graph-agent-27)", () => {
+	const base = { type: "created", goalId: "goal_m", title: "T", origin: "agent", originRef: "T", targetNodeIds: ["n_1"], priority: 3, at: "2026-11-22T10:00:00.000Z" };
+
+	it("keeps valid values, and an event without them still parses", () => {
+		assert.equal((parseGoalEvent({ ...base, matchedExisting: 2, identityChecked: false }) as { matchedExisting?: number }).matchedExisting, 2);
+		assert.ok(parseGoalEvent(base));
+	});
+
+	it("a negative or fractional matchedExisting, or a non-boolean identityChecked, makes the event invalid", () => {
+		assert.equal(parseGoalEvent({ ...base, matchedExisting: -1 }), null);
+		assert.equal(parseGoalEvent({ ...base, matchedExisting: 1.5 }), null);
+		assert.equal(parseGoalEvent({ ...base, identityChecked: "yes" }), null);
+	});
+});

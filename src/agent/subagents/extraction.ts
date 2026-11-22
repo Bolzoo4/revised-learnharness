@@ -25,7 +25,7 @@ import type {
 } from "../../core/contracts.ts";
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps, type LinkWiring } from "../../core/graph.ts";
 import type { LinkSink } from "../../core/ext/links.ts";
-import type { GraphStore } from "../../core/ports.ts";
+import type { ChatStore, GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
@@ -678,6 +678,36 @@ function runAuditor(
 		maxTurns: 16,
 		prepareArguments: healStringifiedArrays,
 	});
+}
+
+/**
+ * The identity judgement alone (REQ-graph-agent-27): the auditor stage run over statements that are not findings of
+ * a source. Each statement becomes a proposition t1..tn; the auditor sees the same ranked candidates from the existing
+ * graph that an extraction gives it, and submits its verdicts. Returns, per statement index, the existing node it IS,
+ * or null when it is new. Reads only; it writes nothing.
+ */
+export async function judgeIdentities(
+	statements: readonly string[],
+	deps: { graphStore: GraphStore; chatStore: ChatStore; engine: PiEngine | undefined; label: string },
+): Promise<Map<number, string | null>> {
+	if (deps.engine === undefined) throw new Error("no auditor model is configured");
+	const propositions = statements.map((statement, i) => ({ id: `t${i + 1}`, name: statement.slice(0, 120), statement, aliases: [] as string[] }));
+	const review = prepareAuditorReview({ chatStore: deps.chatStore, graphStore: deps.graphStore }, propositions);
+	const verdicts = await runAuditor(
+		deps.engine,
+		deps.label,
+		`Review these proposed findings against the supplied existing records. matches points from finding ids to candidateIds; candidates contains those records:\n\n` +
+			`${JSON.stringify({ propositions: propositions.map(({ id, name, statement, aliases }) => ({ id, name, statement, aliases })), ...review.initialCandidates }, null, 2)}`,
+		undefined,
+		() => undefined,
+		review.tools,
+	);
+	const judged = new Map<number, string | null>();
+	for (const link of verdicts.links) {
+		const index = propositions.findIndex((p) => p.id === link.id);
+		if (index >= 0) judged.set(index, link.linkTo);
+	}
+	return judged;
 }
 
 // ─── the pipeline status registry ─────────────────────────────────────────────

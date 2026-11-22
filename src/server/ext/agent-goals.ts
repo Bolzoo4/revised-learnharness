@@ -8,7 +8,8 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { mergeFindings, type GraphDeps } from "../../core/graph.ts";
+import { getGraph, mergeFindings, type GraphDeps } from "../../core/graph.ts";
+import { matchExistingNode } from "../../core/ext/target-match.ts";
 import type { SessionFindings } from "../../core/contracts.ts";
 import type { CostGate, SpendHold } from "../../core/ext/cost-gate.ts";
 import { AGENT_SPEND_SOURCE } from "../../core/ext/cost-gate.ts";
@@ -35,6 +36,8 @@ export const MAX_TARGET_CHARS = 500;
 export const MAX_FILES = SANDBOX_MAX_FILES;
 /** Estimated spend per imported PDF: the notes pipeline does not report its billed total (see research-live.ts). */
 export const ESTIMATED_IMPORT_USD_PER_FILE = 0.05;
+/** Estimated spend of one identity judgement (the auditor call over the unmatched targets), a constant like the import estimate. */
+export const ESTIMATED_IDENTITY_USD_PER_CALL = 0.02;
 
 /** An attached file: the name of a file in the sandbox folder, nothing else (REQ-graph-agent-23). */
 export interface AgentFile {
@@ -71,7 +74,22 @@ export interface AgentSpendGate {
 }
 
 /** A created goal, or the one an identical earlier request made (reused: true). */
-export type AgentCreated = { goalId: string; nodeIds: string[]; reused: boolean };
+export type AgentCreated = {
+	goalId: string;
+	nodeIds: string[];
+	reused: boolean;
+	/** Targets attached to existing nodes (by the cheap match or the judgement). */
+	matchedExisting: number;
+	/** False when a target needed a judgement that could not be made: those targets became new nodes. */
+	identityChecked: boolean;
+};
+
+/** Judges the targets that the cheap match did not settle, against the existing graph (REQ-graph-agent-27). */
+export interface IdentityPort {
+	/** Index (into the statements given) to the existing node that statement IS, or null when it is new. Throws when no judgement can be made. */
+	identify(statements: string[]): Promise<Map<number, string | null>>;
+}
+
 
 export interface AgentGoalsDeps {
 	graphStore: GraphStore;
@@ -80,6 +98,8 @@ export interface AgentGoalsDeps {
 	gate: AgentSpendGate;
 	documents: DocumentImportPort;
 	sandbox: SandboxPort;
+	/** The identity judge; absent when no model is configured (every unmatched target then becomes a new node). */
+	identity?: IdentityPort;
 	now?: () => string;
 	newGoalId?: () => string;
 }
@@ -194,7 +214,47 @@ export function agentGoalKey(input: { title: string; targets: string[]; files: A
 const inFlight = new Map<string, Promise<AgentResult<AgentCreated>>>();
 const NO_HOLD: SpendHold = { commit: () => undefined, release: () => undefined };
 
-/** Creates the goal, its nodes and its spend hold; the hold is released on every path, committed only on success. */
+/** How the targets were identified: the index of each target that is an existing node, and whether every target that needed a judgement got one. */
+interface TargetIdentity {
+	matches: Map<number, string>;
+	checked: boolean;
+}
+
+/**
+ * The identity pass over the targets (REQ-graph-agent-27). The cheap exact match runs first and spares the model; the
+ * statements it does not settle go to the judge, whose verdicts are kept only when they name a node of the graph.
+ * Without a judge, or when it fails, or when its spend cannot be reserved, the rest stay new (checked: false) and the
+ * goal is still created. Its estimated spend is reserved before the call and committed after it.
+ */
+async function identifyTargets(targets: readonly string[], deps: AgentGoalsDeps): Promise<TargetIdentity> {
+	const nodes = getGraph(deps.graphStore).nodes;
+	const known = new Set(nodes.map((n) => n.id));
+	const matches = new Map<number, string>();
+	targets.forEach((statement, i) => {
+		const id = matchExistingNode(statement, nodes);
+		if (id !== null) matches.set(i, id);
+	});
+	const unmatched = targets.map((_, i) => i).filter((i) => !matches.has(i));
+	if (unmatched.length === 0) return { matches, checked: true };
+	if (deps.identity === undefined) return { matches, checked: false };
+	const hold = deps.gate.reserve(ESTIMATED_IDENTITY_USD_PER_CALL, AGENT_SPEND_SOURCE);
+	if (hold === null) return { matches, checked: false };
+	try {
+		const judged = await deps.identity.identify(unmatched.map((i) => targets[i]!));
+		unmatched.forEach((targetIndex, k) => {
+			const nodeId = judged.get(k);
+			if (typeof nodeId === "string" && known.has(nodeId)) matches.set(targetIndex, nodeId);
+		});
+		hold.commit();
+		return { matches, checked: true };
+	} catch {
+		return { matches, checked: false };
+	} finally {
+		hold.release();
+	}
+}
+
+/** Creates the goal, its nodes and its spend holds: the PDF import (one hold), then the identity pass, then the merge. */
 async function performCreate(checked: { title: string; targets: string[]; weights?: Record<string, number>; priority: number }, attached: Uint8Array[], key: string, deps: AgentGoalsDeps): Promise<AgentResult<AgentCreated>> {
 	const hold = attached.length > 0 ? deps.gate.reserve(attached.length * ESTIMATED_IMPORT_USD_PER_FILE, AGENT_SPEND_SOURCE) : NO_HOLD;
 	if (hold === null) return fail(429, "the daily spending ceiling for agent work is reached; try again tomorrow");
@@ -206,12 +266,14 @@ async function performCreate(checked: { title: string; targets: string[]; weight
 		for (const bytes of attached) sourceIds.add((await deps.documents.importPdf(bytes)).sourceId);
 		const fileNodeIds = nodeIdsWithProvenance(deps.graphStore, (id) => sourceIds.has(id));
 
+		const identity = await identifyTargets(checked.targets, deps);
 		const findings: SessionFindings = {
 			propositions: checked.targets.map((statement, i) => ({ id: `p${i + 1}`, name: statement.slice(0, 120), statement, aliases: [] })),
 			chains: [],
 		};
-		mergeFindings(goalId, findings, { links: [] }, { chatStore: noChatStore, graphStore: deps.graphStore } as GraphDeps, { foldedAt: now });
-		const targetNodeIds = nodeIdsWithProvenance(deps.graphStore, (id) => id === goalId);
+		const links = [...identity.matches].map(([index, nodeId]) => ({ id: `p${index + 1}`, linkTo: nodeId }));
+		mergeFindings(goalId, findings, { links }, { chatStore: noChatStore, graphStore: deps.graphStore } as GraphDeps, { foldedAt: now });
+		const targetNodeIds = [...new Set(nodeIdsWithProvenance(deps.graphStore, (id) => id === goalId))];
 		if (targetNodeIds.length === 0) throw new Error("agent goals: the merger did not create the target nodes");
 
 		deps.goalsStore.appendEvent({
@@ -224,10 +286,19 @@ async function performCreate(checked: { title: string; targets: string[]; weight
 			priority: checked.priority,
 			...(checked.weights ? { weights: checked.weights as Goal["weights"] } : {}),
 			idemKey: key,
+			matchedExisting: identity.matches.size,
+			identityChecked: identity.checked,
 			at: now,
 		});
 		hold.commit();
-		return { ok: true, goalId, nodeIds: [...new Set([...targetNodeIds, ...fileNodeIds])], reused: false };
+		return {
+			ok: true,
+			goalId,
+			nodeIds: [...new Set([...targetNodeIds, ...fileNodeIds])],
+			reused: false,
+			matchedExisting: identity.matches.size,
+			identityChecked: identity.checked,
+		};
 	} finally {
 		hold.release();
 	}
@@ -258,7 +329,16 @@ export async function createAgentGoal(input: AgentGoalInput, deps: AgentGoalsDep
 	const key = agentGoalKey({ title: checked.title, targets: checked.targets, files: attached.map((bytes, i) => ({ name: checked.names[i]!, size: bytes.byteLength })) });
 
 	const existing = deps.goalsStore.readEvents().find((e) => e.type === "created" && e.origin === "agent" && e.idemKey === key);
-	if (existing?.type === "created") return { ok: true, goalId: existing.goalId, nodeIds: [...existing.targetNodeIds], reused: true };
+	if (existing?.type === "created") {
+		return {
+			ok: true,
+			goalId: existing.goalId,
+			nodeIds: [...existing.targetNodeIds],
+			reused: true,
+			matchedExisting: existing.matchedExisting ?? 0,
+			identityChecked: existing.identityChecked ?? false,
+		};
+	}
 
 	const running = inFlight.get(key);
 	if (running !== undefined) {

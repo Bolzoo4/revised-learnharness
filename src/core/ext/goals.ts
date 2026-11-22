@@ -46,6 +46,9 @@ export type GoalEvent =
 			weights?: GoalWeights;
 			/** The idempotency key of an agent-created goal (REQ-graph-agent-08); absent on every other goal. */
 			idemKey?: string;
+			/** Targets attached to existing nodes, and whether the judgement of the rest was made (REQ-graph-agent-27); absent on earlier events. */
+			matchedExisting?: number;
+			identityChecked?: boolean;
 			at: string;
 	  }
 	| { type: "status"; goalId: string; status: GoalStatus; at: string }
@@ -135,6 +138,10 @@ export function parseGoalEvent(raw: unknown): GoalEvent | null {
 		}
 		if (r.idemKey !== undefined && (typeof r.idemKey !== "string" || r.idemKey === "")) return null;
 		const idemKey = r.idemKey as string | undefined;
+		if (r.matchedExisting !== undefined && (typeof r.matchedExisting !== "number" || !Number.isInteger(r.matchedExisting) || r.matchedExisting < 0)) return null;
+		if (r.identityChecked !== undefined && typeof r.identityChecked !== "boolean") return null;
+		const matchedExisting = r.matchedExisting as number | undefined;
+		const identityChecked = r.identityChecked as boolean | undefined;
 		return {
 			type: "created",
 			goalId: r.goalId,
@@ -145,6 +152,8 @@ export function parseGoalEvent(raw: unknown): GoalEvent | null {
 			priority: r.priority,
 			...(weights ? { weights } : {}),
 			...(idemKey !== undefined ? { idemKey } : {}),
+			...(matchedExisting !== undefined ? { matchedExisting } : {}),
+			...(identityChecked !== undefined ? { identityChecked } : {}),
 			at: r.at,
 		};
 	}
