@@ -98,7 +98,7 @@ function settle(fake: ReturnType<typeof fakeEnv>, voice: VoiceController, key: s
 function listeningOn(question: PendingQuestion, fake: ReturnType<typeof fakeEnv>) {
 	const voice = new VoiceController(fake.env);
 	voice.dispatch({ type: "modeOn" });
-	voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question, language: "en" });
+	voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question, toolCallId: "t1", language: "en" });
 	settle(fake, voice, "m1", { type: "ended" });
 	settle(fake, voice, "m1#question", { type: "ended" });
 	return voice;
@@ -109,7 +109,7 @@ describe("voice loop: replies and questions", () => {
 		const fake = fakeEnv();
 		const voice = new VoiceController(fake.env);
 		voice.dispatch({ type: "modeOn" });
-		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: null, language: "en" });
+		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: null, toolCallId: null, language: "en" });
 		assert.deepEqual(fake.plays, [{ messageId: "m1", request: undefined }]);
 	});
 
@@ -117,9 +117,9 @@ describe("voice loop: replies and questions", () => {
 		const fake = fakeEnv();
 		const voice = new VoiceController(fake.env);
 		voice.dispatch({ type: "modeOn" });
-		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: CHOICE, language: "en" });
+		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: CHOICE, toolCallId: "t1", language: "en" });
 		settle(fake, voice, "m1", { type: "ended" });
-		assert.deepEqual(fake.plays.at(-1), { messageId: "m1", request: { part: "question" } });
+		assert.deepEqual(fake.plays.at(-1), { messageId: "m1", request: { part: "question", language: "en" } });
 		assert.equal(fake.mic(), false);
 		settle(fake, voice, "m1#question", { type: "ended" });
 		assert.equal(fake.mic(), true);
@@ -222,7 +222,7 @@ describe("voice loop: failures", () => {
 		const fake = fakeEnv();
 		const voice = new VoiceController(fake.env);
 		voice.dispatch({ type: "modeOn" });
-		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: null, language: "en" });
+		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: null, toolCallId: null, language: "en" });
 		settle(fake, voice, "m1", { type: "failed", kind: "budget" });
 		assert.deepEqual(fake.disabled, ["budget"]);
 		assert.equal(fake.speaker(), false);
@@ -232,7 +232,7 @@ describe("voice loop: failures", () => {
 		const fake = fakeEnv();
 		const voice = new VoiceController(fake.env);
 		voice.dispatch({ type: "modeOn" });
-		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: null, language: "en" });
+		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: null, toolCallId: null, language: "en" });
 		settle(fake, voice, "m1", { type: "failed", kind: "unavailable" });
 		assert.deepEqual(fake.disabled, ["unavailable"]);
 	});
@@ -241,7 +241,7 @@ describe("voice loop: failures", () => {
 		const fake = fakeEnv();
 		const voice = new VoiceController(fake.env);
 		voice.dispatch({ type: "modeOn" });
-		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: OPEN, language: "en" });
+		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: OPEN, toolCallId: "t1", language: "en" });
 		settle(fake, voice, "m1", { type: "stopped" });
 		assert.equal(fake.plays.length, 1, "the question is not started by a stop");
 	});
@@ -252,7 +252,7 @@ describe("voice loop: the speaker and the microphone are never active together",
 		const fake = fakeEnv();
 		const voice = new VoiceController(fake.env);
 		voice.dispatch({ type: "modeOn" });
-		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: CHOICE, language: "en" });
+		voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question: CHOICE, toolCallId: "t1", language: "en" });
 		settle(fake, voice, "m1", { type: "ended" });
 		settle(fake, voice, "m1#question", { type: "ended" });
 		voice.onWords("boh", true);
@@ -260,7 +260,7 @@ describe("voice loop: the speaker and the microphone are never active together",
 		settle(fake, voice, "m1#retry", { type: "ended" });
 		voice.onWords("la C", true);
 		voice.onUtteranceEnd();
-		voice.replyArrived({ type: "replyArrived", messageId: "m2", speakable: true, question: OPEN, language: "it" });
+		voice.replyArrived({ type: "replyArrived", messageId: "m2", speakable: true, question: OPEN, toolCallId: "t1", language: "it" });
 		settle(fake, voice, "m2", { type: "ended" });
 		settle(fake, voice, "m2#question", { type: "ended" });
 		voice.onWords("sì", true);
@@ -275,14 +275,14 @@ describe("voice loop: the pending question of a reply", () => {
 	it("reads an option question from a pending quiz or ask call, with its option labels and values", async () => {
 		const { pendingQuestionOf } = await import("../components/use-voice-mode.ts");
 		const quiz = pendingQuestionOf([{ type: "text", text: "Check." }, { type: "tool-quiz", state: "input-available", input: { options: [{ label: "Mercury", value: "a" }, { label: "Venus" }] } }]);
-		assert.deepEqual(quiz, { kind: "option", options: [{ label: "Mercury", value: "a" }, { label: "Venus", value: "Venus" }] });
+		assert.deepEqual(quiz, { question: { kind: "option", options: [{ label: "Mercury", value: "a" }, { label: "Venus", value: "Venus" }] }, toolCallId: undefined });
 		const ask = pendingQuestionOf([{ type: "tool-ask_user_question", state: "input-available", input: { options: [{ label: "Yes" }] } }]);
-		assert.equal(ask?.kind, "option");
+		assert.equal(ask?.question.kind, "option");
 	});
 
 	it("reads an open question from a pending ask with no options, and nothing once answered", async () => {
 		const { pendingQuestionOf } = await import("../components/use-voice-mode.ts");
-		assert.deepEqual(pendingQuestionOf([{ type: "tool-ask_user_question", state: "input-available", input: { question: "Why?" } }]), { kind: "open" });
+		assert.deepEqual(pendingQuestionOf([{ type: "tool-ask_user_question", state: "input-available", input: { question: "Why?" } }]), { question: { kind: "open" }, toolCallId: undefined });
 		assert.equal(pendingQuestionOf([{ type: "tool-quiz", state: "output-available", input: {} }]), null);
 		assert.equal(pendingQuestionOf([{ type: "text", text: "just prose" }]), null);
 	});

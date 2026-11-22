@@ -24,7 +24,7 @@ export const MAX_RETRIES = 3;
 export interface VoiceState {
 	mode: VoiceMode;
 	/** The question of the latest reply, until it is answered. */
-	pending: { messageId: string; question: PendingQuestion } | null;
+	pending: { messageId: string; toolCallId: string | null; question: PendingQuestion } | null;
 	/** What is being spoken: the prose, the question's spoken form, the retry phrase, or a manual Listen. */
 	phase: "prose" | "question" | "retry" | "manual" | null;
 	language: VoiceLanguage;
@@ -35,7 +35,7 @@ export interface VoiceState {
 export type VoiceEvent =
 	| { type: "modeOn" }
 	| { type: "modeOff" }
-	| { type: "replyArrived"; messageId: string; speakable: boolean; question: PendingQuestion | null; language: VoiceLanguage }
+	| { type: "replyArrived"; messageId: string; speakable: boolean; question: PendingQuestion | null; toolCallId: string | null; language: VoiceLanguage }
 	| { type: "speechEnded" }
 	| { type: "speechFailed"; kind: "budget" | "unavailable" | "other" }
 	| { type: "turnEnded"; transcript: string }
@@ -54,7 +54,7 @@ export type VoiceEffect =
 	| { type: "stopListening" }
 	| { type: "stopPlaying" }
 	| { type: "resolve"; transcript: string; options: ResolvableOption[]; language: VoiceLanguage }
-	| { type: "submitAnswer"; answer: Answer }
+	| { type: "submitAnswer"; answer: Answer; toolCallId: string | null }
 	| { type: "disableModeWithMessage"; reason: "budget" | "unavailable" }
 	| { type: "notice"; reason: VoiceNotice };
 
@@ -84,7 +84,7 @@ export function step(s: VoiceState, event: VoiceEvent): VoiceStep {
 			const effects: VoiceEffect[] = [];
 			if (s.mode === "listening") effects.push({ type: "stopListening" });
 			if (s.mode === "speaking") effects.push({ type: "stopPlaying" });
-			const pending = event.question === null ? null : { messageId: event.messageId, question: event.question };
+			const pending = event.question === null ? null : { messageId: event.messageId, toolCallId: event.toolCallId, question: event.question };
 			const base = { ...s, pending, failures: 0, language: event.language };
 			if (event.speakable) {
 				effects.push({ type: "play", messageId: event.messageId });
@@ -115,7 +115,16 @@ export function step(s: VoiceState, event: VoiceEvent): VoiceStep {
 
 		case "speechFailed": {
 			if (event.kind === "other") {
-				// The failed speech goes idle; the microphone is released if it was on.
+				// A failed prose: the learner is told, and a pending question is still asked.
+				if (s.mode === "speaking" && s.phase === "prose") {
+					const notice: VoiceEffect = { type: "notice", reason: "proseFailed" };
+					if (s.pending === null) return { state: IDLE(s), effects: [notice] };
+					return {
+						state: { ...s, phase: "question" },
+						effects: [notice, { type: "playQuestion", messageId: s.pending.messageId }],
+					};
+				}
+				// Any other failed speech goes idle; the microphone is released if it was on.
 				return { state: IDLE(s), effects: s.mode === "listening" ? [{ type: "stopListening" }] : [] };
 			}
 			return {
@@ -136,7 +145,7 @@ export function step(s: VoiceState, event: VoiceEvent): VoiceStep {
 				}
 				return {
 					state: { ...s, mode: "idle", pending: null, phase: null, failures: 0 },
-					effects: [{ type: "stopListening" }, { type: "submitAnswer", answer: { kind: "text", text: transcript } }],
+					effects: [{ type: "stopListening" }, { type: "submitAnswer", answer: { kind: "text", text: transcript }, toolCallId: s.pending.toolCallId }],
 				};
 			}
 			return {
@@ -151,7 +160,7 @@ export function step(s: VoiceState, event: VoiceEvent): VoiceStep {
 				const { index, value } = event.result;
 				return {
 					state: { ...s, mode: "idle", pending: null, phase: null, failures: 0 },
-					effects: [{ type: "submitAnswer", answer: { kind: "option", index, value } }],
+					effects: [{ type: "submitAnswer", answer: { kind: "option", index, value }, toolCallId: s.pending.toolCallId }],
 				};
 			}
 			return failed(s);
@@ -178,7 +187,7 @@ export function step(s: VoiceState, event: VoiceEvent): VoiceStep {
 			if (s.pending === null) return { state: s, effects: [] };
 			return {
 				state: { ...s, mode: "idle", pending: null, phase: null, failures: 0 },
-				effects: [{ type: "stopPlaying" }, { type: "stopListening" }, { type: "submitAnswer", answer: event.answer }],
+				effects: [{ type: "stopPlaying" }, { type: "stopListening" }, { type: "submitAnswer", answer: event.answer, toolCallId: s.pending.toolCallId }],
 			};
 		}
 	}

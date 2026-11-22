@@ -37,7 +37,7 @@ export interface SpeechSnapshot {
 }
 
 /** Which clip of a message: the prose by default, the question, or the retry phrase in a language. */
-export type SpeechRequest = { part: "question" } | { part: "retry"; language: "it" | "en" };
+export type SpeechRequest = { part: "question"; language?: "it" | "en" } | { part: "retry"; language: "it" | "en" };
 
 /** How a clip settled: it ended on its own, it was stopped, or it failed (budget, unavailable, other). */
 export type SpeechOutcome = { type: "ended" } | { type: "stopped" } | { type: "failed"; kind: "budget" | "unavailable" | "other" };
@@ -98,9 +98,13 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 		if (objectUrl !== null) deps.revokeObjectURL(objectUrl);
 		objectUrl = null;
 	};
+	/** The request of the clip that is loading: a stop aborts it, so the server stops synthesizing. */
+	let currentAbort: AbortController | null = null;
 	/** Stops whatever plays or loads; the clip that was active settles as stopped. */
 	const halt = (): void => {
 		generation++;
+		currentAbort?.abort();
+		currentAbort = null;
 		deps.audio.pause();
 		releaseUrl();
 		if (activeKey !== null) {
@@ -124,13 +128,14 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 		return typeof data?.error === "string" && data.error !== "" ? data.error : SPEECH_FAILED_TEXT;
 	}
 
-	async function load(key: string, sessionId: string, messageId: string, request: SpeechRequest | undefined, token: number): Promise<void> {
+	async function load(key: string, sessionId: string, messageId: string, request: SpeechRequest | undefined, token: number, abort: AbortController): Promise<void> {
 		let res: Response;
 		try {
 			res = await deps.fetch(SPEECH_URL, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ sessionId, messageId, ...(request ?? {}) }),
+				signal: abort.signal,
 			});
 		} catch {
 			return fail(key, token, SPEECH_FAILED_TEXT, true);
@@ -204,7 +209,9 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 			} catch {
 				// The unlock did not start; the real play below reports the failure.
 			}
-			return load(key, sessionId, messageId, request, token);
+			const abort = new AbortController();
+			currentAbort = abort;
+			return load(key, sessionId, messageId, request, token, abort);
 		},
 		stop: halt,
 		unlock() {

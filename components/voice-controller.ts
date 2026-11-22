@@ -37,8 +37,8 @@ export interface VoiceEnv {
 	stopListening(): void;
 	/** A countdown, in ms. Returns the cancel function. */
 	schedule(delayMs: number, fire: () => void): () => void;
-	/** Submits the learner's answer through the question card's submit path. */
-	submit(answer: Answer): void;
+	/** Submits the learner's answer, for the question call it answers (toolCallId), through the card's submit path. */
+	submit(answer: Answer, toolCallId: string): void;
 	/** Voice mode turned itself off: the reason is shown to the learner. */
 	disable(reason: "budget" | "unavailable"): void;
 	/** A short notice for the learner (the reason is the machine's). */
@@ -63,6 +63,7 @@ export class VoiceController {
 	private expectingStop = false;
 	/** Set while the card's own submit runs (a tap): the machine's submit is then the card's, not a second one. */
 	private cardSubmitting = false;
+	private disposed = false;
 
 	constructor(private readonly env: VoiceEnv) {}
 
@@ -72,6 +73,7 @@ export class VoiceController {
 	}
 
 	dispatch(event: VoiceEvent): void {
+		if (this.disposed) return;
 		const out = step(this.state, event);
 		this.state = out.state;
 		for (const effect of out.effects) this.run(effect);
@@ -87,6 +89,7 @@ export class VoiceController {
 	 * stale clip is not the machine's, so its end moves nothing. Stopped clips are the controller's own doing.
 	 */
 	settled(key: string, outcome: SpeechOutcome): void {
+		if (this.disposed) return;
 		if (outcome.type === "stopped" || key !== this.awaiting) return;
 		this.awaiting = null;
 		if (outcome.type === "ended") this.dispatch({ type: "speechEnded" });
@@ -95,6 +98,7 @@ export class VoiceController {
 
 	/** A word of the stream: a final (kept) or an interim (replaced until the next). */
 	onWords(text: string, final: boolean): void {
+		if (this.disposed) return;
 		const turn = this.turn;
 		if (turn === null) return;
 		if (final) {
@@ -107,11 +111,13 @@ export class VoiceController {
 	}
 
 	onUtteranceEnd(): void {
+		if (this.disposed) return;
 		this.turn?.detector.event({ type: "utteranceEnd", at: this.env.now() });
 	}
 
 	/** The dictation stopped (the listener's onStop). A stop the controller asked for is expected; any other is a failure. */
 	onStopped(): void {
+		if (this.disposed) return;
 		if (this.expectingStop) {
 			this.expectingStop = false;
 			return;
@@ -119,8 +125,20 @@ export class VoiceController {
 		this.dispatch({ type: "listenFailed" });
 	}
 
+	/**
+	 * The page is done with this loop (unmount, or the session changed): the machine is turned off (speech and mic
+	 * stop), every countdown is cancelled, and nothing is submitted or played afterwards.
+	 */
+	dispose(): void {
+		if (this.disposed) return;
+		this.dispatch({ type: "modeOff" });
+		this.endTurn();
+		this.disposed = true;
+	}
+
 	/** The learner pressed Listen on a reply while voice mode is on: the machine stops the mic, then plays the clip. */
 	manual(messageId: string): void {
+		if (this.disposed) return;
 		this.dispatch({ type: "manualPlay", messageId });
 	}
 
@@ -129,6 +147,7 @@ export class VoiceController {
 	 * only stops the speech and the microphone, and does not submit a second time.
 	 */
 	noteTap(): void {
+		if (this.disposed) return;
 		this.cardSubmitting = true;
 		try {
 			this.dispatch({ type: "tap", answer: { kind: "text", text: "" } });
@@ -150,7 +169,8 @@ export class VoiceController {
 				this.env.play(effect.messageId);
 				return;
 			case "playQuestion": {
-				const request = { part: "question" } as const;
+				// The language rides the request: the server's spoken form uses it when the question names none.
+				const request = { part: "question", language: this.state.language } as const;
 				this.awaiting = clipKey(effect.messageId, request);
 				this.env.play(effect.messageId, request);
 				return;
@@ -182,7 +202,7 @@ export class VoiceController {
 				return;
 			}
 			case "submitAnswer":
-				if (!this.cardSubmitting) this.env.submit(effect.answer);
+				if (!this.cardSubmitting) this.env.submit(effect.answer, effect.toolCallId ?? "");
 				return;
 			case "disableModeWithMessage":
 				this.env.disable(effect.reason);

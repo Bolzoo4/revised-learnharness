@@ -156,7 +156,7 @@ describe("spokenForm: option questions", () => {
 		);
 		assert.ok(out);
 		assert.equal(out.multi, true);
-		assert.ok(out.text.endsWith("Answer with one or more letters."));
+		assert.ok(out.text.endsWith("Answer with one letter; tap the card to choose several."));
 	});
 
 	it("does not mark a single-select ask as multi", () => {

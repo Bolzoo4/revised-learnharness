@@ -4,40 +4,72 @@
  * Voice mode in the chat (REQ-chat-tts-08..15): binds the voice controller to the page. Replies play on their own
  * when the session's flag is on; a pending question is spoken after the prose; the learner's words come from the
  * dictation stream (the voice URL, with the controller's turn detector); a spoken answer is submitted through the
- * question card's own submit (buildAnswer, the same grading). A budget or unavailable speech turns the flag off
- * with a visible notice; the lesson continues in text.
+ * question card's own submit (buildAnswer, the same grading), and only for the call that is still pending. A
+ * budget or unavailable speech turns the flag off with a visible notice; the lesson continues in text. Leaving the
+ * chat (unmount, or another session) ends the loop: nothing is submitted for the old chat afterwards.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDictation } from "@/components/dictation";
+import { useDictationLanguage } from "@/components/dictation-preference";
 import { questionDataOf } from "@/components/question-dock";
 import { getSpeechPlayer, setSpeechSettleListener } from "@/components/use-speech-player";
 import { VoiceController } from "@/components/voice-controller";
-import { buildAnswer, guessLanguage, speechText, type LhViewMessage, type PendingQuestion, type QuestionAnswerData, type ResolvableOption } from "@/src/core";
+import {
+	buildAnswer,
+	guessLanguage,
+	speechText,
+	type LhViewMessage,
+	type PendingQuestion,
+	type QuestionAnswerData,
+	type ResolvableOption,
+	type VoiceLanguage,
+} from "@/src/core";
 
 export const VOICE_BUDGET_NOTICE = "Voice mode is off: today's audio budget is spent. The lesson continues in text.";
 export const VOICE_UNAVAILABLE_NOTICE = "Voice mode is off: speech is not available here. The lesson continues in text.";
 export const VOICE_LISTEN_STOPPED_NOTICE = "Listening stopped. Tap the card to answer.";
 export const VOICE_PROSE_FAILED_NOTICE = "This reply could not be read aloud. The question follows.";
 export const VOICE_EVENT = "lh:voice-mode";
-const QUESTION_TOOLS = ["ask_user_question", "quiz"];
+const QUESTION_TOOLS = ["tool-ask_user_question", "tool-quiz", "tool-probe"];
 
-/** The pending question of a reply, as the machine reads it: an option question with its options, or an open one. */
-export function pendingQuestionOf(parts: readonly { type: string; state?: unknown; input?: unknown; text?: unknown }[]): PendingQuestion | null {
-	const call = [...parts].reverse().find((p) => QUESTION_TOOLS.some((t) => p.type === `tool-${t}`) && p.state === "input-available");
+/**
+ * The pending question of a reply, as the machine reads it: an option question (a quiz or probe, or an ask with
+ * options) with its options, or an open one. Null when nothing is pending. `toolCallId` names the call it answers.
+ */
+export function pendingQuestionOf(
+	parts: readonly { type: string; text?: unknown; state?: unknown; input?: unknown; toolCallId?: unknown }[],
+): { question: PendingQuestion; toolCallId?: string } | null {
+	const call = [...parts].reverse().find((p) => QUESTION_TOOLS.includes(p.type) && p.state === "input-available");
 	if (call === undefined) return null;
 	const input = (call.input ?? {}) as { options?: Array<{ label?: unknown; value?: unknown }> };
 	const options: ResolvableOption[] = (input.options ?? [])
 		.filter((o) => typeof o.label === "string" && o.label !== "")
 		.map((o) => ({ label: o.label as string, value: typeof o.value === "string" ? o.value : (o.label as string) }));
-	if (call.type === "tool-quiz" || options.length > 0) return { kind: "option", options };
-	return { kind: "open" };
+	const toolCallId = typeof call.toolCallId === "string" ? call.toolCallId : undefined;
+	const question: PendingQuestion = call.type === "tool-quiz" || call.type === "tool-probe" || options.length > 0 ? { kind: "option", options } : { kind: "open" };
+	return { question, toolCallId };
+}
+
+/**
+ * The language of a reply: its own words when they name one; else the chat's language (the last reply's); else the
+ * dictation preference. Never a hard English.
+ */
+export function replyLanguage(text: string, chat: VoiceLanguage | null, dictation: VoiceLanguage): VoiceLanguage {
+	const own = guessLanguage(text);
+	if (own !== "unknown") return own;
+	return chat ?? dictation;
 }
 
 export interface VoicePending {
 	tool: string;
 	toolCallId: string;
 	input: unknown;
+}
+
+/** A spoken answer may be submitted only for the question call that is still pending. */
+export function canSubmitTo(pending: VoicePending | null, toolCallId: string): boolean {
+	return pending !== null && pending.toolCallId === toolCallId;
 }
 
 export function useVoiceMode({
@@ -64,7 +96,24 @@ export function useVoiceMode({
 	const submitRef = useRef(submitPending);
 	submitRef.current = submitPending;
 	const dictationRef = useRef<{ start: () => Promise<void>; stop: () => void } | null>(null);
+	/** The chat's language: the language of its last reply that named one. */
+	const chatLanguageRef = useRef<VoiceLanguage | null>(null);
+	const dictationLanguageRef = useRef<VoiceLanguage>("en");
+	const { getLanguage } = useDictationLanguage();
 
+	useEffect(() => {
+		let alive = true;
+		getLanguage()
+			.then((code) => {
+				if (alive) dictationLanguageRef.current = code.startsWith("it") ? "it" : "en";
+			})
+			.catch(() => undefined);
+		return () => {
+			alive = false;
+		};
+	}, [getLanguage]);
+
+	// One controller per chat: leaving the chat disposes the old one (see the cleanup below).
 	const controller = useMemo(
 		() =>
 			new VoiceController({
@@ -76,9 +125,10 @@ export function useVoiceMode({
 					const timer = setTimeout(fire, ms);
 					return () => clearTimeout(timer);
 				},
-				submit: (answer) => {
+				submit: (answer, toolCallId) => {
+					// Only the call that is still pending is answered; a stale call is never submitted.
 					const p = pendingRef.current;
-					if (p === null) return;
+					if (!canSubmitTo(p, toolCallId) || p === null) return;
 					const qd = questionDataOf(p.tool, p.input as never, p.toolCallId);
 					const req = answer.kind === "option" ? { values: [answer.value] } : { text: answer.text };
 					submitRef.current(buildAnswer(qd, req, p.tool));
@@ -96,8 +146,9 @@ export function useVoiceMode({
 				},
 				now: () => Date.now(),
 			}),
-		[],
+		[chatId],
 	);
+	useEffect(() => () => controller.dispose(), [controller]);
 
 	const listener = useMemo(
 		() => ({
@@ -107,13 +158,14 @@ export function useVoiceMode({
 		}),
 		[controller],
 	);
-	// A voice dictation: its words go to the controller, never to the composer.
+	// A voice dictation: its words go to the controller, never to the composer, and it takes no keyboard seam.
 	const dictation = useDictation({ append: () => undefined, voice: listener });
 	dictationRef.current = { start: dictation.start, stop: dictation.stop };
 
-	// The flag: read from the session, and kept current by the overflow menu's toggle.
+	// The flag: read from the session, and kept current by the overflow menu's toggle and the page's own turn-off.
 	useEffect(() => {
 		let alive = true;
+		setOn(false);
 		fetch(`/api/chats/${chatId}`)
 			.then((res) => (res.ok ? (res.json() as Promise<{ voiceMode?: unknown }>) : null))
 			.then((data) => {
@@ -151,29 +203,33 @@ export function useVoiceMode({
 		for (const m of messages) {
 			if (m.role !== "assistant" || seen.current.has(m.id)) continue;
 			seen.current.add(m.id);
-			const parts = m.parts as Array<{ type: string; text?: string; state?: unknown; input?: unknown }>;
+			const parts = m.parts as Array<{ type: string; text?: string; state?: unknown; input?: unknown; toolCallId?: unknown }>;
 			const text = speechText(parts as never);
+			const language = replyLanguage(text, chatLanguageRef.current, dictationLanguageRef.current);
+			if (guessLanguage(text) !== "unknown") chatLanguageRef.current = language;
+			const found = pendingQuestionOf(parts);
 			controller.replyArrived({
 				type: "replyArrived",
 				messageId: m.id,
 				speakable: text !== "",
-				question: pendingQuestionOf(parts),
-				language: guessLanguage(text) === "it" ? "it" : "en",
+				question: found?.question ?? null,
+				toolCallId: found?.toolCallId ?? null,
+				language,
 			});
 		}
 	}, [messages, busy, controller]);
 
 	return {
 		notice,
+		on,
 		/** A tap on the question card: the voice layer stops speaking and listening; the card submits. */
 		noteTap: () => controller.noteTap(),
 		/** Manual Listen on a reply while voice mode is on. */
 		manual: (messageId: string) => controller.manual(messageId),
-		on,
 	};
 }
 
-/** The menu's toggle tells the page's voice layer about a new flag value. */
+/** The menu's toggle, and the page's own turn-off, tell the other side about the flag. */
 export function announceVoiceMode(chatId: string, on: boolean): void {
 	window.dispatchEvent(new CustomEvent(VOICE_EVENT, { detail: { chatId, on } }));
 }

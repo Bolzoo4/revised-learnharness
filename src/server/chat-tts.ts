@@ -79,13 +79,14 @@ function requestOf(body: unknown): Request {
 	if (typeof sessionId !== "string" || sessionId === "") throw new HttpError(400, "sessionId must be a non-empty string");
 	if (typeof messageId !== "string" || messageId === "") throw new HttpError(400, "messageId must be a non-empty string");
 	if (part !== undefined && part !== "question" && part !== "retry") throw new HttpError(400, "part must be question or retry");
-	if (part !== "retry" && language !== undefined) throw new HttpError(400, "language is only for the retry part");
+	if (part !== "retry" && part !== "question" && language !== undefined) throw new HttpError(400, "language is for the retry and question parts");
 	if (part === "retry" && language !== "it" && language !== "en") throw new HttpError(400, "retry needs a language: it or en");
+	if (part === "question" && language !== undefined && language !== "it" && language !== "en") throw new HttpError(400, "language must be it or en");
 	return {
 		sessionId,
 		messageId,
 		part: (part as Part | undefined) ?? "prose",
-		language: part === "retry" ? (language as AudioLanguage) : null,
+		language: part === "retry" || part === "question" ? ((language as AudioLanguage | undefined) ?? null) : null,
 	};
 }
 
@@ -103,10 +104,13 @@ export function createChatTts(deps: ChatTtsDeps) {
 		if (req.part === "question") {
 			const call = [...partsOf(message)].reverse().find((p) => p.type === "toolCall" && QUESTION_TOOLS.includes(String(p.name)));
 			if (call === undefined) throw new HttpError(422, NO_QUESTION_TEXT);
-			const hint = languageOf(speechText(partsOf(message)), session);
-			const form = spokenForm({ type: `tool-${String(call.name)}`, state: "input-available", input: call.arguments }, { languageHint: hint === "unknown" ? undefined : hint });
+			// The chat's own language first; then the language the client sends (its reply and dictation fallbacks).
+			const fromChat = languageOf(speechText(partsOf(message)), session);
+			const hint = fromChat !== "unknown" ? fromChat : (req.language ?? undefined);
+			const form = spokenForm({ type: `tool-${String(call.name)}`, state: "input-available", input: call.arguments }, { languageHint: hint });
 			if (form === null) throw new HttpError(422, NO_QUESTION_TEXT);
-			return { text: form.text, language: form.language };
+			// The question is cleaned like prose: node links and markdown marks go, the words stay (REQ-02).
+			return { text: speechText([{ type: "text", text: form.text }]), language: form.language };
 		}
 		const text = speechText(partsOf(message));
 		if (text === "") throw new HttpError(422, NO_TEXT);
@@ -117,11 +121,11 @@ export function createChatTts(deps: ChatTtsDeps) {
 
 	return {
 		/**
-		 * The audio (audio/mpeg bytes) of a message's speech. Every refusal is an HttpError: 400 a bad body,
+		 * The audio (audio/mpeg bytes) of a message's speech; `signal` is the request's abort. Every refusal is an HttpError: 400 a bad body,
 		 * 404 an unknown session or message, 422 a message that is not speakable, 503 no key, 429 budget spent,
 		 * 502 an upstream failure (fixed text).
 		 */
-		async speak(body: unknown): Promise<Buffer> {
+		async speak(body: unknown, signal?: AbortSignal): Promise<Buffer> {
 			const req = requestOf(body);
 			const session = deps.readSession(req.sessionId);
 			const message = session?.find((m) => m.id === req.messageId) ?? null;
@@ -130,7 +134,8 @@ export function createChatTts(deps: ChatTtsDeps) {
 			const key = deps.apiKey();
 			if (!key) throw new HttpError(503, NO_KEY_TEXT);
 			try {
-				const { parts } = await synthesizeText({ text, voice: deps.voices()[language], key }, deps.synthesis);
+				// The request's abort (the client stopped the clip) reaches the upstream call: a stopped clip stops paying.
+				const { parts } = await synthesizeText({ text, voice: deps.voices()[language], key, signal }, deps.synthesis);
 				return Buffer.concat(parts);
 			} catch (err) {
 				if (err instanceof BudgetRefused) throw new HttpError(429, BUDGET_TEXT);

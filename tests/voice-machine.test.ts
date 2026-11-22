@@ -16,6 +16,7 @@ const reply = (question: PendingQuestion | null, speakable = true, messageId = "
 	messageId,
 	speakable,
 	question,
+	toolCallId: question === null ? null : "t1",
 	language: "en",
 });
 
@@ -126,14 +127,14 @@ describe("voice machine: answers by voice", () => {
 		const out = step(state, { type: "resolved", result: { kind: "option", index: 1, value: "b" } });
 		assert.equal(out.state.mode, "idle");
 		assert.equal(out.state.pending, null);
-		assert.deepEqual(out.effects, [{ type: "submitAnswer", answer: B }]);
+		assert.deepEqual(out.effects, [{ type: "submitAnswer", answer: B, toolCallId: "t1" }]);
 	});
 
 	it("an open question submits the transcript as text", () => {
 		const { state } = run([{ type: "modeOn" }, reply(OPEN), { type: "speechEnded" }, { type: "speechEnded" }]);
 		const out = step(state, { type: "turnEnded", transcript: "  Because of the axiom.  " });
 		assert.equal(out.state.mode, "idle");
-		assert.deepEqual(out.effects, [{ type: "stopListening" }, { type: "submitAnswer", answer: { kind: "text", text: "Because of the axiom." } }]);
+		assert.deepEqual(out.effects, [{ type: "stopListening" }, { type: "submitAnswer", answer: { kind: "text", text: "Because of the axiom." }, toolCallId: "t1" }]);
 	});
 
 	it("an empty open answer is a failed turn: the microphone stops, the retry is spoken, nothing is submitted", () => {
@@ -205,13 +206,13 @@ describe("voice machine: taps and failures", () => {
 		const out = step(state, { type: "tap", answer: B });
 		assert.equal(out.state.mode, "idle");
 		assert.equal(out.state.pending, null);
-		assert.deepEqual(out.effects, [{ type: "stopPlaying" }, { type: "stopListening" }, { type: "submitAnswer", answer: B }]);
+		assert.deepEqual(out.effects, [{ type: "stopPlaying" }, { type: "stopListening" }, { type: "submitAnswer", answer: B, toolCallId: "t1" }]);
 	});
 
 	it("a tap during speech stops the speech and submits", () => {
 		const { state } = run([{ type: "modeOn" }, reply(CHOICE)]);
 		const out = step(state, { type: "tap", answer: B });
-		assert.deepEqual(out.effects, [{ type: "stopPlaying" }, { type: "stopListening" }, { type: "submitAnswer", answer: B }]);
+		assert.deepEqual(out.effects, [{ type: "stopPlaying" }, { type: "stopListening" }, { type: "submitAnswer", answer: B, toolCallId: "t1" }]);
 	});
 
 	it("a tap with no pending question does nothing", () => {
@@ -235,11 +236,25 @@ describe("voice machine: taps and failures", () => {
 		assert.deepEqual(out.effects.at(-1), { type: "disableModeWithMessage", reason: "unavailable" });
 	});
 
-	it("another failure of speech goes idle without turning the mode off", () => {
+	it("another failure of the prose with no question goes idle, with a notice", () => {
 		const { state } = run([{ type: "modeOn" }, reply(null)]);
 		const out = step(state, { type: "speechFailed", kind: "other" });
 		assert.equal(out.state.mode, "idle");
-		assert.deepEqual(out.effects, []);
+		assert.deepEqual(out.effects, [{ type: "notice", reason: "proseFailed" }]);
+	});
+
+	it("a failed prose with a pending question goes on to the question, with a notice (not silently idle)", () => {
+		const { state } = run([{ type: "modeOn" }, reply(OPEN)]);
+		const out = step(state, { type: "speechFailed", kind: "other" });
+		assert.equal(out.state.mode, "speaking");
+		assert.equal(out.state.phase, "question");
+		assert.deepEqual(out.effects, [{ type: "notice", reason: "proseFailed" }, { type: "playQuestion", messageId: "m1" }]);
+	});
+
+	it("a reply's question carries its call id into the submit", () => {
+		const { state } = run([{ type: "modeOn" }, { type: "replyArrived", messageId: "m1", speakable: true, question: OPEN, toolCallId: "call-42", language: "en" }, { type: "speechEnded" }, { type: "speechEnded" }]);
+		const out = step(state, { type: "turnEnded", transcript: "an answer" });
+		assert.deepEqual(out.effects.at(-1), { type: "submitAnswer", answer: { kind: "text", text: "an answer" }, toolCallId: "call-42" });
 	});
 
 	it("a failed speech while listening releases the microphone", () => {
@@ -269,7 +284,7 @@ describe("voice machine: the speaker and the microphone never run together", () 
 			case 12: return { type: "manualPlay", messageId: pick(["m1", "m2"]) };
 			case 0: return { type: "modeOn" };
 			case 1: return { type: "modeOff" };
-			case 2: return { type: "replyArrived", messageId: pick(["m1", "m2"]), speakable: next() < 0.7, question, language: pick(["it", "en"] as const) };
+			case 2: return { type: "replyArrived", messageId: pick(["m1", "m2"]), speakable: next() < 0.7, question, toolCallId: question === null ? null : "t1", language: pick(["it", "en"] as const) };
 			case 3: return { type: "speechEnded" };
 			case 4: return { type: "speechFailed", kind: pick(["budget", "unavailable", "other"] as const) };
 			case 5: return { type: "turnEnded", transcript: pick(["la B", "boh", "", "Venus"]) };

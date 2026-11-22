@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request): Promise<Response> {
 	try {
-		const audio = await chatTts.speak(await readJsonObject(req));
+		const audio = await chatTts.speak(await readJsonObject(req), req.signal);
 		return new Response(new Uint8Array(audio), {
 			status: 200,
 			headers: { "Content-Type": "audio/mpeg", "Content-Length": String(audio.length), "Cache-Control": "private, no-store" },

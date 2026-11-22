@@ -36,7 +36,8 @@ type Language = SpokenForm["language"];
 const CLOSING: Record<"open" | "option" | "multi", Record<Language, string>> = {
 	open: { en: "Answer in your own words.", it: "Rispondi con parole tue." },
 	option: { en: "Answer with the letter or the words.", it: "Rispondi con la lettera o con le parole." },
-	multi: { en: "Answer with one or more letters.", it: "Rispondi con una o più lettere." },
+	// A spoken answer names one option; several are chosen by tapping the card.
+	multi: { en: "Answer with one letter; tap the card to choose several.", it: "Rispondi con una lettera; tocca la carta per sceglierne di più." },
 };
 
 /** One option as the speech needs it. Quiz options never carry a description. */

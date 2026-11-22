@@ -49,7 +49,7 @@ function fake() {
 function listening(f: ReturnType<typeof fake>, question: PendingQuestion = CHOICE) {
 	const voice = new VoiceController(f.env);
 	voice.dispatch({ type: "modeOn" });
-	voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question, language: "en" });
+	voice.replyArrived({ type: "replyArrived", messageId: "m1", speakable: true, question, toolCallId: "t1", language: "en" });
 	voice.settled("m1", { type: "ended" });
 	voice.settled("m1#question", { type: "ended" });
 	return voice;

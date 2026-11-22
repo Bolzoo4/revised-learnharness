@@ -334,4 +334,25 @@ describe("speech player: parts and settlement (voice mode)", () => {
 		assert.deepEqual(pressed, ["msg_1"]);
 		assert.equal(audio.plays.length, 0, "the player is not called directly");
 	});
+
+	it("stopping a clip while it loads aborts its request, so the server stops synthesizing", async () => {
+		const seen: AbortSignal[] = [];
+		const audio = new FakeAudio();
+		const player = createSpeechPlayer({
+			audio,
+			silentSrc: SILENT,
+			fetch: (_url, init) =>
+				new Promise<Response>((_resolve, reject) => {
+					seen.push(init.signal!);
+					init.signal!.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+				}),
+			createObjectURL: () => "blob:1",
+			revokeObjectURL: () => undefined,
+		});
+		const pending = player.play(SESSION, "msg_1");
+		assert.equal(seen.length, 1);
+		player.stop();
+		assert.equal(seen[0]!.aborted, true);
+		await pending;
+	});
 });

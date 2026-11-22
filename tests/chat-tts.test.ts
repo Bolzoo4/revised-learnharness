@@ -352,3 +352,75 @@ describe("chat TTS parts: the question and the retry phrase", () => {
 		assert.equal((await statusOf(tts.speak(body({ part: "retry", language: "it", messageId: "msg_ghost" })))).status, 404);
 	});
 });
+
+describe("chat TTS review fixes", () => {
+	const callOf = (name: string, input: Record<string, unknown>) => ({ type: "toolCall", id: "t1", name, arguments: input });
+
+	it("the question is cleaned like prose: no markdown, no node-link markup (REQ-02)", async () => {
+		const { tts, sent } = service({
+			messages: {
+				[`${SESSION}/${MESSAGE}`]: assistant([
+					callOf("ask_user_question", { question: "**Which** [[n_abc|planet]] is closest?", options: [{ label: "Mercury" }, { label: "Venus" }] }),
+				]),
+			},
+		});
+		await tts.speak(body({ part: "question" }));
+		assert.ok(sent[0]!.text.includes("Which planet is closest?"));
+		assert.ok(!sent[0]!.text.includes("**"));
+		assert.ok(!sent[0]!.text.includes("[["));
+	});
+
+	it("a pending probe question is read like a quiz", async () => {
+		const { tts, sent } = service({
+			messages: { [`${SESSION}/${MESSAGE}`]: assistant([callOf("probe", { type: "check", nodeId: "n1", question: "Which planet is closest?", options: [{ label: "Mercury", value: "a" }, { label: "Venus", value: "b" }], explanation: "SECRET", correctAnswer: "a" })]) },
+		});
+		await tts.speak(body({ part: "question" }));
+		assert.ok(sent[0]!.text.includes("A: Mercury"));
+	});
+
+	it("a question with no clear language takes the session's prose, then the language the client sends, never a hard English", async () => {
+		const shortQuestion = { question: "Scegli?", options: [{ label: "Mars" }, { label: "Jupiter" }] };
+		const alone = service({ messages: { [`${SESSION}/${MESSAGE}`]: assistant([callOf("ask_user_question", shortQuestion)]) } });
+		await alone.tts.speak(body({ part: "question", language: "it" }));
+		assert.match(alone.sent[0]!.url, /model=aura-2-livia-it/, "the client's language is the fallback");
+		const withProse = service({
+			messages: {
+				[`${SESSION}/msg_0`]: ITALIAN_PROSE_MESSAGE,
+				[`${SESSION}/${MESSAGE}`]: assistant([callOf("ask_user_question", shortQuestion)]),
+			},
+		});
+		await withProse.tts.speak(body({ part: "question", language: "en" }));
+		assert.match(withProse.sent[0]!.url, /model=aura-2-livia-it/, "the chat's own language beats the client's");
+	});
+
+	it("the body's language is a hint only for the question part", async () => {
+		const { tts } = service({});
+		await assert.rejects(tts.speak(body({ language: "it" })), (err: unknown) => err instanceof HttpError && err.status === 400);
+	});
+
+	it("passes the request's abort signal to the synthesis fetch: a stopped request stops the upstream call", async () => {
+		const seen: AbortSignal[] = [];
+		const fetchFn = (_url: string | URL | Request, init?: RequestInit) =>
+			new Promise<Response>((_resolve, reject) => {
+				seen.push(init!.signal!);
+				init!.signal!.addEventListener("abort", () => reject(new Error("aborted")));
+			});
+		const dir = tmpDir();
+		const tts = createChatTts({
+			readSession: reader({ [`${SESSION}/${MESSAGE}`]: assistant([{ type: "text", text: EN_TEXT }]) }),
+			apiKey: () => KEY,
+			voices: () => VOICES,
+			synthesis: { dir, gate: fakeGate().gate, fetch: fetchFn as typeof fetch, sleep: async () => undefined, timeoutMs: 5000, maxAttempts: 3 },
+		});
+		const stopped = new AbortController();
+		const pending = tts.speak(body(), stopped.signal).catch(() => undefined);
+		await new Promise((r) => setImmediate(r));
+		assert.equal(seen.length, 1);
+		assert.equal(seen[0]!.aborted, false);
+		stopped.abort();
+		assert.equal(seen[0]!.aborted, true, "the upstream request is aborted with the client's");
+		await pending;
+	});
+});
+
+const ITALIAN_PROSE_MESSAGE = assistant([{ type: "text", text: IT_TEXT }]);
