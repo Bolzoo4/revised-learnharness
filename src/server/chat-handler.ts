@@ -62,6 +62,7 @@ import { beginTurn, endTurn } from "./turn-liveness.ts";
 import { applyParkedDismissal } from "./dismissal-park.ts";
 import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.ts";
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
+import { waitForTeaching } from "./teaching-gate.ts";
 import { sessionNotesAfterBatch, verifyAfterMerge, withPostMerge } from "./ext/index.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
@@ -431,6 +432,12 @@ export async function handleChatInput(
 	} catch (err) {
 		console.error(`[chat ${chatId}] input visibility bookkeeping failed:`, err);
 	}
+
+	// TEACHING GATE (REQ-graph-agent-19/20): the previous turn's extraction
+	// finishes before this turn's model call, at most 60 s. On a stall or a
+	// failure the teacher goes on and the un-extracted prose is marked, so the
+	// next extraction run catches it up.
+	await waitForTeaching(chatId, merged, stores.graphStore.readCoverage());
 
 	// MONEY CHANNEL (wave 4): one collector per request, fed by the agent's
 	// message_end events. Every model call's usage lands in the chat record's

@@ -134,6 +134,23 @@ export function transcriptView(record: ChatRecord): string {
  *  every proposition to the passage it came from (the session submit's
  *  required messageId). The shared markdown engine stays reserved for the
  *  future user-facing export. */
+/** REQ-graph-agent-21: the extractor's input for one batch — TEACHER PROSE
+ *  ONLY. Plan blocks, tool calls and their inputs, learner turns and the
+ *  goal or file title never create input on their own: a batch with no
+ *  teacher prose yields null, so no extraction call is made. The title stays
+ *  in the view as a document header, never as a node source by itself. */
+export function extractorInputOf(
+	messages: ReadonlyArray<LhMessage>,
+	title?: string,
+	failedOutputCalls: ReadonlySet<string> = failedOutputCallIds(messages),
+): { view: string; anchors: ReadonlySet<string> } | null {
+	const anchors = new Set(
+		messages.filter((m) => messageViewLines(m, m.id, failedOutputCalls).length > 0).map((m) => m.id),
+	);
+	if (anchors.size === 0) return null;
+	return { view: proseView(messages, title, failedOutputCalls), anchors };
+}
+
 function proseView(
 	messages: ReadonlyArray<LhMessage>,
 	title?: string,
@@ -1226,19 +1243,17 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 							// fingerprints' messageViewLines ("TEACHER [id] text"), one
 							// shared seam.
 							const messages = batch.map((slot) => slot.message);
-							const view = proseView(messages, record.title, failedOutputCalls);
-							// The batch's teacher-prose ids — the ONLY anchors this
-							// job's submit may name (validateSessionAnchors at the
-							// submit seam refuses anything else: ids from other
-							// batches — even real ones of this chat — other chats,
-							// and non-prose messages).
-							const batchIds = new Set(
-								messages.filter((m) => messageViewLines(m, m.id, failedOutputCalls).length > 0).map((m) => m.id),
-							);
+							// REQ-21: no teacher prose in the batch, no extraction call.
+							const input = extractorInputOf(messages, record.title, failedOutputCalls);
+							if (!input) return { nodes: 0, chains: 0 };
 							setPhase(jobKey, "queued", "chat", undefined, part);
+							// The batch's teacher-prose ids (input.anchors) — the ONLY anchors
+							// this job's submit may name (validateSessionAnchors at the submit
+							// seam refuses anything else: ids from other batches — even real
+							// ones of this chat — other chats, and non-prose messages).
 							const findings = await withExtractSlot(jobKey, async () => {
 								setPhase(jobKey, "extracting", "chat", undefined, part);
-								return extract(jobKey, chatId, view, batchIds);
+								return extract(jobKey, chatId, input.view, input.anchors as ReadonlySet<string>);
 							});
 							// SERIALIZED AUDIT (owner, 2026-09-28): audit + merge are the
 							// graph-mutating critical section — one job at a time,

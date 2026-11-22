@@ -25,6 +25,7 @@ import { coverageOf } from "../core/coverage.ts";
 import type { ChatStore, GraphStore } from "../core/ports.ts";
 import type { ExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
+import { clearNotExtracted, forceExtractionFor, pendingExtraction, trackExtraction } from "./teaching-gate.ts";
 
 /** Distinguish a failed canonical save from later bookkeeping failures. */
 export class TurnPersistenceError extends Error {
@@ -116,9 +117,15 @@ export function triggerExtraction(
 	try {
 		const record = deps.chatStore.getChat(chatId);
 		if (!record) return;
+		// One run per chat: an in-flight run already owns the teaching wait.
+		if (pendingExtraction(chatId)) return;
 		const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
-		if (covered.uncoveredTokens < chunkTokens) return;
-		void extraction.runExtraction(chatId).catch((err) => {
+		// A turn marked not-extracted (the teaching gate gave up on it) forces
+		// the catch-up run below the chunk budget (REQ-graph-agent-20).
+		if (covered.uncoveredTokens < chunkTokens && !forceExtractionFor(chatId)) return;
+		const run = extraction.runExtraction(chatId);
+		trackExtraction(chatId, run);
+		void run.then(() => clearNotExtracted(chatId)).catch((err) => {
 			// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
 			// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the
 			// coverage ledger keeps the messages uncovered — the next trigger
