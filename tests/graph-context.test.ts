@@ -49,6 +49,9 @@ describe("newGraphContextMessage", () => {
 		const m = newGraphContextMessage(PICKS, ["Modus ponens → Soundness"]);
 		assert.equal(m.customType, "graph-context");
 		assert.match(m.content, /\[Session context\] — picked from the learner's knowledge map/);
+		// the model is told the propositions come from an extractor and must be re-checked against the source when in doubt
+		assert.match(m.content, /extracted automatically by a model/);
+		assert.match(m.content, /read it again before relying on it/);
 		// IDS FIRST (owner round 9): every pick carries its id — the problem
 		// tool's target field references these; names alone no longer.
 		assert.ok(m.content.includes(`- [${PICKS[0]!.id}] Modus ponens: If P implies Q and P holds, Q holds.`));
