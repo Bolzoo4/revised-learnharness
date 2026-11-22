@@ -138,6 +138,27 @@
 	--lh-ink-italic: var(--foreground);
 }
 
+/* Graph view: one colour per typed link (graph x study). Dark is the
+   default (the :root and .dark blocks above); light below. Canvas reads
+   these as hex; the legend swatches read them as CSS. No other colours. */
+:root {
+	--graph-link-evolution: #e8a04a;
+	--graph-link-sequence: #6fb3e0;
+	--graph-link-case-of: #9ccc65;
+	--graph-link-part-of: #c48bd9;
+	--graph-link-analogy: #5fc9b8;
+	--graph-link-contrast: #e8716a;
+}
+
+:root:not(.dark) {
+	--graph-link-evolution: #b86a12;
+	--graph-link-sequence: #2a6fa8;
+	--graph-link-case-of: #4f8a2c;
+	--graph-link-part-of: #8a4fb0;
+	--graph-link-analogy: #17806f;
+	--graph-link-contrast: #b8413a;
+}
+
 /* Light: the Tailwind white utilities that are white ON DARK (the plan
    diagram's outlines and text, the callout border) flip to the hard ink.
    Surfaces that are white on purpose (figure and PDF paper, the demo card)

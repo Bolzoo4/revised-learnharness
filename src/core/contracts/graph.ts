@@ -19,6 +19,7 @@
 // ─── Knowledge graph (vision §1 — global, cross-session) ────────────────────
 
 import type { CallUsage, ExtractionRunUsage } from "./chat.ts";
+import type { Link } from "../ext/links.ts";
 
 /** One relation of the DERIVED view — chains are the stored truth (owner,
  *  2026-09-30: "the graph is a lossy image of what is truly stored"), and
@@ -349,6 +350,10 @@ export interface GraphSnapshot {
 	 *  read): the chain table's and the practice pipeline's input — they
 	 * read the truth, never the derived fan-out. */
 	chains: GraphChain[];
+	/** The STORED typed links (graph x study), dangling ones dropped: both
+	 *  endpoints are live propositions. Drawn beside the chains; never
+	 *  part of the reasoning (chains only). */
+	links: Link[];
 	/** chatId → title, for every chat that touched the graph. */
 	sessions: Record<string, string>;
 	/** srcId → file path, for every IMPORTED NOTES file that touched the

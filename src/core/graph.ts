@@ -69,7 +69,7 @@ import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
 import { sourceFileLabel } from "./source-label.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
-import { validateLink, type LinkSink, type LinkType } from "./ext/links.ts";
+import { validateLink, type Link, type LinkSink, type LinkType } from "./ext/links.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
 export interface GraphDeps {
@@ -554,8 +554,16 @@ export function deriveView(graph: DerivedGraph): {
 // ─── the /api/graph payload ──────────────────────────────────────────────────
 
 /** Everything the home graph view needs, in one fetch (shape: contracts). */
-export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<string, string>> = {}): GraphSnapshot {
+export function graphSnapshot(
+	deps: GraphDeps,
+	sourceNames: Readonly<Record<string, string>> = {},
+	links: readonly Link[] = [],
+): GraphSnapshot {
 	const graph = getGraph(deps.graphStore);
+	// Typed links ride along; one whose endpoint is no longer a live
+	// proposition (a rollback) is dropped here, never sent to the view.
+	const liveProps = new Set(graph.nodes.map((node) => node.id));
+	const liveLinks = links.filter((l) => liveProps.has(l.from) && liveProps.has(l.to));
 	// The canvas-facing lossy image: propositions + derived implication
 	// nodes, untyped arrows. `chains` (the stored truth) ride along for
 	// the chain table — it reads the truth, never the derived fan-out,
@@ -642,6 +650,7 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 		logicalEdges: view.logicalEdges,
 		impLinks: view.impLinks,
 		chains: graph.chains,
+		links: liveLinks.map((l) => ({ ...l })),
 		sessions,
 		fileSources,
 		nodeSessions,

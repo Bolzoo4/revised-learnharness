@@ -10,6 +10,8 @@ export * from "./node-panel-types.ts";
 export * from "./panel-history.ts";
 export * from "./prompt-catalog.ts";
 export * from "./theme.ts";
+export { LINK_TYPES, type Link, type LinkType } from "./links.ts";
+export { CHAIN_STYLE, edgesFor, isChainEdge, legendFor, linkStyle, type StyledEdge } from "./graph-edges.ts";
 export { isPracticeLike, sessionMatchesFilter, type SessionListFilter } from "./practice/session-kind.ts";
 export * from "./study/context.ts";
 export { activeCue } from "./lecture/cues.ts";

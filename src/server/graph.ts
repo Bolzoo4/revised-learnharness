@@ -23,7 +23,7 @@ import { callCost } from "./pricing.ts";
 export function graphView(): GraphSnapshot {
 	const organization = stores.sourceOrganizationStore.read();
 	const names = Object.fromEntries(Object.entries(organization.placements).flatMap(([id, p]) => p.name === undefined ? [] : [[id, p.name]]));
-	return graphSnapshot(stores, names);
+	return graphSnapshot(stores, names, extStores.linksStore.readLinks());
 }
 
 /** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost

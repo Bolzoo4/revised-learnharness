@@ -66,6 +66,7 @@ import {
 	type PhysicsTuning,
 	type RegionTuning,
 	INCREMENTAL_GRAVITY,
+	isChainEdge,
 	LINK_DISTANCE,
 	type DepthAnchorMode,
 	type GraphRenderSettings,
@@ -95,6 +96,10 @@ export interface CanvasNode {
 export interface CanvasEdge {
 	from: string;
 	to: string;
+	/** The style key (graph-edges.ts): "chain" (or absent) for chain arrows, "link:<type>" for typed links. */
+	style?: string;
+	/** false = headless line (an undirected link); absent or true = arrowhead. */
+	directed?: boolean;
 }
 
 /** Implication-node ids (the mint law: newGraphChainId in core/graph.ts).
@@ -120,6 +125,8 @@ export interface CanvasColors {
 	/** HSL lightness (0–100) of the cluster region labels: pale on the dark
 	 *  page, deep on the light one. The hue stays the cluster's own. */
 	regionLightness: number;
+	/** Edge colour per style key (link:<type> → hex). A style with no entry draws in `edge`. */
+	styles?: Readonly<Record<string, string>>;
 }
 
 export interface CanvasData {
@@ -640,8 +647,8 @@ export class GraphCanvasRenderer {
 	private geoVersion = 0; // bump = geometry inputs changed
 	private builtVersion = -1; // version the cache was built at
 	private nodesPath: Path2D | null = null;
-	private shaftsPath: Path2D = new Path2D();
-	private headsPath: Path2D = new Path2D();
+	/** Edge geometry per style key: one shaft path + one head path each, so every style strokes in its own colour. */
+	private edgePaths: Array<{ style: string; shafts: Path2D; heads: Path2D }> = [];
 	private regionCanvas: HTMLCanvasElement | null = null;
 	/** World rect the bitmap covers (drawImage target coords). */
 	private regionRect: { minX: number; minY: number; w: number; h: number } | null = null;
@@ -1258,8 +1265,7 @@ export class GraphCanvasRenderer {
 		// edge. Single-premise arguments arrive here as ordinary
 		// proposition→proposition edges and draw exactly like any arrow.
 		const arrowLen = settings.arrowLength;
-		const shafts = new Path2D();
-		const heads = new Path2D();
+		const groups = new Map<string, { shafts: Path2D; heads: Path2D }>();
 		for (const e of data.edges) {
 			if (!isVisible(e.from) || !isVisible(e.to)) continue;
 			const a = this.nodeById.get(e.from);
@@ -1269,21 +1275,26 @@ export class GraphCanvasRenderer {
 			const outOfImp = isImpNodeId(e.from);
 			const g = arrowGeometry(a, b, outOfImp ? 0 : nodeR, intoImp ? 0 : nodeR, arrowLen);
 			if (!g) continue;
-			shafts.moveTo(g.shaftFrom.x, g.shaftFrom.y);
-			if (intoImp) {
-				// toRadius 0 put the tip AT the imp node's center: the
-				// headless shaft terminates there (no head triangle).
-				shafts.lineTo(g.tip.x, g.tip.y);
+			const styleKey = e.style ?? "chain";
+			let path = groups.get(styleKey);
+			if (!path) {
+				path = { shafts: new Path2D(), heads: new Path2D() };
+				groups.set(styleKey, path);
+			}
+			path.shafts.moveTo(g.shaftFrom.x, g.shaftFrom.y);
+			// Headless: an implication junction (toRadius 0 put the tip AT the
+			// imp node's center) and an undirected link (tip on the disc edge).
+			if (intoImp || e.directed === false) {
+				path.shafts.lineTo(g.tip.x, g.tip.y);
 			} else {
-				shafts.lineTo(g.shaftTo.x, g.shaftTo.y);
-				heads.moveTo(g.tip.x, g.tip.y);
-				heads.lineTo(g.left.x, g.left.y);
-				heads.lineTo(g.right.x, g.right.y);
-				heads.closePath();
+				path.shafts.lineTo(g.shaftTo.x, g.shaftTo.y);
+				path.heads.moveTo(g.tip.x, g.tip.y);
+				path.heads.lineTo(g.left.x, g.left.y);
+				path.heads.lineTo(g.right.x, g.right.y);
+				path.heads.closePath();
 			}
 		}
-		this.shaftsPath = shafts;
-		this.headsPath = heads;
+		this.edgePaths = [...groups].map(([style, path]) => ({ style, ...path }));
 
 		// Cluster regions are NOT built here: they rasterize into their own
 		// low-res bitmap (see buildRegions), on their own rebuild schedule
@@ -1314,7 +1325,7 @@ export class GraphCanvasRenderer {
 			return;
 		}
 		const t = this.physicsTuning;
-		this.sim = createGraphSimulation(data.nodes, data.edges, {
+		this.sim = createGraphSimulation(data.nodes, data.edges.filter(isChainEdge), {
 			logicalEdges: data.logicalEdges,
 			impLinks: data.impLinks,
 			gravity: { x: this.simCenter.x, y: this.simCenter.y, strength: t.gravity },
@@ -1513,7 +1524,7 @@ export class GraphCanvasRenderer {
 			// Endpoints actually covered by a stroke's round caps.
 			const touched = new Set<string>();
 			for (const e of data.edges) {
-				if (clusterOf.get(e.from) !== ci) continue;
+				if (!isChainEdge(e) || clusterOf.get(e.from) !== ci) continue;
 				if (clusterOf.get(e.to) !== ci) continue;
 				// Search filter: stroke only fully-visible edges. Invisible-node
 				// segments still stroked into the (visible-only) bitmap cut
@@ -1656,12 +1667,15 @@ export class GraphCanvasRenderer {
 		// A true 0-width stroke is undefined on canvas: the ratio's 0 end
 		// floors to a hairline (0.5px on screen — hiding is the toggle's).
 		if (settings.edgeWidth > 0) {
-			ctx.strokeStyle = data.colors.edge;
-			ctx.fillStyle = data.colors.edge;
 			ctx.lineWidth = settings.edgeWidth / k;
 			ctx.lineCap = "round";
-			ctx.stroke(this.shaftsPath);
-			ctx.fill(this.headsPath);
+			for (const group of this.edgePaths) {
+				const color = data.colors.styles?.[group.style] ?? data.colors.edge;
+				ctx.strokeStyle = color;
+				ctx.fillStyle = color;
+				ctx.stroke(group.shafts);
+				ctx.fill(group.heads);
+			}
 		}
 
 		// 4. Nodes: one cached Path2D, one fill.

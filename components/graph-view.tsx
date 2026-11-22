@@ -70,6 +70,8 @@ import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, Wayp
 import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
 import { planCostLabel } from "@/components/usage-format";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
+import { edgesFor, legendFor, linkStyle, LINK_TYPES } from "@/src/core";
+import { LinkLegend } from "@/components/link-legend.tsx";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { useActivity } from "@/components/activity-dock";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -1389,6 +1391,14 @@ export function GraphView({
 	// class in a layout effect, which runs before this passive effect).
 	const { appearance: themed } = useAppearance();
 
+	// Chain arrows and typed links as one edge list; the legend lists only
+	// the link types present. Links never enter the layout (chains only).
+	const styledEdges = useMemo(
+		() => (snapshot ? edgesFor(snapshot.edges, snapshot.links, new Set(snapshot.nodes.map((n) => n.id))) : []),
+		[snapshot],
+	);
+	const linkTypes = useMemo(() => legendFor(styledEdges), [styledEdges]);
+
 	// Feed #1 — data: positions + edges + clusters + resolved colors. Runs
 	// after the layout effect (same commit, declaration order) and after
 	// the construct effect, so the renderer exists and positions are fresh.
@@ -1403,7 +1413,7 @@ export function GraphView({
 				y: positions.get(n.id)?.y ?? 0,
 				label: n.name,
 			})),
-			edges: snapshot.edges.map((e) => ({ from: e.from, to: e.to })),
+			edges: styledEdges.map((e) => ({ from: e.from, to: e.to, style: e.style, directed: e.directed })),
 			logicalEdges: snapshot.logicalEdges.map((e) => ({ from: e.from, to: e.to })),
 			impLinks: snapshot.impLinks,
 			clusters: snapshot.clusters.map((c) => ({ id: c.id, label: c.label, members: c.members })),
@@ -1414,11 +1424,13 @@ export function GraphView({
 				hoverText: tokenHex("--foreground"),
 				// Region labels: pale on dark, deep on light (same hue either way).
 				regionLightness: themed.mode === "light" ? 34 : 78,
+				// One colour per typed link (app/globals.css --graph-link-<type>).
+				styles: Object.fromEntries(LINK_TYPES.map((t) => [linkStyle(t), tokenHex(`--graph-link-${t}`)])),
 			},
 			// Match the app typography (Geist via the body's stack).
 			fontFamily: getComputedStyle(document.body).fontFamily,
 		});
-	}, [snapshot, isEmpty, themed.mode]);
+	}, [snapshot, styledEdges, isEmpty, themed.mode]);
 
 	// Feed #2 — settings: just marks the frame dirty. No rebuild, no
 	// re-layout, no camera touch (the whole point of the new renderer).
@@ -1493,6 +1505,10 @@ export function GraphView({
 					{/* THE single canvas: every layer (hulls, edges, nodes, both
 					    label systems, hover) draws into it, once per frame. */}
 					<canvas ref={canvasRef} className="block h-full w-full touch-none" />
+					{/* Typed-link legend (graph x study): bottom-left, only the types drawn. */}
+					<div className="pointer-events-none absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)]">
+						<LinkLegend types={linkTypes} />
+					</div>
 					{/* The context menu's anchor: a zero-size point at the
 					    right-click position (canvas-relative == container-relative,
 					    the canvas fills this div). */}
