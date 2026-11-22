@@ -42,7 +42,8 @@ import type { CostGate } from "./cost-gate.ts";
 import { createMarkResolver, deriveMarks, frontierMode, modeAllows, type FrontierEvent } from "./frontier.ts";
 import { findGaps, goalGap, type Gap } from "./gaps.ts";
 import { cleanGoal, MAX_REPORTS, MAX_REPORT_CHARS } from "./cycle-control.ts";
-import { goalScope, type Goal } from "./goals.ts";
+import { weightedScopeIds, type Goal } from "./goals.ts";
+import type { LinkEnds } from "./links.ts";
 import { ingestedEvent, normalizeLocator, triage, type InboxEvent } from "./inbox.ts";
 import { DEFAULT_RESEARCH_CONFIG, type ResearchConfig } from "./research-config.ts";
 import { markSpendUsd, type CycleLogEntry, type GapLog, type GapStop, type SourceLog } from "./research-log.ts";
@@ -94,6 +95,8 @@ export interface CycleDeps {
 	config: ResearchConfig;
 	costGate: CostGate;
 	graph(): { nodes: GraphNodeLite[]; chains: ChainLite[] };
+	/** Typed links: the goal scopes include the nodes they bring in (absent = none). */
+	links?(): readonly LinkEnds[];
 	goals(): Goal[];
 	uncovered(): UncoveredChat[];
 	weakNodeIds(): string[];
@@ -301,7 +304,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 
 	/** The mode now in force for nodes, from the marks as they are now (a resolver is built once per call of this). */
 	const modeResolver = () => {
-		const resolver = createMarkResolver(deriveMarks(deps.frontier.readAll()), deps.goals(), deps.graph().chains);
+		const resolver = createMarkResolver(deriveMarks(deps.frontier.readAll()), deps.goals(), deps.graph().chains, deps.links?.() ?? []);
 		return (nodeId: string) => {
 			const mark = resolver.effective(nodeId);
 			return { mark, mode: frontierMode(mark, mark === null ? 0 : spentUnder(mark.id)) };
@@ -460,7 +463,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 			if (stopReason() !== null) return;
 			const { nodes, chains } = deps.graph();
 			const goals = deps.goals().filter((g) => g.status === "active" && (entry.goalId === undefined || g.id === entry.goalId));
-			const scope = new Set(goals.flatMap((g) => goalScope(g.targetNodeIds, chains)));
+			const scope = new Set(goals.flatMap((g) => weightedScopeIds(g, chains, deps.links?.() ?? [])));
 			// Stop/hold marks keep a region out of watch ingestion too (it is expansion).
 			const modeOf = modeResolver();
 			const allowed = new Set([...scope].filter((id) => modeAllows(modeOf(id).mode, "expansion")));
@@ -553,6 +556,7 @@ async function runCycleUnguarded(deps: CycleDeps, trigger: CycleLogEntry["trigge
 							weakNodeIds: deps.weakNodeIds(),
 							uncovered: deps.uncovered(),
 							marks: deriveMarks(deps.frontier.readAll()),
+							links: deps.links?.() ?? [],
 							markSpendUsd: baseSpend,
 							config,
 						}).slice(0, maxGaps);

@@ -101,7 +101,7 @@ export function stagesOf(deps: ReviewDeps, now: string): Map<string, NodeStage> 
 	const recall = new Map<string, number>();
 	for (const id of snap.states.keys()) recall.set(id, snap.recall(id));
 	return stagesFor(snap.nodes, {
-		activeScope: new Set(activeScope(snap.goals, snap.chains)),
+		activeScope: new Set(activeScope(snap.goals, snap.chains, snap.links)),
 		recall,
 		reviewed,
 	});

@@ -16,7 +16,8 @@
  */
 
 import type { GraphChain } from "../contracts.ts";
-import { goalScope, type Goal } from "./goals.ts";
+import { goalScope, weightedScopeIds, type Goal } from "./goals.ts";
+import type { LinkEnds } from "./links.ts";
 
 export type MarkKind = "expand" | "hold" | "stop";
 export type ScopeKind = "node" | "subtree" | "goal";
@@ -110,11 +111,11 @@ export function deriveMarks(events: readonly FrontierEvent[]): Mark[] {
 
 type Chains = readonly Pick<GraphChain, "premises" | "conclusion">[];
 
-export function regionOf(scope: MarkScope, goals: readonly Goal[], chains: Chains): Set<string> {
+export function regionOf(scope: MarkScope, goals: readonly Goal[], chains: Chains, links: readonly LinkEnds[] = []): Set<string> {
 	if (scope.kind === "node") return new Set([scope.id]);
 	if (scope.kind === "subtree") return new Set(goalScope([scope.id], chains));
 	const goal = goals.find((g) => g.id === scope.id);
-	return new Set(goal === undefined ? [] : goalScope(goal.targetNodeIds, chains));
+	return new Set(goal === undefined ? [] : weightedScopeIds(goal, chains, links));
 }
 
 const SPECIFICITY: Record<ScopeKind, number> = { node: 0, subtree: 1, goal: 2 };
@@ -124,8 +125,8 @@ export interface MarkResolver {
 	effective(nodeId: string): Mark | null;
 }
 
-export function createMarkResolver(marks: readonly Mark[], goals: readonly Goal[], chains: Chains): MarkResolver {
-	const regions = marks.map((mark) => ({ mark, nodes: regionOf(mark.scope, goals, chains) }));
+export function createMarkResolver(marks: readonly Mark[], goals: readonly Goal[], chains: Chains, links: readonly LinkEnds[] = []): MarkResolver {
+	const regions = marks.map((mark) => ({ mark, nodes: regionOf(mark.scope, goals, chains, links) }));
 	return {
 		effective(nodeId) {
 			const hits = regions.filter((r) => r.nodes.has(nodeId));

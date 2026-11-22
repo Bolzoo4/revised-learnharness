@@ -125,6 +125,7 @@ function blankMem(): Mem {
 }
 
 /** No write tool is exercised here: the port fails loudly if one is. */
+const NO_SOURCES = { labels: () => new Map<string, string>() };
 const UNUSED_APP = {
 	post: async () => {
 		throw new Error("write tool in a read-only test");
@@ -147,6 +148,7 @@ function depsOf(m: Mem, graphOverride?: { readNodes?: () => GraphNode[] }): McpD
 	const log = <T>(arr: () => T[]) => ({ readAll: () => arr() });
 	return {
 		appApi: UNUSED_APP,
+		sources: NO_SOURCES,
 		review: {
 			graphStore: {
 				readNodes: graphOverride?.readNodes ?? (() => m.nodes),

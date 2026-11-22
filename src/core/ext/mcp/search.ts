@@ -3,7 +3,7 @@
 
 import { fuzzyScore } from "../../fuzzy.ts";
 import { getGraph } from "../../graph.ts";
-import { deriveGoals, goalScope } from "../goals.ts";
+import { deriveGoals, weightedScopeIds } from "../goals.ts";
 import { guardReplay, stagesOfCall, type Call } from "./call.ts";
 import { ToolError } from "./errors.ts";
 import { compareCodeUnits, optionalEnum, requireId, requireQuery } from "./input.ts";
@@ -35,28 +35,34 @@ export function searchNodes(call: Call, input: Record<string, unknown>, opts: Ru
 	}
 	const stage = stageArg ?? (opts.knowledgeOnly ? "all" : "confirmed");
 
-	// The graph is read first, so a graph read failure keeps its own (internal) path; the stages replay the review history.
+	// The graph is read first, so a graph read failure keeps its own (internal) path. Stages are computed only when a
+	// stage filter other than "all" needs them (they replay the review history); "all" computes none.
 	const { nodes, chains } = getGraph(call.graph);
-	const stages: Map<string, NodeStage> | null = opts.knowledgeOnly ? null : stagesOfCall(call);
+	const stages: Map<string, NodeStage> | null = opts.knowledgeOnly || stage === "all" ? null : stagesOfCall(call);
+	const links = call.review.linksStore?.readLinks() ?? [];
 	let scope: Set<string> | null = null;
 	if (goalId !== undefined) {
 		const goal = guardReplay(() => deriveGoals(call.review.goalsStore.readEvents())).find((g) => g.id === goalId);
 		if (goal === undefined) throw new ToolError("not_found", `No goal with id "${capText(goalId, 60)}".`);
-		scope = new Set(goalScope(goal.targetNodeIds, chains));
+		scope = new Set(weightedScopeIds(goal, chains, links));
 	}
 
 	const levels = trustLevels(call.deps.verification.readAll());
 	const hits: Array<{ id: string; name: string; statement: string; score: number; level: string; stage: NodeStage | null }> = [];
+	let hiddenByStage = 0;
 	for (const node of nodes) {
 		if (scope !== null && !scope.has(node.id)) continue;
 		const level = levels.get(node.id)?.level ?? "unverified";
 		if (trust !== undefined && level !== trust) continue;
-		const nodeStage = stages?.get(node.id) ?? null;
-		// The stage filter runs here, before the limit: a page then holds matching nodes only.
-		if (stage !== "all" && nodeStage !== stage) continue;
 		// Stored text is compared in NFC too, so composed and decomposed accents match alike.
 		const score = fuzzyScore(query, nfc(node.name), nfc(node.statement), ...node.aliases.map(nfc));
 		if (score === null) continue;
+		const nodeStage = stages?.get(node.id) ?? null;
+		// The stage filter runs here, before the limit: a page then holds matching nodes only. Matches it hides are counted.
+		if (stage !== "all" && nodeStage !== stage) {
+			hiddenByStage += 1;
+			continue;
+		}
 		hits.push({ id: node.id, name: node.name, statement: node.statement, score, level, stage: nodeStage });
 	}
 	hits.sort((a, b) => b.score - a.score || compareCodeUnits(a.id, b.id));
@@ -64,6 +70,7 @@ export function searchNodes(call: Call, input: Record<string, unknown>, opts: Ru
 	const p = page(hits, limit);
 	return {
 		query,
+		hiddenByStage,
 		...p,
 		items: p.items.map((h) => ({
 			id: h.id,

@@ -254,12 +254,29 @@ export function goalScopeWeighted(
 	return out;
 }
 
-/** The union of the scopes of all active goals. */
-export function activeScope(goals: readonly Goal[], chains: readonly Pick<GraphChain, "premises" | "conclusion">[]): string[] {
+/**
+ * The ids of a goal's weighted scope (weight above zero). THE scope of a goal
+ * everywhere: stage, frontier, gaps, the node panel, search and the readiness
+ * report all use it, so a node reached only by a link is in the scope in each.
+ */
+export function weightedScopeIds(
+	goal: Pick<Goal, "targetNodeIds" | "weights">,
+	chains: readonly Pick<GraphChain, "premises" | "conclusion">[],
+	links: readonly { from: string; to: string; linkType: LinkType }[] = [],
+): string[] {
+	return [...goalScopeWeighted(goal, chains, links)].filter(([, w]) => w > 0).map(([id]) => id);
+}
+
+/** The union of the weighted scopes of all active goals. */
+export function activeScope(
+	goals: readonly Goal[],
+	chains: readonly Pick<GraphChain, "premises" | "conclusion">[],
+	links: readonly { from: string; to: string; linkType: LinkType }[] = [],
+): string[] {
 	const out = new Set<string>();
 	for (const goal of goals) {
 		if (goal.status !== "active") continue;
-		for (const id of goalScope(goal.targetNodeIds, chains)) out.add(id);
+		for (const id of weightedScopeIds(goal, chains, links)) out.add(id);
 	}
 	return [...out];
 }

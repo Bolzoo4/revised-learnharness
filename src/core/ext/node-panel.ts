@@ -12,7 +12,8 @@ import type { GraphStore } from "../ports.ts";
 import { extractNodeLinks, mentionedBy } from "./explanation-check.ts";
 import { explanationForm, isStale } from "./explanation-rules.ts";
 import { deriveExplanations, type ExplanationEvent } from "./explanations.ts";
-import { deriveGoals, goalScope, type GoalEvent } from "./goals.ts";
+import { deriveGoals, weightedScopeIds, type GoalEvent } from "./goals.ts";
+import type { LinkEnds } from "./links.ts";
 import { neighbourhood } from "./neighbourhood.ts";
 import type {
 	ExplanationView,
@@ -30,6 +31,8 @@ export interface PanelInput {
 	/** False when the daily cost ceiling is reached (REQ-node-05). */
 	costAllowed: boolean;
 	availableActions: readonly NodeAction[];
+	/** Typed links, for the goal scope (a linked node is in the goal's scope at its link weight). */
+	links?: readonly LinkEnds[];
 }
 
 export function buildNodePanel(nodeId: string, input: PanelInput): NodePanelData | null {
@@ -66,7 +69,7 @@ export function buildNodePanel(nodeId: string, input: PanelInput): NodePanelData
 	for (const [id, e] of derived) if (e.current !== null && byId.has(id)) currentBodies.set(id, e.current.body);
 
 	const goals = deriveGoals(input.goalEvents).flatMap((g) =>
-		goalScope(g.targetNodeIds, chains).includes(nodeId)
+		weightedScopeIds(g, chains, input.links ?? []).includes(nodeId)
 			? [{ id: g.id, title: g.title, status: g.status, isTarget: g.targetNodeIds.includes(nodeId) }]
 			: [],
 	);

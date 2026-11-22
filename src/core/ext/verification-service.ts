@@ -6,6 +6,7 @@
  * teacher's context.
  */
 
+import type { LinkEnds } from "./links.ts";
 import { deriveGoals } from "./goals.ts";
 import type { GoalsStore } from "./ports.ts";
 import { createSourceLibrary, type SourceEntry, type SourceLibrary, type SourceTier } from "./sources.ts";
@@ -23,6 +24,8 @@ export interface TrustView {
 
 export interface VerificationServiceDeps extends VerifyDeps {
 	goalsStore: GoalsStore;
+	/** Typed links: the goal scope the automatic triggers verify includes the nodes they bring in (absent = none). */
+	links?: () => readonly LinkEnds[];
 }
 
 export interface VerificationService {
@@ -55,6 +58,7 @@ export function createVerificationService(deps: VerificationServiceDeps): Verifi
 			nodes: deps.graphStore.readNodes(),
 			chains: deps.graphStore.readChains(),
 			events: deps.verificationStore.readEvents(),
+			links: deps.links?.() ?? [],
 		};
 	}
 

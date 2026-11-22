@@ -8,7 +8,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { runTool } from "../src/core/ext/mcp/tools.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { DEFAULT_WEIGHTS } from "../src/core/ext/goals.ts";
 import { cleanupAllFixtures, makeFixture, node, type Fixture } from "./helpers/mcp-fixture.ts";
+
 
 afterEach(cleanupAllFixtures);
 
@@ -50,12 +54,50 @@ describe("search_nodes stage filter (REQ-graph-agent-09)", () => {
 		assert.ok(out.items.every((i: { stage: string }) => i.stage === "staged"));
 	});
 
-	it("stage all returns every node and carries the stage of each hit", () => {
+	it("stage all returns every node and computes no stage (stage is null on each hit)", () => {
 		const out = call(stagedFixture(), "search_nodes", { query: "concept", stage: "all", limit: 50 });
 		assert.equal(out.count, 14);
-		const stages = new Map(out.items.map((i: { id: string; stage: string }) => [i.id, i.stage]));
-		assert.equal(stages.get(STAGED_IDS[0]), "staged");
-		assert.equal(stages.get(CONFIRMED_IDS[0]), "confirmed");
+		assert.ok(out.items.every((i: { stage: unknown }) => i.stage === null));
+	});
+
+	it("stage all never replays the review history: a broken review ledger still answers, the default does not", () => {
+		const f = stagedFixture();
+		const broken = { ...f.deps, review: { ...f.deps.review, reviewStore: { ...f.deps.review.reviewStore, readEvents: () => { throw new Error("replay boom"); } } } };
+		const all = runTool("search_nodes", broken, { query: "concept", stage: "all" }, { knowledgeOnly: false }) as any;
+		assert.equal(all.count, 14);
+		assert.throws(() => runTool("search_nodes", broken, { query: "concept" }, { knowledgeOnly: false }), (e: any) => e.code === "data_inconsistent");
+	});
+
+	it("hiddenByStage says how many text matches the stage filter hid", () => {
+		const f = stagedFixture();
+		assert.equal(call(f, "search_nodes", { query: "concept" }).hiddenByStage, 12);
+		assert.equal(call(f, "search_nodes", { query: "concept", stage: "staged", limit: 5 }).hiddenByStage, 2);
+		assert.equal(call(f, "search_nodes", { query: "concept", stage: "all" }).hiddenByStage, 0);
+	});
+
+	it("goalId keeps a node reached only by a link at weight 1, and drops it at weight 0", () => {
+		const build = (analogy: number) => {
+			const f = makeFixture();
+			f.graph("nodes.jsonl", node("n_target", "Concept target"));
+			f.graph("nodes.jsonl", node("n_linked", "Concept linked"));
+			f.ext("goals.jsonl", { type: "created", goalId: "goal_link000001", title: "Link goal", origin: "user", originRef: "", targetNodeIds: ["n_target"], priority: 3, weights: { ...DEFAULT_WEIGHTS, analogy }, at: AT });
+			f.ext("links.jsonl", { type: "created", id: "lk_1", from: "n_target", to: "n_linked", linkType: "analogy", origin: "user", at: AT });
+			return f;
+		};
+		const at1 = call(build(1), "search_nodes", { query: "concept", goalId: "goal_link000001", stage: "all" });
+		assert.deepEqual(at1.items.map((i: { id: string }) => i.id).sort(), ["n_linked", "n_target"]);
+		const at0 = call(build(0), "search_nodes", { query: "concept", goalId: "goal_link000001", stage: "all" });
+		assert.deepEqual(at0.items.map((i: { id: string }) => i.id), ["n_target"]);
+	});
+
+	it("get_node gives each provenance point the label of its source file (a name, never a path); a chat point gets null", () => {
+		const f = makeFixture();
+		f.graph("nodes.jsonl", { ...node("n_prov", "Provenance node"), provenance: [{ chatId: "src_book", messageId: "m1", page: 3, passage: null }, { chatId: "chat_abc", messageId: "m2" }] });
+		fs.writeFileSync(path.join(f.graphDir, "sources.json"), JSON.stringify({ src_book: { id: "src_book", filePath: "/Users/someone/Private/Bio/notes.pdf", importedAt: AT } }));
+		const out = call(f, "get_node", { id: "n_prov" });
+		assert.equal(out.provenance.items[0].sourceLabel, "notes.pdf");
+		assert.equal(out.provenance.items[1].sourceLabel, null);
+		assert.ok(!JSON.stringify(out).includes("/Users/"));
 	});
 
 	it("an unknown stage is refused", () => {

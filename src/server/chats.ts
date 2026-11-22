@@ -5,6 +5,7 @@ import { deleteChatTraces, type ChatDeleteMode, type ChatDeletionStats } from ".
 import { titleFromPrompt } from "../core/contracts.ts";
 import { graphRevision } from "./graph.ts";
 import { stores } from "./stores.ts";
+import { extStores } from "./ext/stores.ts";
 import { isTurnRunning } from "./turn-liveness.ts";
 import { clearTurnFailure } from "./turn-runs.ts";
 import { discardChatDeliveries } from "./jobs.ts";
@@ -142,7 +143,7 @@ export function deleteIdleChatRecord(chatId: string): Extract<ChatDeleteOutcome,
 function finishChatDeletion(chatId: string, mode: ChatDeleteMode): Extract<ChatDeleteOutcome, { ok: true }> {
 	// THE SYNC BLOCK — no awaits below (see the doc comment). Order:
 	// ledgers → jobs → the chat record.
-	const stats = deleteChatTraces(stores.graphStore, chatId, mode);
+	const stats = deleteChatTraces(stores.graphStore, chatId, mode, extStores.linksStore);
 	const jobsRemoved = finishChatRecordDeletion(chatId);
 	return { ok: true, mode, stats, jobsRemoved, graphRevision: graphRevision() };
 }

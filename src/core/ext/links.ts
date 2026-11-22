@@ -24,6 +24,9 @@ export type LinkEvent =
 	| { type: "created"; id: string; from: string; to: string; linkType: LinkType; origin: LinkOrigin; at: string }
 	| { type: "removed"; id: string; at: string };
 
+/** The part of a link the scope rules read. */
+export type LinkEnds = Pick<Link, "from" | "to" | "linkType">;
+
 export interface Link {
 	id: string;
 	from: string;

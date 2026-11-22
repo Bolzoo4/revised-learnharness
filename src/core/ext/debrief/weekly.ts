@@ -9,7 +9,8 @@
 import type { GraphChain } from "../../contracts.ts";
 import { DERIVABLE_RECALL } from "../deck.ts";
 import { recallProbability } from "../fsrs.ts";
-import { activeScope, goalScope, type Goal } from "../goals.ts";
+import { activeScope, weightedScopeIds, type Goal } from "../goals.ts";
+import type { LinkEnds } from "../links.ts";
 import { DEFAULT_IMPLICIT_WEIGHT, deriveNodeStates } from "../review-state.ts";
 import type { ReviewEvent } from "../review.ts";
 import type { TrustLevel } from "../trust.ts";
@@ -78,6 +79,8 @@ export interface WeeklyInput {
 	reviewEvents: readonly ReviewEvent[];
 	goals: readonly Goal[];
 	chains: readonly Pick<GraphChain, "premises" | "conclusion">[];
+	/** Typed links: the weighted goal scope includes the nodes they bring in. */
+	links?: readonly LinkEnds[];
 	nodeIds: ReadonlySet<string>;
 	retentionOf(nodeId: string): number;
 	trustOf(nodeId: string): TrustLevel;
@@ -101,7 +104,7 @@ export function computeWeeklyFacts(input: WeeklyInput): WeeklyFacts {
 	const atEnd = stateAt(endMs);
 	const recallIn = (states: ReturnType<typeof stateAt>, ms: number) => (id: string) => recallProbability(states.get(id)?.card ?? null, new Date(ms).toISOString());
 
-	const scope = activeScope(input.goals, input.chains).filter(exists);
+	const scope = activeScope(input.goals, input.chains, input.links ?? []).filter(exists);
 	const dueAt = (states: ReturnType<typeof stateAt>, ms: number) => scope.filter((id) => (states.get(id)?.card.due.getTime() ?? Number.POSITIVE_INFINITY) <= ms).length;
 	const dueAtStart = dueAt(atStart, startMs);
 	const dueAtEnd = dueAt(atEnd, endMs);
@@ -132,7 +135,7 @@ export function computeWeeklyFacts(input: WeeklyInput): WeeklyFacts {
 	const goals = input.goals
 		.filter((g) => g.status !== "paused")
 		.map((g) => {
-			const gs = goalScope(g.targetNodeIds, input.chains).filter(exists);
+			const gs = weightedScopeIds(g, input.chains, input.links ?? []).filter(exists);
 			const solid = (states: ReturnType<typeof stateAt>, ms: number) => gs.filter((id) => recallIn(states, ms)(id) >= DERIVABLE_RECALL).length;
 			const solidAtStart = solid(atStart, startMs);
 			const solidAtEnd = solid(atEnd, endMs);

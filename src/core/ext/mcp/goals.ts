@@ -22,10 +22,22 @@ export function scopeStageCounts(weighted: ReadonlyMap<string, number>, stages: 
 	return stageCounts(inScope);
 }
 
+/** The stage note of get_node's rule: stage counts are null when the review history cannot be replayed. */
+export const STAGES_UNAVAILABLE_NOTE = "The stage counts are unavailable: the review history cannot be replayed.";
+
+/** The stages of the call, or null with the note when the review history cannot be replayed (as get_node does). */
+function stagesOrNote(call: Call): { stages: Map<string, NodeStage> | null; stagesNote: string | null } {
+	try {
+		return { stages: stagesOfCall(call), stagesNote: null };
+	} catch {
+		return { stages: null, stagesNote: STAGES_UNAVAILABLE_NOTE };
+	}
+}
+
 export function listGoals(call: Call, input: Record<string, unknown>) {
 	const status = optionalEnum(input.status, GOAL_STATUSES, "status");
 	const snap = snapshotOf(call);
-	const stages = stagesOfCall(call);
+	const { stages, stagesNote } = stagesOrNote(call);
 	const rows = snap.goals
 		.filter((g) => status === undefined || g.status === status)
 		.map((g) => {
@@ -44,7 +56,8 @@ export function listGoals(call: Call, input: Record<string, unknown>) {
 				solidNodes: r.solid,
 				solidShare: round4(r.fraction),
 				ready: r.ready,
-				stages: scopeStageCounts(weighted, stages),
+				stages: stages === null ? null : scopeStageCounts(weighted, stages),
+				stagesNote,
 			};
 		});
 	// No caller limit: the list is bounded by the goal maximum and the list byte budget, and says so when it cuts.
@@ -98,7 +111,7 @@ export function getGoal(call: Call, input: Record<string, unknown>) {
 		else scheduled += 1;
 	}
 	const targets = page(goal.targetNodeIds, LIMITS.targetsMax);
-	const stages = stagesOfCall(call);
+	const { stages, stagesNote } = stagesOrNote(call);
 	return {
 		id: goal.id,
 		title: capText(goal.title, LIMITS.titleChars),
@@ -113,7 +126,8 @@ export function getGoal(call: Call, input: Record<string, unknown>) {
 			items: targets.items.map((t) => ({ id: t, name: capText(names.get(t) ?? t, LIMITS.nameChars), trust: levels.get(t)?.level ?? "unverified" })),
 		},
 		scope: { size: r.total, solid: r.solid, solidShare: r.total === 0 ? 0 : round4(r.solid / r.total), ready: r.ready, byTrust },
-		stages: scopeStageCounts(weighted, stages),
+		stages: stages === null ? null : scopeStageCounts(weighted, stages),
+		stagesNote,
 		due: { dueNow, unseen, scheduled },
 		exerciseSet: exerciseSetOf(call, goal.id),
 	};

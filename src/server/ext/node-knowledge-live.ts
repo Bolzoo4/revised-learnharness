@@ -37,6 +37,7 @@ const costGate: CostGate = {
 
 const knowledge = createNodeKnowledge({
 	graphStore: stores.graphStore,
+	links: () => extStores.linksStore.readLinks(),
 	explanations: extStores.explanationsStore,
 	goalsStore: extStores.goalsStore,
 	writer,

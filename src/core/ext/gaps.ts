@@ -18,7 +18,8 @@
  */
 
 import type { Goal } from "./goals.ts";
-import { DEFAULT_GOAL_PRIORITY, goalScope } from "./goals.ts";
+import { DEFAULT_GOAL_PRIORITY, weightedScopeIds } from "./goals.ts";
+import type { LinkEnds } from "./links.ts";
 import { createMarkResolver, frontierMode, modeAllows, type Mark } from "./frontier.ts";
 import { GAP_CLASS, type GapClass, type GapType, type ResearchConfig } from "./research-config.ts";
 import type { ChainLite, GraphNodeLite, TrustInfo, UncoveredChat } from "./research-ports.ts";
@@ -47,6 +48,8 @@ export interface GapInput {
 	weakNodeIds: readonly string[];
 	uncovered: readonly UncoveredChat[];
 	marks: readonly Mark[];
+	/** Typed links: a linked node enters a goal's scope at its link weight (the same scope as everywhere else). */
+	links?: readonly LinkEnds[];
 	/** USD spent per mark id (from the research log), for budgets. */
 	markSpendUsd: ReadonlyMap<string, number>;
 	config: ResearchConfig;
@@ -62,7 +65,7 @@ interface Reach {
 }
 
 /** Best weight and its distance for every node reachable from the active goals' scopes. */
-export function reachFromGoals(goals: readonly Goal[], chains: readonly ChainLite[], distanceBase: number): Map<string, Reach> {
+export function reachFromGoals(goals: readonly Goal[], chains: readonly ChainLite[], distanceBase: number, links: readonly LinkEnds[] = []): Map<string, Reach> {
 	const neighbours = new Map<string, string[]>();
 	const link = (a: string, b: string) => {
 		const list = neighbours.get(a);
@@ -79,7 +82,7 @@ export function reachFromGoals(goals: readonly Goal[], chains: readonly ChainLit
 	for (const goal of goals) {
 		if (goal.status !== "active") continue;
 		const dist = new Map<string, number>();
-		let frontier = goalScope(goal.targetNodeIds, chains);
+		let frontier = weightedScopeIds(goal, chains, links);
 		for (const id of frontier) dist.set(id, 0);
 		for (let d = 0; frontier.length > 0; d++) {
 			const next: string[] = [];
@@ -118,8 +121,9 @@ export function goalGap(goal: string, id: string): Gap {
 
 export function findGaps(input: GapInput): Gap[] {
 	const { config } = input;
-	const reach = reachFromGoals(input.goals, input.chains, config.distanceBase);
-	const resolver = createMarkResolver(input.marks, input.goals, input.chains);
+	const links = input.links ?? [];
+	const reach = reachFromGoals(input.goals, input.chains, config.distanceBase, links);
+	const resolver = createMarkResolver(input.marks, input.goals, input.chains, links);
 	const names = new Map(input.nodes.map((n) => [n.id, n.name]));
 	const concluded = new Set(input.chains.map((c) => c.conclusion));
 	const trustOf = (id: string): TrustInfo => input.trust.get(id) ?? { trust: "unverified", hasPrimarySupport: false };

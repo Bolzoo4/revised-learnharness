@@ -8,7 +8,7 @@
 import { writeExerciseSet } from "../../agent/ext/practice/exercise-writer.ts";
 import { getGraph } from "../../core/graph.ts";
 import { extractNodeLinks } from "../../core/ext/explanation-check.ts";
-import { goalScope, deriveGoals } from "../../core/ext/goals.ts";
+import { weightedScopeIds, deriveGoals } from "../../core/ext/goals.ts";
 import { applyExerciseResult } from "../../core/ext/review-service.ts";
 import { stores } from "../stores.ts";
 import { liveCostGate } from "./cost-live.ts";
@@ -29,7 +29,7 @@ export const practiceService = createPracticeService({
 		const goal = deriveGoals(extStores.goalsStore.readEvents()).find((x) => x.id === goalId);
 		if (goal === undefined) return null;
 		const chains = getGraph(stores.graphStore).chains;
-		return { title: goal.title, targetNodeIds: goal.targetNodeIds, scope: goalScope(goal.targetNodeIds, chains), status: goal.status };
+		return { title: goal.title, targetNodeIds: goal.targetNodeIds, scope: weightedScopeIds(goal, chains, extStores.linksStore.readLinks()), status: goal.status };
 	},
 	nodes: (ids) => {
 		const want = new Set(ids);

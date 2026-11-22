@@ -7,6 +7,7 @@
  * over injected readers so tests drive it with memory data.
  */
 
+import type { LinkEnds } from "../../core/ext/links.ts";
 import type { GraphChain } from "../../core/contracts.ts";
 import { ANY_SESSION_ID, type ActivityEvent, deriveLectureSessions, explicitEnds } from "../../core/ext/debrief/activity.ts";
 import {
@@ -53,6 +54,8 @@ export interface ChatRow {
 }
 
 export interface SourcesDeps {
+	/** Typed links, for the weekly goal scope (absent = none). */
+	links?: () => readonly LinkEnds[];
 	chats: { list(): ChatRow[]; messages(chatId: string): unknown[] };
 	reviewEvents(): ReviewEvent[];
 	officeHoursEvents(): OfficeHoursEvent[];
@@ -194,6 +197,7 @@ export function createDebriefSources(deps: SourcesDeps): DebriefSources {
 			reviewEvents,
 			goals,
 			chains: g.chains,
+			links: deps.links?.() ?? [],
 			nodeIds: new Set(g.nodes.map((n) => n.id)),
 			retentionOf: (id) => info.get(id)?.retention ?? DEFAULT_RETENTION,
 			trustOf: (id) => levels.get(id) ?? "unverified",

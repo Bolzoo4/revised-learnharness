@@ -60,6 +60,7 @@ const sources = createDebriefSources({
 		messages: (id) => stores.chatStore.getChat(id)?.messages ?? [],
 	},
 	reviewEvents: () => extStores.reviewStore.readEvents(),
+	links: () => extStores.linksStore.readLinks(),
 	officeHoursEvents: () => extStores.officeHoursLedger.readAll(),
 	exerciseEvents: () => extStores.exercisesLedger.readAll(),
 	cardEvents: () => extStores.cardsStore.readEvents(),

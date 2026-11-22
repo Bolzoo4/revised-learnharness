@@ -11,6 +11,7 @@
 import { chapterSourceId } from "../../agent/ext/lecture/chapter-run.ts";
 import { getGraph } from "../../core/graph.ts";
 import { deleteSourcesTraces } from "../../core/graph-deletion.ts";
+import type { LinkSink } from "../../core/ext/links.ts";
 import type { Lecture } from "../../core/ext/lecture/lecture.ts";
 import { isRunningPhase, isWorkingState, type BookRun, type ChapterState } from "../../core/ext/lecture/run-record.ts";
 import type { GraphStore, SourceOrganizationStore } from "../../core/ports.ts";
@@ -45,6 +46,8 @@ export interface LectureCleanupDeps {
 	books(): readonly BookRun[];
 	lectures(): readonly Lecture[];
 	extractionRunning(): boolean;
+	/** The links of the nodes a removal kills are removed with them (absent = no links store). */
+	links?: LinkSink;
 }
 
 /** A read-only view for counting what a removal would do: reads are the real ones, every rewrite is dropped. */
@@ -117,7 +120,7 @@ export function createLectureCleanup(deps: LectureCleanupDeps) {
 
 		const sourceId = chapterSourceId({ bookId, bookTitle: book.title }, chapter.chapter);
 		const before = countsFor(sourceId);
-		const stats = deleteSourcesTraces(deps.graphStore, new Set([sourceId]), "delete-nodes");
+		const stats = deleteSourcesTraces(deps.graphStore, new Set([sourceId]), "delete-nodes", deps.links);
 		deps.graphStore.deleteSources(new Set([sourceId]));
 		const state = deps.organization.read();
 		if (sourceId in state.placements) {

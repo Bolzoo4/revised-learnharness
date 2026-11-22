@@ -159,4 +159,5 @@ export const lectureCleanup = createLectureCleanup({
 	books: () => lectureService.runStatuses(),
 	lectures: () => extStores.lecturesStore.list(),
 	extractionRunning: () => extractionStatuses().length > 0,
+	links: extStores.linksStore,
 });

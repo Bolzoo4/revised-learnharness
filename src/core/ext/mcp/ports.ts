@@ -46,8 +46,14 @@ export interface AppApiPort {
 	get(path: string): Promise<unknown>;
 }
 
+/** The label of each imported source file (its file name, never a path): read-only, from graph/sources.json. */
+export interface SourceLabels {
+	labels(): ReadonlyMap<string, string>;
+}
+
 export interface McpDeps {
 	review: ReviewDeps;
+	sources: SourceLabels;
 	/** The write tools' only way to change anything: the running app's API. */
 	appApi: AppApiPort;
 	verification: ReadLog<VerificationEvent>;

@@ -37,6 +37,7 @@ export const costGate: CostGate = liveCostGate;
 const service = createVerificationService({
 	graphStore: stores.graphStore,
 	goalsStore: extStores.goalsStore,
+	links: () => extStores.linksStore.readLinks(),
 	sourcesStore: extStores.sourcesStore,
 	snapshotStore: extStores.snapshotStore,
 	verificationStore: extStores.verificationStore,

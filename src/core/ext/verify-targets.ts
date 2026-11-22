@@ -7,6 +7,7 @@
 
 import type { GraphChain, GraphNode } from "../contracts.ts";
 import { activeScope, type Goal } from "./goals.ts";
+import type { LinkEnds } from "./links.ts";
 import { deriveTrustMap, type VerificationEvent } from "./trust.ts";
 
 export interface TargetInputs {
@@ -14,11 +15,13 @@ export interface TargetInputs {
 	nodes: readonly Pick<GraphNode, "id">[];
 	chains: readonly Pick<GraphChain, "premises" | "conclusion">[];
 	events: readonly VerificationEvent[];
+	/** Typed links: the weighted goal scope includes the nodes they bring in. */
+	links?: readonly LinkEnds[];
 }
 
 function scopeNodeIds(i: TargetInputs): string[] {
 	const exists = new Set(i.nodes.map((n) => n.id));
-	return activeScope(i.goals, i.chains).filter((id) => exists.has(id));
+	return activeScope(i.goals, i.chains, i.links ?? []).filter((id) => exists.has(id));
 }
 
 /** After a merge: in-scope nodes with no verification event at all (so a node that came back unverified is not re-spent on every merge). */

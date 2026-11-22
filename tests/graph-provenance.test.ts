@@ -208,19 +208,19 @@ describe("get_node returns every provenance entry with its anchors", () => {
 		const store = memoryStore({ nodes: [node] });
 		const empty = { list: () => [], readAll: () => [], readEvents: () => [], citing: () => null };
 		const call = {
-			deps: { verification: empty, lectures: empty, explanations: empty },
+			deps: { verification: empty, lectures: empty, explanations: empty, sources: { labels: () => new Map() } },
 			now: T0,
 			graph: store,
 			review: { goalsStore: empty, cardsStore: empty, reviewStore: empty, now: () => new Date(T0) },
 		} as unknown as Call;
 		const view = getNode(call, { id: "n_a" }, { knowledgeOnly: true }) as unknown as {
-			provenance: { items: Array<{ chatId: string; messageId: string; page: number | null; passage: string | null }>; truncated: boolean };
+			provenance: { items: Array<{ chatId: string; messageId: string; page: number | null; passage: string | null; sourceLabel: string | null }>; truncated: boolean };
 		};
 		assert.equal(view.provenance.truncated, false);
 		assert.deepEqual(view.provenance.items, [
-			{ chatId: "chat_a", messageId: "m1", page: null, passage: null },
-			{ chatId: "src_book", messageId: "", page: 3, passage: "p" },
-			{ chatId: "src_notes", messageId: "", page: 7, passage: null },
+			{ chatId: "chat_a", messageId: "m1", page: null, passage: null, sourceLabel: null },
+			{ chatId: "src_book", messageId: "", page: 3, passage: "p", sourceLabel: null },
+			{ chatId: "src_notes", messageId: "", page: 7, passage: null, sourceLabel: null },
 		]);
 	});
 });

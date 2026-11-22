@@ -62,7 +62,8 @@ export function snapshot(deps: ReviewDeps, now: string): Snapshot {
 	const nodeIds = new Set(nodes.map((n) => n.id));
 	const chains = deps.graphStore.readChains();
 	const goals = deriveGoals(deps.goalsStore.readEvents());
-	const links = deps.linksStore?.readLinks() ?? [];
+	// A link whose endpoint is no live node never reaches a scope or a stage: it is dropped here, not repaired on disk.
+	const links = (deps.linksStore?.readLinks() ?? []).filter((l) => nodeIds.has(l.from) && nodeIds.has(l.to));
 	const events = deps.reviewStore.readEvents();
 	const marks = deriveMarks(events);
 	// Retention uses EVERY goal (paused goals keep their nodes' state, REQ-pl-13).

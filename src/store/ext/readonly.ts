@@ -157,6 +157,30 @@ export function createGraphReader(graphDir: string, maxBytes: number = LIMITS.le
 	};
 }
 
+/**
+ * The source labels of graph/sources.json (read-only): a source id to its file
+ * name. An absolute path never leaves the server, so only the base name is kept.
+ * A missing or unreadable file gives no labels.
+ */
+export function createSourceLabels(graphDir: string): { labels(): ReadonlyMap<string, string> } {
+	return {
+		labels() {
+			const out = new Map<string, string>();
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(fs.readFileSync(path.join(graphDir, "sources.json"), "utf-8"));
+			} catch {
+				return out;
+			}
+			if (!isRecord(parsed)) return out;
+			for (const [id, value] of Object.entries(parsed)) {
+				if (isRecord(value) && isString(value.filePath) && value.filePath !== "") out.set(id, path.basename(value.filePath));
+			}
+			return out;
+		},
+	};
+}
+
 // ── lectures (data/ext/lectures/<id>/lecture.json) ───────────────────────────
 
 /** Total bytes of lecture.json files one list() may read, and the bytes one citing-index refresh may parse (a sum over files). */

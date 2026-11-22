@@ -22,7 +22,7 @@ import { parseReadingEvent } from "../../../core/ext/study/reading.ts";
 import { parseCycleLogEntry } from "../../../core/ext/research-log.ts";
 import { parseReviewEvent } from "../../../core/ext/review.ts";
 import { parseVerificationEvent } from "../../../core/ext/trust.ts";
-import { createGraphReader, createLectureReader, createReadableGuard, readOnlyLedger } from "../../../store/ext/readonly.ts";
+import { createGraphReader, createLectureReader, createReadableGuard, createSourceLabels, readOnlyLedger } from "../../../store/ext/readonly.ts";
 
 /** Every write the app's types allow is refused loudly: reaching this is a bug, never a feature. */
 function refuseWrite(): never {
@@ -44,6 +44,7 @@ export function createMcpDeps(dataRoot: string, clock: () => string = () => new 
 	const linksLog = readOnlyLedger(extDir, "links.jsonl", parseLinkEvent);
 	return {
 		appApi,
+		sources: createSourceLabels(path.join(dataRoot, "graph")),
 		review: {
 			graphStore: graph,
 			goalsStore: asStore(readOnlyLedger(extDir, "goals.jsonl", parseGoalEvent)),

@@ -20,6 +20,7 @@ import { NODE_ACTIONS, type NodeAction, type NodePanelData, type PanelSources } 
 import type { CostGate, ExplanationsStore, ExplanationWriter, SourceContext } from "../../core/ext/node-knowledge-ports.ts";
 import type { GoalsStore } from "../../core/ext/ports.ts";
 import type { GraphStore } from "../../core/ports.ts";
+import type { LinkEnds } from "../../core/ext/links.ts";
 import { HttpError } from "./http-error.ts";
 
 /** An expected failure with the HTTP status the route should return. */
@@ -35,6 +36,8 @@ export type NodeActionHandlers = Partial<Record<Exclude<NodeAction, "askInChat" 
 
 export interface NodeKnowledgeDeps {
 	graphStore: GraphStore;
+	/** Typed links, for the goal scope of the panel (absent = none). */
+	links?: () => readonly LinkEnds[];
 	explanations: ExplanationsStore;
 	goalsStore: GoalsStore;
 	writer: ExplanationWriter;
@@ -79,6 +82,7 @@ export function createNodeKnowledge(deps: NodeKnowledgeDeps) {
 	return {
 		panel(nodeId: string): NodePanelData {
 			const data = buildNodePanel(nodeId, {
+				links: deps.links?.() ?? [],
 				graph: deps.graphStore,
 				explanationEvents: deps.explanations.readEvents(),
 				goalEvents: deps.goalsStore.readEvents(),

@@ -37,6 +37,7 @@ export function getNode(call: Call, input: Record<string, unknown>, opts: RunOpt
 			sources: {},
 			costAllowed: true,
 			availableActions: [],
+			links: call.review.linksStore?.readLinks() ?? [],
 		}),
 	);
 	if (panel === null) throw notFoundNode(id);
@@ -63,12 +64,15 @@ export function getNode(call: Call, input: Record<string, unknown>, opts: RunOpt
 		statement: capText(panel.node.statement, LIMITS.statementChars),
 		aliases: textPage(panel.node.aliases, LIMITS.aliasesMax, LIMITS.nameChars),
 		// Every source that asserted the node, in order (graph-provenance); anchors are null when absent.
+		// sourceLabel: the file name of an imported source; null for a chat (no chat title is read here) and for an unknown source.
 		provenance: (() => {
+			const labels = call.deps.sources.labels();
 			const all = (getGraph(call.graph).nodes.find((n) => n.id === id)?.provenance ?? []).map((pt) => ({
 				chatId: pt.chatId,
 				messageId: pt.messageId,
 				page: pt.page ?? null,
 				passage: pt.passage ?? null,
+				sourceLabel: labels.get(pt.chatId) ?? null,
 			}));
 			return page(all, LIMITS.provenancePerNodeMax);
 		})(),

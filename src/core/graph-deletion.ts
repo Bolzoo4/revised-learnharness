@@ -93,13 +93,13 @@ const EMPTY_STATS: ChatDeletionStats = {
  * (the atomicity argument above); idempotent (a second run finds nothing
  * and returns zero stats).
  */
-export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: ChatDeleteMode): ChatDeletionStats {
-	return deleteSourcesTraces(graphStore, new Set([chatId]), mode);
+export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: ChatDeleteMode, links?: LinkSink): ChatDeletionStats {
+	return deleteSourcesTraces(graphStore, new Set([chatId]), mode, links);
 }
 
 /** The same provenance rules for a selected batch, with one ledger rewrite
  * rather than reparsing/rewriting the whole graph once per imported file. */
-export function deleteSourcesTraces(graphStore: GraphStore, sourceIds: ReadonlySet<string>, mode: ChatDeleteMode): ChatDeletionStats {
+export function deleteSourcesTraces(graphStore: GraphStore, sourceIds: ReadonlySet<string>, mode: ChatDeleteMode, links?: LinkSink): ChatDeletionStats {
 	if (mode !== "preserve-graph" && mode !== "delete-nodes") {
 		throw new Error(`Unknown deletion mode: ${mode as string}`);
 	}
@@ -210,7 +210,8 @@ export function deleteSourcesTraces(graphStore: GraphStore, sourceIds: ReadonlyS
 		outChains.push(points.length === line.provenance.length ? line : { ...line, provenance: points });
 	}
 
-	stats.nodesRemoved = [...new Set(nodeLines.map((line) => line.id))].filter((id) => !live.has(id)).length;
+	const deadIds = [...new Set(nodeLines.map((line) => line.id))].filter((id) => !live.has(id));
+	stats.nodesRemoved = deadIds.length;
 	stats.chainsRemoved = chainLines.length - outChains.length;
 
 	graphStore.rewriteLedgers({
@@ -219,6 +220,8 @@ export function deleteSourcesTraces(graphStore: GraphStore, sourceIds: ReadonlyS
 		coverage,
 		checkpoints,
 	});
+	// A dead node's typed links die with it (as in deleteNodeTraces): no link may dangle.
+	for (const id of deadIds) links?.removeNode(id);
 
 	// 4. Positions: prune dead nodes AND dead chains (an argument's derived
 	//    implication node carries the chain's arg_ id — stale resting spots

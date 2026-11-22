@@ -286,6 +286,7 @@ export const researchService = (serviceHolder.__lhResearch ??= createResearchSer
 				};
 			},
 			goals: () => deriveGoals(extStores.goalsStore.readEvents()),
+			links: () => extStores.linksStore.readLinks(),
 			uncovered: () => {
 				const summaries = stores.chatStore.listChats();
 				const coverage = stores.graphStore.readCoverage();

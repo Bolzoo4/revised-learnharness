@@ -47,7 +47,7 @@ describe("search_nodes (REQ-mcp-04)", () => {
 		const inGoal = call(f, "search_nodes", { stage: "all", query: "node", goalId: GOAL_ID });
 		assert.equal(inGoal.count, 0); // the loner is outside the goal's scope
 		assert.ok(call(f, "search_nodes", { stage: "all", query: "set", goalId: GOAL_ID }).items.length >= 3);
-		assert.deepEqual(call(f, "search_nodes", { stage: "all", query: "zzzz-nothing" }), { query: "zzzz-nothing", items: [], count: 0, truncated: false });
+		assert.deepEqual(call(f, "search_nodes", { stage: "all", query: "zzzz-nothing" }), { query: "zzzz-nothing", hiddenByStage: 0, items: [], count: 0, truncated: false });
 	});
 
 	it("rejects bad input: empty or oversized queries, unknown trust, unknown goal", () => {
