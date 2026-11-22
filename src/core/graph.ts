@@ -69,6 +69,7 @@ import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
 import { sourceFileLabel } from "./source-label.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
+import { validateLink, type LinkSink, type LinkType } from "./ext/links.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
 export interface GraphDeps {
@@ -148,6 +149,12 @@ const samePoint = (a: ProvenancePoint, b: ProvenancePoint): boolean =>
 
 // ─── the merger (extraction pipeline stage 3 — deterministic) ────────────────
 
+/** The typed-link wiring a merge may carry: the sink, and the node merges this job made (merged id → survivor). */
+export interface LinkWiring {
+	store: LinkSink;
+	mergedIntoId?: ReadonlyMap<string, string>;
+}
+
 /**
  * Merge one job's audited findings into the graph ledgers — the pipeline's
  * apply stage. Deterministic. Each chunk/batch job merges INDEPENDENTLY
@@ -166,6 +173,10 @@ const samePoint = (a: ProvenancePoint, b: ProvenancePoint): boolean =>
  * `chatId` is the job's source key: a real chat, or a notes source id
  * ("src_…") for the format-agnostic import path. The `source` parameter
  * carries the checkpoint stamp; the merger itself is chat-store-free.
+ *
+ * `links` (optional) wires the typed-link registry: stored links follow
+ * `mergedIntoId` (merged id → survivor), then the extractor's proposed
+ * links are appended when they validate. The auditor never reaches it.
  */
 export function mergeFindings(
 	chatId: string,
@@ -173,6 +184,7 @@ export function mergeFindings(
 	verdicts: AuditVerdicts,
 	deps: GraphDeps,
 	source: MergeSource,
+	links?: LinkWiring,
 ): EmissionStats {
 	const { graphStore: ledgers } = deps;
 	const stats: EmissionStats = { nodes: 0, chains: 0 };
@@ -294,6 +306,20 @@ export function mergeFindings(
 	if (keptChains.length !== allChains.length) {
 		ledgers.rewriteLedgers({ chains: keptChains });
 		stats.droppedChains = allChains.length - keptChains.length;
+	}
+
+	// 2c. Typed links (REQ-graph-agent-07, 04). Stored links follow merged ids
+	//     first; then the extractor's proposals resolve through the same mixed
+	//     namespace as chains and append when they validate. Invalid proposals
+	//     are dropped silently (no throw: a bad link never fails a merge).
+	if (links !== undefined) {
+		if (links.mergedIntoId !== undefined) links.store.remapNodes(links.mergedIntoId);
+		const resolve = (endpoint: string): string => mapping.get(endpoint) ?? endpoint;
+		for (const link of findings.links ?? []) {
+			const input = { from: resolve(link.from), to: resolve(link.to), linkType: link.linkType, origin: "extractor" as const };
+			if (validateLink(input, existingIds, links.store.readLinks()).length > 0) continue;
+			links.store.appendLink({ ...input, linkType: input.linkType as LinkType }, existingIds);
+		}
 	}
 
 	// 3. Checkpoint — THE COVERAGE DISCIPLINE (vision-extraction-coverage.md):

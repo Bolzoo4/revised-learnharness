@@ -1494,9 +1494,10 @@ describe("the extractor redesign (owner, 2026-09-30): chains are the deliverable
 	it("preserves the complete teaching-session prompt byte-for-byte", () => {
 		// Original UTF-8 snapshot, including every newline, preamble and the
 		// session-only anchor rule. Notes-only changes must not alter it.
+		// Re-pinned 2026-11-22: the optional typed-links paragraph joined the shared core (REQ-graph-agent-07).
 		assert.equal(
 			createHash("sha256").update(EXTRACTOR_INSTRUCTIONS, "utf8").digest("hex"),
-			"a8bddd7d47130ed5e39ffe7d8d0ed6efdd6b30407d52cd9838e7be2e465089a6",
+			"813ddc9bf42f9f83eb54b04b3df494d55ae43e62e9eb772a832095809812bb08",
 		);
 	});
 

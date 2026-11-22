@@ -270,10 +270,19 @@ export interface ExtractedChain {
 	conclusion: string;
 }
 
-/** The extractor's output shape: the raw reasoning chains. */
+/** A typed link the extractor proposes (REQ-graph-agent-07): endpoints use the same namespace as chains
+ *  (a local proposition id or an existing node id); the merger validates the type and endpoints. */
+export interface ExtractedLink {
+	from: string;
+	to: string;
+	linkType: string;
+}
+
+/** The extractor's output shape: the raw reasoning chains, plus optional typed links. */
 export interface SessionFindings {
 	propositions: ExtractedProposition[];
 	chains: ExtractedChain[];
+	links?: ExtractedLink[];
 }
 
 /** One identity verdict: the extractor's local proposition id → the

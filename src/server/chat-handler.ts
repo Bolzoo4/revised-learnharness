@@ -41,6 +41,7 @@ import { fileAccessPolicy } from "./file-access.ts";
 import { collectToolCallIds } from "./pi/call-ids.ts";
 import { providerEventNote } from "../agent/provider-events.ts";
 import { effectiveSettings, stores } from "./stores.ts";
+import { extStores } from "./ext/stores.ts";
 import { personalLayer } from "./ext/personal-layer.ts";
 import { practiceService } from "./ext/practice-live.ts";
 import { studyService } from "./ext/study-live.ts";
@@ -143,6 +144,8 @@ function extJobs(chatId: string): VisualJobDeps {
  *  (/api/graph/import) hit the same single-flight registry. */
 export const extraction = withPostMerge(createExtractionPipeline({
 	...stores,
+	// Typed links (REQ-graph-agent-07): the extractor's proposed links persist through the ext links store.
+	linksStore: extStores.linksStore,
 	// BYOK (owner, 2026-09-22): the extraction stages resolve the chain —
 	// role override → slot → NOTHING — read FRESH per stage call; an empty
 	// chain flows through as undefined and the pipeline refuses the run

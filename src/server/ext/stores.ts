@@ -19,6 +19,7 @@ import { createResearchStore } from "../../store/ext/research-store.ts";
 import { createReviewStore } from "../../store/ext/review-store.ts";
 import { parseFocusEvent } from "../../core/ext/review-focus.ts";
 import { parseLinkEvent } from "../../core/ext/links.ts";
+import { createLinksStore } from "./links-store.ts";
 import { createSnapshotReader } from "../../store/ext/snapshot-reader.ts";
 import { createSnapshotStore } from "../../store/ext/snapshot-store.ts";
 import { createSessionNotesStore } from "../../store/ext/session-notes-store.ts";
@@ -32,6 +33,9 @@ import { parseStudyLinkEvent } from "../../core/ext/study/links.ts";
 import { parseReadingEvent } from "../../core/ext/study/reading.ts";
 import { createDocumentFiles } from "../../store/ext/documents-store.ts";
 import { createExamsStore } from "../../store/ext/exams-store.ts";
+
+/** Typed links between graph nodes (core/ext/links.ts); separate from chains. ONE ledger, one store. */
+const linksLedger = createLedger(EXT_PATHS.dir, "links.jsonl", parseLinkEvent);
 
 export const extStores = {
 	goalsStore: createGoalsStore(EXT_PATHS.dir),
@@ -53,8 +57,9 @@ export const extStores = {
 	reviewFocusLedger: createLedger(EXT_PATHS.dir, "review-focus.jsonl", parseFocusEvent),
 	officeHoursLedger: createLedger(EXT_PATHS.dir, "office-hours.jsonl", parseOfficeHoursEvent),
 	exercisesLedger: createLedger(EXT_PATHS.dir, "exercises.jsonl", parseExerciseEvent),
-	/** Typed links between graph nodes (core/ext/links.ts); separate from chains. */
-	linksLedger: createLedger(EXT_PATHS.dir, "links.jsonl", parseLinkEvent),
+	linksLedger,
+	/** The typed-link registry's adapter: the extraction merger writes extractor links through it. */
+	linksStore: createLinksStore(linksLedger),
 	explanationsStore: createExplanationsStore(EXT_PATHS.dir),
 	/** ONE store per data dir: the cycle's busy guard is keyed on its `log` object (and `lockKey`). */
 	researchStore: createResearchStore(EXT_PATHS.dir),

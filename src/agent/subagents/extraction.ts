@@ -23,7 +23,8 @@ import type {
 	ExtractionStageUsage,
 	SessionFindings,
 } from "../../core/contracts.ts";
-import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
+import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps, type LinkWiring } from "../../core/graph.ts";
+import type { LinkSink } from "../../core/ext/links.ts";
 import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
 import { settleGraphLayout } from "../../core/layout-settle.ts";
@@ -217,6 +218,21 @@ const documentPropositionProps = {
 	),
 };
 
+// Typed links (REQ-graph-agent-07): OPTIONAL — a source with no stated relation omits the field, and
+// the merger validates type and endpoints (an unknown type or endpoint is dropped, never a validation error).
+const linksField = Type.Optional(
+	Type.Array(
+		Type.Object({
+			from: Type.String({ description: "The id of the first idea — the same namespace as chains." }),
+			to: Type.String({ description: "The id of the second idea — the same namespace as chains." }),
+			linkType: Type.String({
+				description: "One of: evolution, sequence, case-of, part-of, analogy, contrast.",
+			}),
+		}),
+		{ description: "Typed relations the teacher's prose states between two ideas. Omit when none." },
+	),
+);
+
 const findingsSchema = Type.Object({
 	propositions: Type.Array(Type.Object(documentPropositionProps), {
 		description: propositionsDescription,
@@ -224,6 +240,7 @@ const findingsSchema = Type.Object({
 	chains: Type.Array(chainSchema, {
 		description: chainsDescription,
 	}),
+	links: linksField,
 });
 
 // THE SESSION EXTENSION (owner, 2026-10-13): every session proposition
@@ -247,6 +264,7 @@ const sessionFindingsSchema = Type.Object({
 	chains: Type.Array(chainSchema, {
 		description: chainsDescription,
 	}),
+	links: linksField,
 });
 
 /** What the extractor SUBMITS (the redesign's wire shape) — propositions
@@ -376,10 +394,12 @@ const asSessionFindings = (
 	raw: {
 		propositions: Array<{ id: string; name: string; statement: string; aliases?: string[]; messageId?: string }>;
 		chains: Array<{ premises: string[]; conclusion: string }>;
+		links?: Array<{ from: string; to: string; linkType: string }>;
 	},
 ): SessionFindings => ({
 	propositions: raw.propositions.map((p) => ({ ...p, aliases: p.aliases ?? [] })),
 	chains: raw.chains,
+	links: raw.links,
 });
 
 function fillAudit(raw: Static<typeof auditSchema>): AuditVerdicts {
@@ -438,6 +458,13 @@ document is organized is not knowledge — drop it.`,
 on it. Reference an existing idea by its id ("n_…") instead of restating it, and prefer chains that
 lean on established conclusions as premises — derive new material from what is already derived. Do
 not re-derive a conclusion the graph already holds unless the route is genuinely different.`,
+	links: `LINKS are an optional, separate list of typed relations between two ideas, each end named the way a chain names its
+ends: a local proposition id, or an existing id from THE GRAPH SO FAR, verbatim. There are six types. evolution: the later
+idea develops or replaces the earlier one (directed, from → to). sequence: the first comes before the second in an ordered
+series (directed). case-of: the first is a specific instance of the second (directed). part-of: the first is a component of
+the second (directed). analogy: the two share a structure or a role (undirected). contrast: the two are opposed or set
+against each other (undirected). Propose a link only when the teacher's prose itself states that relation; never invent one.
+A link never stands in for a chain, which stays reserved for logical entailment. Omit the field when the prose states none.`,
 	submission: `SUBMIT with one submit_findings call: every NEW core idea with a short name and a precise statement,
 and every chain as premises + conclusion. A chain's premises and conclusion may be ids from this
 submission OR existing ids from THE GRAPH SO FAR, verbatim. Premises within one chain are used
@@ -448,7 +475,7 @@ arguments. The tool's field descriptions carry the details.`,
 } as const;
 
 function composeExtractionInstructions(preamble: string, goal: string, selection: string): string {
-	return `${preamble}\n\n${goal}\n${EXTRACTION_CORE.entailment}\n\n${EXTRACTION_CORE.knowledge}\n\n${selection} ${EXTRACTION_CORE.standalone}\n\n${EXTRACTION_CORE.continuation}\n\n${EXTRACTION_CORE.submission}`;
+	return `${preamble}\n\n${goal}\n${EXTRACTION_CORE.entailment}\n\n${EXTRACTION_CORE.knowledge}\n\n${selection} ${EXTRACTION_CORE.standalone}\n\n${EXTRACTION_CORE.continuation}\n\n${EXTRACTION_CORE.links}\n\n${EXTRACTION_CORE.submission}`;
 }
 
 // Each front door owns its goal and selection wording independently of the
@@ -764,6 +791,8 @@ export interface ExtractionModels {
 }
 
 export interface ExtractionPipelineDeps extends GraphDeps, ExtractionModels {
+	/** The typed-link registry (REQ-graph-agent-07): the merger persists the extractor's proposed links here, and remaps them on merges. Absent → no links are written. */
+	linksStore?: LinkSink;
 	/** Called once a chat batch has merged, with that batch's messages (session notes read its learner words,
 	 *  REQ-sn-02). Fire-and-forget: the merge never waits for it, and the hook must not throw. */
 	onBatchMerged?: (chatId: string, messages: readonly LhMessage[]) => void;
@@ -828,6 +857,7 @@ export function callUsage(usage: Usage): CallUsage {
 
 export function createExtractionPipeline(deps: ExtractionPipelineDeps): ExtractionPipeline {
 	const { chatStore, graphStore } = deps;
+	const links: LinkWiring | undefined = deps.linksStore ? { store: deps.linksStore } : undefined;
 	// Stage-engine resolution: a direct test value wins; otherwise the
 	// engineFor chain (role override → slot → nothing, resolved FRESH per
 	// stage call server-side) — the job runner's exact treatment. undefined
@@ -1238,7 +1268,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 									coverage: batch
 										.filter((slot) => slot.tokens > 0)
 										.map((slot) => ({ chatId, fp: slot.fp, tokens: slot.tokens, foldedAt })),
-								});
+								}, links);
 								// The layout ledger evolves with the merge (sync — the
 								// next snapshot fetch must already reflect the new nodes).
 								settleGraphLayout(graphStore);
@@ -1404,6 +1434,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 									auditResult,
 									{ chatStore, graphStore },
 									{ foldedAt: input.importedAt },
+									links,
 								);
 								// Capture the committed merge BEFORE layout/usage can fail.
 								mergedStats.nodes += merged.nodes;

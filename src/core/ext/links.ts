@@ -105,6 +105,15 @@ export function deriveLinks(events: readonly LinkEvent[]): Link[] {
 	return [...links.values()];
 }
 
+/** The write side the merger needs (core stays free of the adapter): the
+ *  server's links store satisfies it structurally. */
+export interface LinkSink {
+	readLinks(): Link[];
+	appendLink(input: { from: string; to: string; linkType: LinkType; origin: LinkOrigin }, nodeIds: ReadonlySet<string>): unknown;
+	/** Re-points stored links after nodes merged (merged id → survivor id). */
+	remapNodes(mergedIntoId: ReadonlyMap<string, string>): void;
+}
+
 /**
  * Re-points links after nodes were merged (`mergedIntoId`: merged id → survivor id).
  * A link that becomes a self-link is dropped; links that become the same relation

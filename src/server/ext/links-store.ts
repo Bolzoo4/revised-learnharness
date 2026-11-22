@@ -10,10 +10,12 @@ import { randomUUID } from "node:crypto";
 import {
 	deriveLinks,
 	isDirected,
+	remapLinks,
 	validateLink,
 	type Link,
 	type LinkEvent,
 	type LinkOrigin,
+	type LinkSink,
 	type LinkType,
 } from "../../core/ext/links.ts";
 import type { Ledger } from "../../store/ext/ledger.ts";
@@ -30,12 +32,14 @@ export interface NewLink {
 	origin: LinkOrigin;
 }
 
-export interface LinksStore {
+export interface LinksStore extends LinkSink {
 	/** Validates against the live links and the given node ids; throws with the problems, writes nothing on failure. */
 	appendLink(input: NewLink, nodeIds: ReadonlySet<string>): Link;
 	/** Throws when the id is not a live link. */
 	appendRemoval(id: string): void;
 	readLinks(): Link[];
+	/** Moves links off merged-away node ids: a changed link is removed and re-created under a fresh id (the event log's created ids are immutable); a link that became a self-link or a duplicate is removed. */
+	remapNodes(mergedIntoId: ReadonlyMap<string, string>): void;
 }
 
 const defaultDeps: LinksStoreDeps = {
@@ -68,6 +72,20 @@ export function createLinksStore(ledger: Ledger<LinkEvent>, deps: LinksStoreDeps
 		},
 		readLinks() {
 			return deriveLinks(ledger.readAll());
+		},
+		remapNodes(mergedIntoId) {
+			if (mergedIntoId.size === 0) return;
+			const before = deriveLinks(ledger.readAll());
+			const after = new Map(remapLinks(before, mergedIntoId).map((l) => [l.id, l]));
+			const at = deps.now();
+			for (const link of before) {
+				const kept = after.get(link.id);
+				if (kept && kept.from === link.from && kept.to === link.to) continue;
+				ledger.append({ type: "removed", id: link.id, at });
+				if (kept) {
+					ledger.append({ type: "created", id: deps.newId(), from: kept.from, to: kept.to, linkType: kept.linkType, origin: kept.origin, at });
+				}
+			}
 		},
 	};
 	return store;
