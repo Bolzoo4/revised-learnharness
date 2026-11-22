@@ -13,7 +13,7 @@ const NOW = "2026-11-10T08:00:00.000Z"; // 6 days after T0: every card reviewed 
 const DAY_START = "2026-11-10T00:00:00.000Z";
 
 const entry = (nodeId: string, over: Partial<DeckEntry> = {}): DeckEntry => ({
-	nodeId, priority: 3, pinned: false, channelPin: null, hasChain: false, ...over,
+	nodeId, priority: 3, pinned: false, channelPin: null, hasChain: false, weight: 1, ...over,
 });
 function reviewedAt(nodeId: string, at: string, rating: 1 | 2 | 3 | 4 = 3): NodeState {
 	return { nodeId, card: reviewCard(newCard(at), rating, at, 0.9), fixedReviews: 1 };
@@ -170,5 +170,17 @@ describe("dailyPlan channel assignment (REQ-pl-05)", () => {
 		const plan = dailyPlan(input({ deck, params: { ...DEFAULT_PLAN_PARAMS, budgetSec: 360 } }));
 		assert.equal(plan.items.length, 2); // 2 x 180 s
 		assert.equal(plan.deferred.length, 3);
+	});
+});
+
+describe("dailyPlan weight tiebreak (REQ-graph-agent-18)", () => {
+	it("among equal priorities a higher goal weight comes first, after the existing keys", () => {
+		const deck = [entry("a-low", { weight: 0.4 }), entry("z-high", { weight: 1 })];
+		const plan = dailyPlan(input({ deck }));
+		assert.deepEqual(ids(plan.items), ["z-high", "a-low"]);
+	});
+	it("a higher priority still beats a higher weight", () => {
+		const deck = [entry("a-weighty", { weight: 1, priority: 2 }), entry("z-prio", { weight: 0.1, priority: 4 })];
+		assert.deepEqual(ids(dailyPlan(input({ deck })).items), ["z-prio", "a-weighty"]);
 	});
 });

@@ -3,12 +3,18 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	DEFAULT_GOAL_PRIORITY,
+	DEFAULT_WEIGHTS,
 	activeScope,
 	deriveGoals,
 	goalScope,
+	goalScopeWeighted,
 	parseGoalEvent,
+	validateWeights,
 	type GoalEvent,
+	type GoalWeights,
 } from "../src/core/ext/goals.ts";
+
+type LinkLike = { from: string; to: string; linkType: "evolution" | "sequence" | "case-of" | "part-of" | "analogy" | "contrast" };
 
 const created = (goalId: string, targets: string[], at = "2026-11-04T10:00:00.000Z"): Extract<GoalEvent, { type: "created" }> => ({
 	type: "created",
@@ -113,5 +119,111 @@ describe("activeScope", () => {
 		]);
 		const chains = [{ premises: ["n_p"], conclusion: "n_t" }];
 		assert.deepEqual(new Set(activeScope(goals, chains)), new Set(["n_t", "n_p"]));
+	});
+});
+
+describe("weights (REQ-graph-agent-17)", () => {
+	const ALL_KEYS = ["chain", "evolution", "sequence", "case-of", "part-of", "analogy", "contrast"];
+	it("DEFAULT_WEIGHTS is 1 for every key", () => {
+		assert.deepEqual(Object.keys(DEFAULT_WEIGHTS).sort(), [...ALL_KEYS].sort());
+		assert.ok(Object.values(DEFAULT_WEIGHTS).every((w) => w === 1));
+	});
+	it("validateWeights fills missing keys with 1 and accepts boundary values", () => {
+		const r = validateWeights({ chain: 0, analogy: 0.4 });
+		assert.equal(r.ok, true);
+		if (r.ok) {
+			assert.equal(r.weights.chain, 0);
+			assert.equal(r.weights.analogy, 0.4);
+			assert.equal(r.weights.evolution, 1);
+		}
+		assert.equal(validateWeights({ contrast: 1 }).ok, true);
+		assert.equal(validateWeights({}).ok, true);
+	});
+	it("validateWeights rejects non-objects, non-numbers, NaN, out of range and unknown keys", () => {
+		for (const bad of [null, "x", [], { chain: "0.5" }, { chain: NaN }, { chain: -0.1 }, { chain: 1.01 }, { chain: Infinity }, { cites: 0.5 }]) {
+			const r = validateWeights(bad);
+			assert.equal(r.ok, false, JSON.stringify(bad));
+			if (!r.ok) assert.ok(r.problems.length > 0);
+		}
+	});
+	it("a created event without weights still parses (old ledger) and with valid weights keeps them", () => {
+		const old = created("goal_a", ["n_1"]);
+		assert.deepEqual(parseGoalEvent(old), old);
+		const withW = { ...created("goal_a", ["n_1"]), weights: { ...DEFAULT_WEIGHTS, analogy: 0 } };
+		assert.deepEqual(parseGoalEvent(withW), withW);
+		assert.equal(parseGoalEvent({ ...old, weights: { analogy: 2 } }), null);
+	});
+	it("accepts origin agent", () => {
+		assert.equal(parseGoalEvent({ ...created("goal_a", ["n_1"]), origin: "agent" })?.type, "created");
+		assert.equal(deriveGoals([{ ...created("goal_a", ["n_1"]), origin: "agent" }])[0]?.origin, "agent");
+	});
+	it("derives default weights for old events and the latest weights event wins", () => {
+		assert.deepEqual(deriveGoals([created("goal_a", ["n_1"])])[0]?.weights, DEFAULT_WEIGHTS);
+		const goals = deriveGoals([
+			created("goal_a", ["n_1"]),
+			{ type: "weights", goalId: "goal_a", weights: { ...DEFAULT_WEIGHTS, chain: 0.5 }, at: "t1" },
+			{ type: "weights", goalId: "goal_a", weights: { ...DEFAULT_WEIGHTS, chain: 0.2 }, at: "t2" },
+			{ type: "weights", goalId: "goal_zzz", weights: DEFAULT_WEIGHTS, at: "t3" },
+		]);
+		assert.equal(goals[0]?.weights.chain, 0.2);
+		assert.equal(goals[0]?.updatedAt, "t2");
+	});
+	it("parses a weights event and rejects an invalid one", () => {
+		const e = { type: "weights", goalId: "goal_a", weights: { contrast: 0.3 }, at: "t" };
+		assert.deepEqual(parseGoalEvent(e), { type: "weights", goalId: "goal_a", weights: { ...DEFAULT_WEIGHTS, contrast: 0.3 }, at: "t" });
+		assert.equal(parseGoalEvent({ ...e, weights: { contrast: 7 } }), null);
+		assert.equal(parseGoalEvent({ ...e, weights: { bogus: 0.1 } }), null);
+	});
+});
+
+describe("goalScopeWeighted", () => {
+	const chains = [
+		{ premises: ["n_a", "n_b"], conclusion: "n_c" },
+		{ premises: ["n_c"], conclusion: "n_t" },
+	];
+	const weighted = (targets: string[], over: Partial<GoalWeights>, cs = chains, links: LinkLike[] = []) =>
+		goalScopeWeighted({ targetNodeIds: targets, weights: { ...DEFAULT_WEIGHTS, ...over } }, cs, links);
+
+	it("targets weigh 1; chain-reached nodes weigh the chain weight", () => {
+		const m = weighted(["n_t"], { chain: 0.7 });
+		assert.equal(m.get("n_t"), 1);
+		assert.equal(m.get("n_c"), 0.7);
+		assert.equal(m.get("n_a"), 0.7);
+		assert.equal(m.size, 4);
+	});
+	it("with all weights 1 and no links the keys equal goalScope", () => {
+		const m = weighted(["n_t"], {});
+		assert.deepEqual(new Set(m.keys()), new Set(goalScope(["n_t"], chains)));
+		assert.ok([...m.values()].every((w) => w === 1));
+	});
+	it("a link from a scope node brings the other end in at the link weight", () => {
+		const m = weighted(["n_t"], { analogy: 0.4 }, chains, [{ from: "n_t", to: "n_x", linkType: "analogy" }]);
+		assert.equal(m.get("n_x"), 0.4);
+	});
+	it("a node reached by a chain (0.7) and a link (0.4) weighs the highest, 0.7", () => {
+		const m = weighted(["n_t"], { chain: 0.7, analogy: 0.4 }, chains, [{ from: "n_t", to: "n_a", linkType: "analogy" }]);
+		assert.equal(m.get("n_a"), 0.7);
+		const m2 = weighted(["n_t"], { chain: 0.3, analogy: 0.9 }, chains, [{ from: "n_t", to: "n_a", linkType: "analogy" }]);
+		assert.equal(m2.get("n_a"), 0.9);
+	});
+	it("weight 0 excludes: a zero chain weight drops the premises, a zero link weight drops the linked node", () => {
+		const m = weighted(["n_t"], { chain: 0, analogy: 0 }, chains, [{ from: "n_t", to: "n_x", linkType: "analogy" }]);
+		assert.deepEqual([...m.keys()], ["n_t"]);
+	});
+	it("links are followed to a fixpoint through link-added nodes, but add no chain premises of those nodes", () => {
+		const cs = [{ premises: ["n_p"], conclusion: "n_x" }];
+		const links: LinkLike[] = [
+			{ from: "n_t", to: "n_y", linkType: "evolution" },
+			{ from: "n_y", to: "n_z", linkType: "contrast" },
+		];
+		const m = weighted(["n_t"], { evolution: 0.6, contrast: 0.5 }, cs, links);
+		assert.equal(m.get("n_y"), 0.6);
+		assert.equal(m.get("n_z"), 0.5);
+		assert.equal(m.has("n_p"), false);
+	});
+	it("a link whose endpoints are both outside the scope does nothing", () => {
+		const m = weighted(["n_t"], {}, chains, [{ from: "n_u", to: "n_v", linkType: "analogy" }]);
+		assert.equal(m.has("n_u"), false);
+		assert.equal(m.has("n_v"), false);
 	});
 });

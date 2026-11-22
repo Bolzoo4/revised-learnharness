@@ -32,6 +32,7 @@ export function liveStages(): Map<string, NodeStage> {
 		goalsStore: extStores.goalsStore,
 		reviewStore: extStores.reviewStore,
 		cardsStore: extStores.cardsStore,
+		linksStore: extStores.linksStore,
 	};
 	return stagesOf(deps, nowOf(deps));
 }

@@ -17,8 +17,11 @@ import {
 	DEFAULT_GOAL_PRIORITY,
 	deriveGoals,
 	isValidGoalPriority,
+	validateWeights,
+	validateWeightsPatch,
 	type Goal,
 	type GoalOrigin,
+	type GoalWeights,
 } from "./goals.ts";
 import type { GoalsStore } from "./ports.ts";
 
@@ -34,6 +37,8 @@ interface GoalInputBase {
 	origin: GoalOrigin;
 	originRef: string;
 	priority?: number;
+	/** Optional partial weights (missing keys are 1). Validated before any write. */
+	weights?: unknown;
 }
 export type CreateGoalInput =
 	| (GoalInputBase & { statement: string })
@@ -60,6 +65,12 @@ export function createGoal(input: CreateGoalInput, deps: GoalServiceDeps): Goal 
 
 	if (input.title.trim() === "") throw new Error("createGoal: title must not be empty");
 	if (!isValidGoalPriority(priority)) throw new Error(`createGoal: priority must be an integer 1 to 5, got ${priority}`);
+	let weights: GoalWeights | undefined;
+	if (input.weights !== undefined) {
+		const w = validateWeights(input.weights);
+		if (!w.ok) throw new Error(`createGoal: ${w.problems.join("; ")}`);
+		weights = w.weights;
+	}
 
 	let targetNodeId: string;
 	if ("existingNodeId" in input) {
@@ -88,9 +99,28 @@ export function createGoal(input: CreateGoalInput, deps: GoalServiceDeps): Goal 
 		originRef: input.originRef,
 		targetNodeIds: [targetNodeId],
 		priority,
+		...(weights ? { weights } : {}),
 		at: now,
 	});
 	const goal = deriveGoals(deps.goalsStore.readEvents()).find((g) => g.id === goalId);
 	if (goal === undefined) throw new Error("createGoal: the created event did not derive a goal");
+	return goal;
+}
+
+/**
+ * Changes some weights of a goal (REQ-graph-agent-17). The given keys are merged onto
+ * the goal's current weights and the full result is appended as one event. Unknown
+ * keys and out-of-range values are rejected before any write.
+ */
+export function setWeights(goalId: string, raw: unknown, deps: GoalServiceDeps): Goal {
+	const now = (deps.now ?? (() => new Date().toISOString()))();
+	const current = deriveGoals(deps.goalsStore.readEvents()).find((g) => g.id === goalId);
+	if (current === undefined) throw new Error(`setWeights: unknown goal ${goalId}`);
+	const patch = validateWeightsPatch(raw);
+	if (!patch.ok) throw new Error(`setWeights: ${patch.problems.join("; ")}`);
+	const weights: GoalWeights = { ...current.weights, ...patch.patch };
+	deps.goalsStore.appendEvent({ type: "weights", goalId, weights, at: now });
+	const goal = deriveGoals(deps.goalsStore.readEvents()).find((g) => g.id === goalId);
+	if (goal === undefined) throw new Error("setWeights: the weights event did not derive a goal");
 	return goal;
 }

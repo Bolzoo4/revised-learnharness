@@ -42,6 +42,7 @@ export function openCall(deps: McpDeps): Call {
 		readChains: memo((): GraphChain[] => deps.review.graphStore.readChains()),
 	};
 	const r = deps.review;
+	const links = r.linksStore;
 	return {
 		deps,
 		now,
@@ -52,6 +53,7 @@ export function openCall(deps: McpDeps): Call {
 			goalsStore: { ...r.goalsStore, readEvents: memo(() => r.goalsStore.readEvents()) },
 			reviewStore: { ...r.reviewStore, readEvents: memo(() => r.reviewStore.readEvents()) },
 			cardsStore: { ...r.cardsStore, readEvents: memo(() => r.cardsStore.readEvents()) },
+			...(links ? { linksStore: { readLinks: memo(() => links.readLinks()) } } : {}),
 			now: () => now,
 		},
 	};

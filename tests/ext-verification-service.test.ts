@@ -1,4 +1,5 @@
 // tests/ext-verification-service.test.ts
+import { DEFAULT_WEIGHTS } from "../src/core/ext/goals.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { GoalEvent } from "../src/core/ext/goals.ts";
@@ -16,7 +17,7 @@ const checked = (nodeId: string, outcome: "unverified" | "sourced" | "contested"
 const nodes = ["n1", "n2", "n3", "n4"].map((id) => node(id));
 
 describe("trigger selection", () => {
-	const goals = [{ id: "g", title: "G", origin: "user" as const, originRef: "", targetNodeIds: ["n1"], priority: 3, status: "active" as const, createdAt: "t", updatedAt: "t" }];
+	const goals = [{ id: "g", title: "G", origin: "user" as const, originRef: "", targetNodeIds: ["n1"], priority: 3, weights: DEFAULT_WEIGHTS, status: "active" as const, createdAt: "t", updatedAt: "t" }];
 	const chains = [chain("c1", ["n2"], "n1")];
 
 	it("post-merge: only in-scope nodes that were never attempted (REQ-ver-03)", () => {

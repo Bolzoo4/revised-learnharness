@@ -1,7 +1,7 @@
 // tests/ext-goal-service.test.ts
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createGoal } from "../src/core/ext/goal-service.ts";
+import { createGoal, setWeights } from "../src/core/ext/goal-service.ts";
 import { deriveGoals, type GoalEvent } from "../src/core/ext/goals.ts";
 import type { GoalsStore } from "../src/core/ext/ports.ts";
 import { createMemoryGraphStore } from "./helpers/memory-graph-store.ts";
@@ -86,5 +86,43 @@ describe("createGoal", () => {
 		assert.notEqual(a.id, b.id);
 		assert.notEqual(a.targetNodeIds[0], b.targetNodeIds[0]);
 		assert.equal(d.graphStore.readNodes().length, 2);
+	});
+});
+
+describe("goal weights in the service (REQ-graph-agent-17)", () => {
+	const existing = (d: ReturnType<typeof deps>) => createGoal({ title: "A", statement: "A holds.", origin: "user", originRef: "" }, d);
+
+	it("createGoal stores valid weights on the created event", () => {
+		const d = deps();
+		const goal = createGoal({ title: "A", statement: "A holds.", origin: "agent", originRef: "", weights: { analogy: 0.3 } }, d);
+		assert.equal(goal.origin, "agent");
+		assert.equal(goal.weights.analogy, 0.3);
+		assert.equal(goal.weights.chain, 1);
+	});
+	it("createGoal rejects invalid weights before any write", () => {
+		const d = deps();
+		assert.throws(() => createGoal({ title: "A", statement: "A holds.", origin: "user", originRef: "", weights: { cites: 1 } }, d), /weight/);
+		assert.throws(() => createGoal({ title: "A", statement: "A holds.", origin: "user", originRef: "", weights: { chain: 2 } }, d), /weight/);
+		assert.equal(d.graphStore.readNodes().length, 0);
+		assert.equal(d.goalsStore.events.length, 0);
+	});
+	it("setWeights merges the given keys onto the current weights and appends one weights event", () => {
+		const d = deps();
+		const goal = existing(d);
+		const after = setWeights(goal.id, { contrast: 0 }, d);
+		assert.equal(after.weights.contrast, 0);
+		assert.equal(after.weights.chain, 1);
+		assert.equal(d.goalsStore.events.at(-1)?.type, "weights");
+		const again = setWeights(goal.id, { contrast: 0.5 }, d);
+		assert.equal(again.weights.contrast, 0.5);
+	});
+	it("setWeights rejects an unknown key, an out-of-range value and an unknown goal, writing nothing", () => {
+		const d = deps();
+		const goal = existing(d);
+		const before = d.goalsStore.events.length;
+		assert.throws(() => setWeights(goal.id, { cites: 0.5 }, d), /unknown/);
+		assert.throws(() => setWeights(goal.id, { chain: 1.5 }, d), /weight/);
+		assert.throws(() => setWeights("goal_nope", { chain: 0.5 }, d), /unknown goal/);
+		assert.equal(d.goalsStore.events.length, before);
 	});
 });

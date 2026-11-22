@@ -6,7 +6,7 @@
 
 import { computeDeck, goalReadiness, premisesOf } from "./deck.ts";
 import { computeReviewStats, dailyPlan, DEFAULT_PLAN_PARAMS, type DailyPlan, type PlanParams } from "./daily-plan.ts";
-import { goalScope } from "./goals.ts";
+import { goalScopeWeighted } from "./goals.ts";
 import { pickVariant, activeCardsOf } from "./cards.ts";
 import { nowOf, snapshot, type ReviewDeps, type Snapshot } from "./review-service.ts";
 
@@ -31,6 +31,7 @@ export function computePlan(deps: QueryDeps, dayStart: string): { plan: DailyPla
 		nodeIds: snap.nodeIds,
 		marks: snap.marks,
 		recall: snap.recall,
+		links: snap.links,
 	});
 	const stats = computeReviewStats(deps.reviewStore.readEvents(), dayStart);
 	const plan = dailyPlan({
@@ -104,7 +105,7 @@ export function nextItem(deps: QueryDeps, dayStart: string): NextItem {
 	};
 }
 
-/** Per-goal readiness for the exercise set (spec: "when most of a goal's scope is solid"). */
+/** Per-goal readiness for the exercise set (spec: "when most of a goal's weighted scope is solid"). */
 export function goalReadinessReport(
 	deps: ReviewDeps,
 ): Array<{ goalId: string; title: string; solid: number; total: number; ready: boolean }> {
@@ -114,7 +115,7 @@ export function goalReadinessReport(
 		.map((g) => ({
 			goalId: g.id,
 			title: g.title,
-			...goalReadiness(goalScope(g.targetNodeIds, snap.chains), snap.recall),
+			...goalReadiness(goalScopeWeighted(g, snap.chains, snap.links), snap.recall),
 		}));
 }
 

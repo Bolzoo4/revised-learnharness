@@ -1,6 +1,7 @@
 // tests/ext-adv-debrief-core.test.ts
 // Adversarial, spec-derived tests for the pure debrief core (REQ-deb-01..11).
 // Written from the spec and signature declarations only.
+import { DEFAULT_WEIGHTS } from "../src/core/ext/goals.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
@@ -1352,6 +1353,7 @@ function goal(id: string, targets: string[], status: Goal["status"] = "active"):
 		originRef: "",
 		targetNodeIds: targets,
 		priority: 3,
+		weights: DEFAULT_WEIGHTS,
 		status,
 		createdAt: "2026-10-01T00:00:00.000Z",
 		updatedAt: "2026-10-01T00:00:00.000Z",

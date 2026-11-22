@@ -12,7 +12,7 @@
 
 import { computeReviewStats, DEFAULT_PLAN_PARAMS } from "../daily-plan.ts";
 import { goalReadiness } from "../deck.ts";
-import { goalScope } from "../goals.ts";
+import { goalScopeWeighted } from "../goals.ts";
 import { localIsoDate, startOfLocalDay } from "../local-day.ts";
 import { computePlan } from "../review-queries.ts";
 import type { Call } from "./call.ts";
@@ -53,7 +53,7 @@ export function getDailyPlan(call: Call, input: Record<string, unknown>) {
 	// A goal waits for an exercise set when most of its scope is solid and no set has been applied yet.
 	const pending = snap.goals
 		.filter((g) => g.status === "active")
-		.filter((g) => goalReadiness(goalScope(g.targetNodeIds, snap.chains), snap.recall).ready)
+		.filter((g) => goalReadiness(goalScopeWeighted(g, snap.chains, snap.links), snap.recall).ready)
 		.filter((g) => {
 			const set = guardReplay(() => latestExerciseSet(call, g.id));
 			return set === null || set.applied === null;

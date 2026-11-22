@@ -14,6 +14,7 @@ import { parseDocumentEvent } from "../../../core/ext/study/documents.ts";
 import { parseExplanationEvent } from "../../../core/ext/explanations.ts";
 import { parseFrontierEvent } from "../../../core/ext/frontier.ts";
 import { parseGoalEvent } from "../../../core/ext/goals.ts";
+import { deriveLinks, parseLinkEvent } from "../../../core/ext/links.ts";
 import { parseInboxEvent } from "../../../core/ext/inbox.ts";
 import type { McpDeps, ReadLog } from "../../../core/ext/mcp/ports.ts";
 import { parseExerciseEvent } from "../../../core/ext/practice/exercises.ts";
@@ -36,12 +37,14 @@ function asStore<T>(log: ReadLog<T>): { appendEvent(event: T): void; readEvents(
 export function createMcpDeps(dataRoot: string, clock: () => string = () => new Date().toISOString()): McpDeps {
 	const extDir = path.join(dataRoot, "ext");
 	const graph = createGraphReader(path.join(dataRoot, "graph"));
+	const linksLog = readOnlyLedger(extDir, "links.jsonl", parseLinkEvent);
 	return {
 		review: {
 			graphStore: graph,
 			goalsStore: asStore(readOnlyLedger(extDir, "goals.jsonl", parseGoalEvent)),
 			reviewStore: asStore(readOnlyLedger(extDir, "review.jsonl", parseReviewEvent)),
 			cardsStore: asStore(readOnlyLedger(extDir, "cards.jsonl", parseCardEvent)),
+			linksStore: { readLinks: () => deriveLinks(linksLog.readAll()) },
 		},
 		verification: readOnlyLedger(extDir, "verification.jsonl", parseVerificationEvent),
 		explanations: readOnlyLedger(extDir, "explanations.jsonl", parseExplanationEvent),

@@ -240,6 +240,7 @@ export const personalLayer = createPersonalLayer({
 	goalsStore: extStores.goalsStore,
 	reviewStore: extStores.reviewStore,
 	cardsStore: extStores.cardsStore,
+	linksStore: extStores.linksStore,
 	trustOf: trustOfNode,
 	createReviewChat: (title) => stores.chatStore.createChat(title, "review"),
 	focusLedger: extStores.reviewFocusLedger,

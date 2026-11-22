@@ -1,4 +1,5 @@
 // tests/ext-debrief-weekly.test.ts
+import { DEFAULT_WEIGHTS } from "../src/core/ext/goals.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Goal } from "../src/core/ext/goals.ts";
@@ -45,7 +46,7 @@ describe("weeklyWindow (REQ-deb-02)", () => {
 });
 
 const goal = (id: string, targets: string[], status: Goal["status"] = "active"): Goal => ({
-	id, title: id, origin: "user", originRef: "", targetNodeIds: targets, priority: 3, status, createdAt: local(10, 1), updatedAt: local(10, 1),
+	id, title: id, origin: "user", originRef: "", targetNodeIds: targets, priority: 3, weights: DEFAULT_WEIGHTS, status, createdAt: local(10, 1), updatedAt: local(10, 1),
 });
 const rv = (nodeId: string, rating: 1 | 2 | 3 | 4, at: string, durationSec = 30, channel: "fixed" | "dialogic" | "exercise" = "fixed"): ReviewEvent => ({ type: "review", nodeId, channel, rating, durationSec, at });
 const window = weeklyWindow(new Date(2026, 10, 4, 12), 0, 18);

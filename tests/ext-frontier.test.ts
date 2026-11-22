@@ -1,3 +1,4 @@
+import { DEFAULT_WEIGHTS } from "../src/core/ext/goals.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
@@ -23,6 +24,7 @@ const goal: Goal = {
 	originRef: "",
 	targetNodeIds: ["d"],
 	priority: 3,
+	weights: DEFAULT_WEIGHTS,
 	status: "active",
 	createdAt: "t",
 	updatedAt: "t",

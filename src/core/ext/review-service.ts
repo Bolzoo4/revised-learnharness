@@ -11,6 +11,7 @@ import type { GraphStore } from "../ports.ts";
 import { deriveCards, type ContentCard } from "./cards.ts";
 import { claimNodes, premisesOf } from "./deck.ts";
 import { deriveGoals, type Goal } from "./goals.ts";
+import type { Link } from "./links.ts";
 import type { CardsStore, GoalsStore, ReviewStore } from "./ports.ts";
 import { DEFAULT_IMPLICIT_WEIGHT, deriveMarks, deriveNodeStates, type Marks, type NodeState } from "./review-state.ts";
 import { isValidRating, isValidRetention, type ReviewRating } from "./review.ts";
@@ -22,6 +23,8 @@ export interface ReviewDeps {
 	goalsStore: GoalsStore;
 	reviewStore: ReviewStore;
 	cardsStore: CardsStore;
+	/** Typed links (REQ-graph-agent-18): they bring nodes into a goal's weighted scope. Optional: without it the scope is chains only. */
+	linksStore?: { readLinks(): Link[] };
 	now?: () => string;
 	newCardId?: () => string;
 	implicitWeight?: number;
@@ -47,6 +50,7 @@ export interface Snapshot {
 	nodeIds: Set<string>;
 	chains: GraphChain[];
 	goals: Goal[];
+	links: Link[];
 	marks: Marks;
 	states: Map<string, NodeState>;
 	cards: ContentCard[];
@@ -58,10 +62,11 @@ export function snapshot(deps: ReviewDeps, now: string): Snapshot {
 	const nodeIds = new Set(nodes.map((n) => n.id));
 	const chains = deps.graphStore.readChains();
 	const goals = deriveGoals(deps.goalsStore.readEvents());
+	const links = deps.linksStore?.readLinks() ?? [];
 	const events = deps.reviewStore.readEvents();
 	const marks = deriveMarks(events);
 	// Retention uses EVERY goal (paused goals keep their nodes' state, REQ-pl-13).
-	const info = claimNodes(goals, chains, marks);
+	const info = claimNodes(goals, chains, marks, links);
 	const states = deriveNodeStates(events, {
 		retentionOf: (id) => info.get(id)?.retention ?? DEFAULT_RETENTION,
 		exists: (id) => nodeIds.has(id),
@@ -73,6 +78,7 @@ export function snapshot(deps: ReviewDeps, now: string): Snapshot {
 		nodeIds,
 		chains,
 		goals,
+		links,
 		marks,
 		states,
 		cards: deriveCards(deps.cardsStore.readEvents()),

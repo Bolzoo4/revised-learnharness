@@ -4,7 +4,7 @@
 import { getGraph } from "../../graph.ts";
 import { goalReadiness } from "../deck.ts";
 import { DEFAULT_RETENTION } from "../fsrs.ts";
-import { deriveGoals, goalScope, type Goal } from "../goals.ts";
+import { deriveGoals, goalScopeWeighted, type Goal } from "../goals.ts";
 import { deriveExerciseSets, setComplete, type ExerciseSetState } from "../practice/exercises.ts";
 import type { Call } from "./call.ts";
 import { guardReplay, snapshotOf } from "./call.ts";
@@ -21,8 +21,8 @@ export function listGoals(call: Call, input: Record<string, unknown>) {
 	const rows = snap.goals
 		.filter((g) => status === undefined || g.status === status)
 		.map((g) => {
-			// Same scope and readiness as the app's goalReadinessReport.
-			const r = goalReadiness(goalScope(g.targetNodeIds, snap.chains), snap.recall);
+			// Same weighted scope and readiness as the app's goalReadinessReport.
+			const r = goalReadiness(goalScopeWeighted(g, snap.chains, snap.links), snap.recall);
 			return {
 				id: g.id,
 				title: capText(g.title, LIMITS.titleChars),
@@ -33,7 +33,7 @@ export function listGoals(call: Call, input: Record<string, unknown>) {
 				targetCount: g.targetNodeIds.length,
 				scopeSize: r.total,
 				solidNodes: r.solid,
-				solidShare: r.total === 0 ? 0 : round4(r.solid / r.total),
+				solidShare: round4(r.fraction),
 				ready: r.ready,
 			};
 		});
@@ -67,8 +67,9 @@ export function getGoal(call: Call, input: Record<string, unknown>) {
 	const goal: Goal | undefined = snap.goals.find((g) => g.id === id);
 	if (goal === undefined) throw new ToolError("not_found", `No goal with id "${capText(id, 60)}".`);
 
-	const scope = goalScope(goal.targetNodeIds, snap.chains);
-	const r = goalReadiness(scope, snap.recall);
+	const weighted = goalScopeWeighted(goal, snap.chains, snap.links);
+	const scope = [...weighted.keys()];
+	const r = goalReadiness(weighted, snap.recall);
 	const levels = trustLevels(call.deps.verification.readAll());
 	const names = new Map(getGraph(call.graph).nodes.map((n) => [n.id, n.name]));
 	const nowMs = Date.parse(snap.now);

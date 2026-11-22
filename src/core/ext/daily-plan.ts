@@ -118,10 +118,15 @@ export function dailyPlan(input: PlanInput): DailyPlan {
 			dueEntries.push({ entry, risk: 1 - recallProbability(state.card, now) });
 		}
 	}
+	// Priority first, then forgetting risk, then goal weight (REQ-graph-agent-18), then id.
 	dueEntries.sort(
-		(a, b) => b.entry.priority - a.entry.priority || b.risk - a.risk || a.entry.nodeId.localeCompare(b.entry.nodeId),
+		(a, b) =>
+			b.entry.priority - a.entry.priority ||
+			b.risk - a.risk ||
+			b.entry.weight - a.entry.weight ||
+			a.entry.nodeId.localeCompare(b.entry.nodeId),
 	);
-	newEntries.sort((a, b) => b.priority - a.priority || a.nodeId.localeCompare(b.nodeId));
+	newEntries.sort((a, b) => b.priority - a.priority || b.weight - a.weight || a.nodeId.localeCompare(b.nodeId));
 
 	const needsCard: string[] = [];
 	let dialogicLeft = Math.max(0, params.dialogicCap - stats.dialogicToday);

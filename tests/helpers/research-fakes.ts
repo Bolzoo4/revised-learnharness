@@ -1,4 +1,5 @@
 // tests/helpers/research-fakes.ts
+import { DEFAULT_WEIGHTS } from "../../src/core/ext/goals.ts";
 import type { CycleDeps, GapFinding } from "../../src/core/ext/cycle.ts";
 import { DEFAULT_RESEARCH_CONFIG } from "../../src/core/ext/research-config.ts";
 import type { EventLog } from "../../src/core/ext/research-ports.ts";
@@ -16,6 +17,7 @@ export const goal = (over: Partial<Goal> = {}): Goal => ({
 	originRef: "",
 	targetNodeIds: ["t"],
 	priority: 3,
+	weights: DEFAULT_WEIGHTS,
 	status: "active",
 	createdAt: "t",
 	updatedAt: "t",

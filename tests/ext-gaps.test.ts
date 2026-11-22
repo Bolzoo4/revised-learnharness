@@ -1,4 +1,5 @@
 // tests/ext-gaps.test.ts
+import { DEFAULT_WEIGHTS } from "../src/core/ext/goals.ts";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { findGaps, reachFromGoals, type GapInput } from "../src/core/ext/gaps.ts";
@@ -21,6 +22,7 @@ const goal = (over: Partial<Goal> = {}): Goal => ({
 	originRef: "",
 	targetNodeIds: ["t"],
 	priority: 3,
+	weights: DEFAULT_WEIGHTS,
 	status: "active",
 	createdAt: "t",
 	updatedAt: "t",
