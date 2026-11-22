@@ -25,6 +25,7 @@ import { getNeighbors, getNode } from "./node.ts";
 import type { McpDeps, RunOptions } from "./ports.ts";
 import { researchStatus } from "./research.ts";
 import { searchNodes } from "./search.ts";
+import { suggestLinks } from "./propose-links.ts";
 import { createGoal, createLink, getSandbox, setGoalWeights } from "./write.ts";
 
 /**
@@ -46,7 +47,8 @@ interface Handler {
 }
 
 const HANDLERS: Record<string, Handler> = {
-	search_nodes: { group: "knowledge", fields: ["query", "limit", "trust", "goalId", "stage"], run: searchNodes },
+	search_nodes: { group: "knowledge", fields: ["query", "limit", "trust", "goalId", "stage", "mode"], run: searchNodes },
+	suggest_links: { group: "knowledge", fields: ["id", "limit"], run: suggestLinks },
 	get_node: { group: "knowledge", fields: ["id"], run: getNode },
 	get_neighbors: { group: "knowledge", fields: ["id", "depth"], run: (c, i) => getNeighbors(c, i) },
 	list_lectures: { group: "knowledge", fields: ["chapter"], run: (c, i) => listLectures(c, i) },

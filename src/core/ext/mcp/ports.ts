@@ -19,6 +19,7 @@ import type { ReadingEvent } from "../study/reading.ts";
 import type { ReviewDeps } from "../review-service.ts";
 import type { CycleLogEntry } from "../research-log.ts";
 import type { VerificationEvent } from "../trust.ts";
+import type { VectorIndex } from "../vector-index.ts";
 
 export interface ReadLog<T> {
 	/** Valid events in file order; never writes. */
@@ -51,6 +52,20 @@ export interface SourceLabels {
 	labels(): ReadonlyMap<string, string>;
 }
 
+/** The semantic index as the read-only server sees it (REQ-search-08, 09). Loading never writes. */
+export type SemanticState =
+	| { ok: true; index: VectorIndex; embedQuery(text: string): Promise<Float32Array> }
+	| { ok: false; reason: string };
+
+export interface SemanticPort {
+	load(): Promise<SemanticState>;
+	/**
+	 * Optional and synchronous: the reason the index cannot be used, when the file alone decides it (missing,
+	 * unreadable, another model). Null when unknown without loading. A tool uses it to answer synchronously.
+	 */
+	unavailable?(): string | null;
+}
+
 export interface McpDeps {
 	review: ReviewDeps;
 	sources: SourceLabels;
@@ -66,6 +81,8 @@ export interface McpDeps {
 	documents: ReadLog<DocumentEvent>;
 	reading: ReadLog<ReadingEvent>;
 	lectures: LectureReader;
+	/** The semantic index. Absent when the build has none: the search tools then answer from keyword matches with a note. */
+	semantic?: SemanticPort;
 	/** ISO-8601 instant, called once per tool call. */
 	now(): string;
 	/** Throws a ToolError(data_newer_than_build) when any stamp is newer than this build. Never writes. */

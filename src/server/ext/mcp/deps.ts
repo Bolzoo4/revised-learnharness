@@ -23,6 +23,9 @@ import { parseCycleLogEntry } from "../../../core/ext/research-log.ts";
 import { parseReviewEvent } from "../../../core/ext/review.ts";
 import { parseVerificationEvent } from "../../../core/ext/trust.ts";
 import { createGraphReader, createLectureReader, createReadableGuard, createSourceLabels, readOnlyLedger } from "../../../store/ext/readonly.ts";
+import { DEFAULT_EMBEDDER_SPEC, unavailableEmbedder } from "../../../core/ext/embedder.ts";
+import { VECTOR_INDEX_FILE } from "../../../core/ext/vector-index.ts";
+import { createSemanticReader } from "./semantic.ts";
 
 /** Every write the app's types allow is refused loudly: reaching this is a bug, never a feature. */
 function refuseWrite(): never {
@@ -62,6 +65,8 @@ export function createMcpDeps(dataRoot: string, clock: () => string = () => new 
 		documents: readOnlyLedger(extDir, "documents.jsonl", parseDocumentEvent),
 		reading: readOnlyLedger(extDir, "reading.jsonl", parseReadingEvent),
 		lectures: createLectureReader(extDir),
+		// Semantic search reads the app's index; the model loader is unavailable until the adapter is approved.
+		semantic: createSemanticReader(path.join(extDir, VECTOR_INDEX_FILE), DEFAULT_EMBEDDER_SPEC, unavailableEmbedder),
 		now: clock,
 		assertReadable: createReadableGuard(dataRoot),
 	};

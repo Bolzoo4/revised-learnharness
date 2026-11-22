@@ -57,7 +57,8 @@ describe("calls over the protocol", () => {
 		seedStandard(f);
 		const { client, close } = await connect(f);
 		const valid: Record<string, unknown[]> = {
-			search_nodes: [{ query: "set" }, { query: "set", limit: 5, trust: "sourced", goalId: GOAL_ID, stage: "all" }],
+			search_nodes: [{ query: "set" }, { query: "set", limit: 5, trust: "sourced", goalId: GOAL_ID, stage: "all" }, { query: "set", mode: "keyword" }],
+			suggest_links: [{ id: N.a }, { id: N.a, limit: 3 }],
 			get_node: [{ id: N.a }],
 			get_neighbors: [{ id: N.c }, { id: N.c, depth: 2 }],
 			list_lectures: [{}, { chapter: 2 }],

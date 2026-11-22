@@ -105,6 +105,9 @@ export function rankIndex(index: VectorIndex, query: ArrayLike<number>): ScoredI
 	return topK(query, rows, rows.length);
 }
 
+/** The file name under the extension directory (ext/). */
+export const VECTOR_INDEX_FILE = "embeddings.bin";
+
 const MAGIC = "LHVI";
 const FORMAT = 1;
 

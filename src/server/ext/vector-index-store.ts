@@ -8,23 +8,16 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { decodeIndex, encodeIndex, type VectorIndex } from "../../core/ext/vector-index.ts";
+import { encodeIndex, VECTOR_INDEX_FILE, type VectorIndex } from "../../core/ext/vector-index.ts";
 import { writeFileAtomicSync } from "../../store/atomic-write.ts";
+import { readVectorIndexFile } from "../../store/ext/readonly.ts";
 
 export function vectorIndexPath(dataDir: string): string {
-	return path.join(dataDir, "ext", "embeddings.bin");
+	return path.join(dataDir, "ext", VECTOR_INDEX_FILE);
 }
 
-/** The stored index, or null when the file is missing, unreadable or not a complete index. */
-export function readVectorIndex(file: string): VectorIndex | null {
-	let bytes: Buffer;
-	try {
-		bytes = fs.readFileSync(file);
-	} catch {
-		return null;
-	}
-	return decodeIndex(new Uint8Array(bytes));
-}
+/** The stored index, or null when the file is missing, unreadable or not a complete index (read-only). */
+export const readVectorIndex = readVectorIndexFile;
 
 /** Replaces the file. Throws on failure, with the previous file untouched. */
 export function writeVectorIndex(file: string, index: VectorIndex): void {

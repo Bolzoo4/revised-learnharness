@@ -21,6 +21,7 @@ import type { LectureReader, ReadLog } from "../../core/ext/mcp/ports.ts";
 import type { CitingLecture } from "../../core/ext/lecture/lecture-graph.ts";
 import { isValidLectureId, lectureNodeRefs, parseLecture, type Lecture } from "../../core/ext/lecture/lecture.ts";
 import type { GraphStore } from "../../core/ports.ts";
+import { decodeIndex, type VectorIndex } from "../../core/ext/vector-index.ts";
 
 /** Same value as store/ext/format.ts CURRENT_EXT_FORMAT_VERSION (a test pins the equality). */
 export const EXT_FORMAT_VERSION = 1;
@@ -318,4 +319,18 @@ export function createLectureReader(extDir: string, options: { totalBytesMax?: n
 			return hits.sort((a, b) => a.id.localeCompare(b.id));
 		},
 	};
+}
+
+/**
+ * The node vector index file, read only (REQ-search-09): the MCP server reads it; the app writes it (vector-index-store).
+ * Null when the file is missing, unreadable or not a complete index.
+ */
+export function readVectorIndexFile(file: string): VectorIndex | null {
+	let bytes: Buffer;
+	try {
+		bytes = fs.readFileSync(file);
+	} catch {
+		return null;
+	}
+	return decodeIndex(new Uint8Array(bytes));
 }

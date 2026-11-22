@@ -100,10 +100,11 @@ function maxShapedLecture(id: string) {
 }
 
 describe("bounded outputs at scale (REQ-mcp-08)", () => {
-	it("every tool answers within the response limit, with paged lists and capped strings", () => {
+	it("every tool answers within the response limit, with paged lists and capped strings", async () => {
 		const f = bigFixture();
 		const cases: Array<[string, unknown]> = [
 			["search_nodes", { query: "set concept", limit: 50 }], ["search_nodes", { query: "set concept" }],
+			["suggest_links", { id: "n_00000700" }],
 			["get_node", { id: "n_00000000" }], ["get_node", { id: "n_00000700" }],
 			["get_neighbors", { id: "n_00000700", depth: 2 }], ["get_neighbors", { id: "n_00000000", depth: 2 }],
 			["list_lectures", {}], ["get_lecture", { id: makeLecture().id }], ["list_goals", {}], ["list_goals", { status: "active" }], ["get_goal", { id: "goal_000000000000" }],
@@ -111,7 +112,7 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 			["list_documents", {}],
 		];
 		for (const [tool, input] of cases) {
-			const out = call(f, tool, input);
+			const out = await call(f, tool, input);
 			const bytes = Buffer.byteLength(JSON.stringify(out), "utf-8");
 			assert.ok(bytes <= LIMITS.responseMaxBytes, `${tool}: ${bytes} bytes`);
 			const strings = { max: 0 };

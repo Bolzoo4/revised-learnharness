@@ -21,6 +21,7 @@ afterEach(() => {
 /** A valid input for every tool, so each call must succeed (isError false). */
 const VALID_INPUTS: Record<string, unknown> = {
 	search_nodes: { query: "set" },
+	suggest_links: { id: N.a },
 	get_node: { id: N.a },
 	get_neighbors: { id: N.a, depth: 2 },
 	list_lectures: {},

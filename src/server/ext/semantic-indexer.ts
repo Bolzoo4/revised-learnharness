@@ -14,18 +14,11 @@
  */
 
 import type { GraphNode } from "../../core/contracts.ts";
-import { checkEmbedderSpec, type Embedder, type EmbedderSpec } from "../../core/ext/embedder.ts";
+import { checkEmbedderSpec, type EmbedderLoad, type EmbedderSpec } from "../../core/ext/embedder.ts";
 import { applyUpdate, baseFor, indexText, planUpdate, textHash, type VectorIndex } from "../../core/ext/vector-index.ts";
 import { readVectorIndex, writeVectorIndex } from "./vector-index-store.ts";
 
-export const MODEL_UNAVAILABLE = "unavailable: model not installed";
-
-export type EmbedderLoad = { ok: true; embedder: Embedder } | { ok: false; reason: string };
-
-/** The production loader until the model adapter exists: always unavailable. */
-export function unavailableEmbedder(): Promise<EmbedderLoad> {
-	return Promise.resolve({ ok: false, reason: MODEL_UNAVAILABLE });
-}
+export { MODEL_UNAVAILABLE, unavailableEmbedder, type EmbedderLoad } from "../../core/ext/embedder.ts";
 
 export interface RefreshReport {
 	status: "updated" | "unchanged" | "failed";

@@ -104,3 +104,14 @@ export function topK(query: ArrayLike<number>, items: ReadonlyArray<{ id: string
 		.sort((x, y) => y.score - x.score)
 		.slice(0, Math.floor(k));
 }
+
+/** The message the app and the MCP server show while no model adapter is installed. */
+export const MODEL_UNAVAILABLE = "unavailable: model not installed";
+
+/** An embedder, or the reason none can be had. */
+export type EmbedderLoad = { ok: true; embedder: Embedder } | { ok: false; reason: string };
+
+/** The loader until the model adapter exists: always unavailable. */
+export function unavailableEmbedder(): Promise<EmbedderLoad> {
+	return Promise.resolve({ ok: false, reason: MODEL_UNAVAILABLE });
+}

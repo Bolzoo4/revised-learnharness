@@ -30,13 +30,23 @@ export const CATALOG: Record<string, ToolSpec> = {
 	search_nodes: {
 		title: "Search knowledge nodes",
 		description:
-			"Fuzzy text search over node names, statements and aliases. Returns id, name, a shortened statement, the trust level and the stage (staged, unrevised or confirmed). stage filters before the limit: the default is confirmed (settled nodes only); use all to include staged and unrevised nodes. Read-only.",
+			"Search knowledge nodes. mode: hybrid (default: keyword and meaning merged), keyword (fuzzy match over names, statements and aliases) or semantic (meaning only, so a paraphrase finds the node). Returns id, name, a shortened statement, the trust level and the stage (staged, unrevised or confirmed). stage filters before the limit: the default is confirmed (settled nodes only); use all to include staged and unrevised nodes. When the semantic index is missing the answer is keyword-only and says why in note. Read-only.",
 		input: strict({
 			query: z.string().min(1).max(LIMITS.queryMaxChars),
 			limit,
 			trust: z.enum(["unverified", "sourced", "contested", "refuted"]).optional(),
 			goalId: id.optional(),
 			stage: z.enum(["staged", "unrevised", "confirmed", "all"]).optional(),
+			mode: z.enum(["semantic", "keyword", "hybrid"]).optional(),
+		}),
+	},
+	suggest_links: {
+		title: "Suggest nodes to link",
+		description:
+			"Use to find nodes related to a given node that it is not yet linked to (ids come from search_nodes). Returns up to limit candidates, most similar first, with a score; nodes already linked by a typed link or sharing a chain are left out. Only proposes: to link one, call create_link. Needs the semantic index; without it the list is empty and note says why. Read-only.",
+		input: strict({
+			id: id,
+			limit,
 		}),
 	},
 	get_node: {

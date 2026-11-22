@@ -46,7 +46,7 @@ import { createReadableGuard, validateDataRoot } from "../src/store/ext/readonly
 
 const NOW = "2026-11-06T10:00:00.000Z"; // 11:00 in Europe/Rome
 const T0 = "2026-10-01T10:00:00.000Z";
-const KNOWLEDGE = ["search_nodes", "get_node", "get_neighbors", "list_lectures", "get_lecture"];
+const KNOWLEDGE = ["search_nodes", "suggest_links", "get_node", "get_neighbors", "list_lectures", "get_lecture"];
 const STUDY = ["list_goals", "get_goal", "get_daily_plan", "research_status", "get_recent_debriefs", "list_documents"];
 // get_sandbox is in the write group (app-backed, disabled by --knowledge-only) but read-only by annotation.
 const WRITE = ["create_goal", "set_goal_weights", "create_link", "get_sandbox"];
@@ -59,6 +59,7 @@ const DOC1 = "a".repeat(64);
 const DOC2 = "c".repeat(64);
 const SAMPLE: Record<string, Record<string, unknown>> = {
 	search_nodes: { query: "entropy" },
+	suggest_links: { id: "n_a" },
 	get_node: { id: "n_a" },
 	get_neighbors: { id: "n_a" },
 	list_lectures: {},
@@ -498,11 +499,11 @@ function treeHash(root: string): string {
 // ---------------------------------------------------------------- tests
 
 describe("gatekeeper and catalog", () => {
-	it("the tool table is exactly the documented tools: five knowledge, six study-state, four app-backed (write group)", () => {
+	it("the tool table is exactly the documented tools: six knowledge, six study-state, four app-backed (write group)", () => {
 		assert.deepEqual([...TOOL_NAMES].sort(), [...EXPECTED_TOOLS].sort());
 	});
 
-	it("groups: five knowledge tools, six study-state tools and four write-group tools", () => {
+	it("groups: six knowledge tools, six study-state tools and four write-group tools", () => {
 		assert.deepEqual(KNOWLEDGE.map((n) => toolGroup(n)), KNOWLEDGE.map(() => "knowledge"));
 		assert.deepEqual(STUDY.map((n) => toolGroup(n)), STUDY.map(() => "study"));
 		assert.deepEqual(WRITE.map((n) => toolGroup(n)), WRITE.map(() => "write"));
@@ -514,7 +515,8 @@ describe("gatekeeper and catalog", () => {
 
 	it("declared input fields match the spec signatures (every mismatch reported at once)", () => {
 		const want: Record<string, string[]> = {
-			search_nodes: ["goalId", "limit", "query", "stage", "trust"],
+			search_nodes: ["goalId", "limit", "mode", "query", "stage", "trust"],
+			suggest_links: ["id", "limit"],
 			create_goal: ["files", "priority", "targets", "title", "weights"],
 			set_goal_weights: ["goalId", "weights"],
 			create_link: ["from", "linkType", "to"],
