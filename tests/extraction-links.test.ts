@@ -17,6 +17,7 @@ import type { AuditVerdicts, CoverageEntry, GraphChain, GraphNode, NotesSource, 
 import type { GraphStore } from "../src/core/ports.ts";
 import { createExtractionPipeline } from "../src/agent/subagents/extraction.ts";
 import { mergeFindings } from "../src/core/graph.ts";
+import { deleteNodeTraces } from "../src/core/graph-deletion.ts";
 import type { LinkEvent } from "../src/core/ext/links.ts";
 import { createLinksStore } from "../src/server/ext/links-store.ts";
 import type { Ledger } from "../src/store/ext/ledger.ts";
@@ -267,5 +268,26 @@ describe("links follow merged node ids (REQ-graph-agent-04)", () => {
 		assert.equal(links[0]!.to, "n_other");
 		assert.equal(links[0]!.linkType, "evolution");
 		assert.equal(links[0]!.origin, "user", "the remapped link keeps its origin");
+	});
+});
+
+// ─── node deletion removes the node's links ────────────────────────────────
+
+describe("node deletion drops the node's links (REQ-graph-agent-04)", () => {
+	it("deleting a node drops every link touching it and keeps links between other nodes", () => {
+		const ledgers = memoryLedgers();
+		const { store } = linksFixture();
+		const ids = new Set(["n_dead", "n_a", "n_b"]);
+		for (const id of ids) ledgers.appendNode({ id, name: id, statement: id, aliases: [], createdAt: AT, provenance: [] });
+		store.appendLink({ from: "n_dead", to: "n_a", linkType: "evolution", origin: "user" }, ids);
+		store.appendLink({ from: "n_b", to: "n_dead", linkType: "analogy", origin: "agent" }, ids);
+		store.appendLink({ from: "n_a", to: "n_b", linkType: "sequence", origin: "extractor" }, ids);
+
+		deleteNodeTraces(ledgers, "n_dead", store);
+
+		assert.deepEqual(
+			store.readLinks().map((l) => [l.from, l.to, l.linkType]),
+			[["n_a", "n_b", "sequence"]],
+		);
 	});
 });

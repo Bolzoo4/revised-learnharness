@@ -61,6 +61,7 @@ import type {
 	SessionCheckpoint,
 } from "./contracts.ts";
 import type { GraphStore } from "./ports.ts";
+import type { LinkSink } from "./ext/links.ts";
 
 /** The two deletion modes (owner-locked 2026-09-22). Machine-checkable on
  *  the API as the required `mode` query param — no default, so no
@@ -294,7 +295,7 @@ function chainLinesOf(graphStore: GraphStore, chainId: string): GraphChain[] {
  * rewrites only the ledgers that changed (unchanged files keep their
  * mtimes — the version stamp moves only when something really did).
  */
-export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDeletionStats | null {
+export function deleteNodeTraces(graphStore: GraphStore, nodeId: string, links?: LinkSink): NodeDeletionStats | null {
 	const chainLines = graphStore.readChains();
 
 	// The argument branch: an arg_ id names a CHAIN, not a proposition —
@@ -337,6 +338,9 @@ export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDe
 		graphStore.writePositions(prunedPositions);
 	}
 
+	// The node's typed links die with it (REQ-graph-agent-04): links are ext-layer
+	// state, so the caller injects their sink; absent (no links store) → none to remove.
+	links?.removeNode(nodeId);
 	return {
 		chainsRemoved: chainLines.length - outChains.length,
 	};

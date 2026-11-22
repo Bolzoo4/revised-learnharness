@@ -11,6 +11,7 @@ import {
 } from "../core/graph-deletion.ts";
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
+import { extStores } from "./ext/stores.ts";
 import { callCost } from "./pricing.ts";
 
 /**
@@ -114,7 +115,7 @@ export function deleteGraphNode(nodeId: string): NodeDeleteOutcome {
 	}
 	// THE SYNC BLOCK — no awaits below (the doc above): the gate and the
 	// rewrite are one atomic stretch of the event loop.
-	const stats = deleteNodeTraces(stores.graphStore, nodeId);
+	const stats = deleteNodeTraces(stores.graphStore, nodeId, extStores.linksStore);
 	if (stats === null) {
 		return { ok: false, status: 404, code: "not_found", error: "No such node" };
 	}

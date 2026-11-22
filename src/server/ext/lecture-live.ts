@@ -75,7 +75,9 @@ const lecturesWithAudio: LecturesStore = {
  */
 function stageChapterGraph(): StagedChapterGraph {
 	const staged = createStagedGraphStore(stores.graphStore);
-	const pipeline = createExtractionPipeline({ ...stores, graphStore: staged, ...extractionModelDeps() });
+	// Typed links (REQ-graph-agent-07): lecture ingests write extractor links to the live links store.
+	// Staged caveat: links are not part of the staged overlay, so they land before commit().
+	const pipeline = createExtractionPipeline({ ...stores, graphStore: staged, linksStore: extStores.linksStore, ...extractionModelDeps() });
 	let importedPath: string | undefined;
 	let imported: EmissionStats = { nodes: 0, chains: 0 };
 	return {

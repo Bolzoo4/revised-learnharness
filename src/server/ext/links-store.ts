@@ -40,6 +40,8 @@ export interface LinksStore extends LinkSink {
 	readLinks(): Link[];
 	/** Moves links off merged-away node ids: a changed link is removed and re-created under a fresh id (the event log's created ids are immutable); a link that became a self-link or a duplicate is removed. */
 	remapNodes(mergedIntoId: ReadonlyMap<string, string>): void;
+	/** Removes every live link touching the node; a node with no links writes nothing. */
+	removeNode(nodeId: string): void;
 }
 
 const defaultDeps: LinksStoreDeps = {
@@ -72,6 +74,12 @@ export function createLinksStore(ledger: Ledger<LinkEvent>, deps: LinksStoreDeps
 		},
 		readLinks() {
 			return deriveLinks(ledger.readAll());
+		},
+		removeNode(nodeId) {
+			const at = deps.now();
+			for (const link of deriveLinks(ledger.readAll())) {
+				if (link.from === nodeId || link.to === nodeId) ledger.append({ type: "removed", id: link.id, at });
+			}
 		},
 		remapNodes(mergedIntoId) {
 			if (mergedIntoId.size === 0) return;

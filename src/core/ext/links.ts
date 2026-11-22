@@ -112,6 +112,8 @@ export interface LinkSink {
 	appendLink(input: { from: string; to: string; linkType: LinkType; origin: LinkOrigin }, nodeIds: ReadonlySet<string>): unknown;
 	/** Re-points stored links after nodes merged (merged id → survivor id). */
 	remapNodes(mergedIntoId: ReadonlyMap<string, string>): void;
+	/** Removes every live link touching the node (node deletion). */
+	removeNode(nodeId: string): void;
 }
 
 /**
