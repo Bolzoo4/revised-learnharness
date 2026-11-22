@@ -11,6 +11,7 @@ import { after, describe, it } from "node:test";
 import type { GraphNode } from "../src/core/contracts.ts";
 import { EMBEDDINGGEMMA_SPEC } from "../src/core/ext/embedder.ts";
 import { createSemanticIndexer, unavailableEmbedder, type EmbedderLoad } from "../src/server/ext/semantic-indexer.ts";
+import { createLiveSemanticIndexer } from "../src/server/ext/semantic-live.ts";
 import { readVectorIndex, vectorIndexPath } from "../src/server/ext/vector-index-store.ts";
 import { createFakeEmbedder, type FakeEmbedder } from "./helpers/fake-embedder.ts";
 
@@ -180,8 +181,8 @@ describe("createSemanticIndexer (failures leave the previous index)", () => {
 		h.setNodes([A]);
 		const report = await h.indexer.refresh();
 		assert.equal(report.status, "failed");
-		assert.equal(report.reason, "unavailable: model not installed");
-		assert.equal(h.indexer.status().lastError, "unavailable: model not installed");
+		assert.equal(report.reason, "unavailable: model not downloaded");
+		assert.equal(h.indexer.status().lastError, "unavailable: model not downloaded");
 		assert.equal(existsSync(h.file), false);
 	});
 
@@ -204,5 +205,19 @@ describe("createSemanticIndexer (failures leave the previous index)", () => {
 		const report = await h.indexer.refresh();
 		assert.equal(report.status, "failed");
 		assert.equal(existsSync(h.file), false);
+	});
+});
+
+describe("the production wiring (createLiveSemanticIndexer)", () => {
+	it("with no model in the cache, a refresh reports the not-downloaded reason and writes nothing", async () => {
+		const file = freshFile();
+		const cacheDir = join(file, "..", "..", "empty-models");
+		const indexer = createLiveSemanticIndexer({ file, readNodes: () => [A, B], cacheDir, debounceMs: 5 });
+		const report = await indexer.refresh();
+		assert.equal(report.status, "failed");
+		assert.equal(report.reason, "unavailable: model not downloaded");
+		assert.equal(existsSync(file), false);
+		assert.equal(existsSync(cacheDir), false, "the cache is never created or written by a refresh");
+		indexer.dispose();
 	});
 });

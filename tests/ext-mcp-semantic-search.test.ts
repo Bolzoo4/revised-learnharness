@@ -145,11 +145,11 @@ describe("search_nodes modes", () => {
 
 	it("hybrid with no index answers with keyword results and says why", async () => {
 		const nodes = [ENTROPY, ENTROPY2, OHM];
-		const deps = depsFor({ nodes, semantic: { load: async () => ({ ok: false, reason: "unavailable: model not installed" }) } });
+		const deps = depsFor({ nodes, semantic: { load: async () => ({ ok: false, reason: "unavailable: model not downloaded" }) } });
 		const out: any = await runTool("search_nodes", deps, { query: "entropy" }, OPTS);
 		assert.equal(out.mode, "keyword");
 		assert.equal(out.count, 2);
-		assert.match(out.note, /semantic search unavailable: unavailable: model not installed/);
+		assert.match(out.note, /semantic search unavailable: unavailable: model not downloaded/);
 	});
 
 	it("semantic mode without any semantic port falls back to keyword with a note", async () => {

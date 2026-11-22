@@ -112,11 +112,11 @@ describe("createSemanticReader", () => {
 		let calls = 0;
 		const reader = createSemanticReader(file, SPEC, async () => {
 			calls++;
-			return { ok: false, reason: "unavailable: model not installed" };
+			return { ok: false, reason: "unavailable: model not downloaded" };
 		});
 		const first = await reader.load();
 		assert.equal(first.ok, false);
-		if (!first.ok) assert.equal(first.reason, "unavailable: model not installed");
+		if (!first.ok) assert.equal(first.reason, "unavailable: model not downloaded");
 		await reader.load();
 		assert.equal(calls, 2, "a failed load is retried on the next call");
 	});

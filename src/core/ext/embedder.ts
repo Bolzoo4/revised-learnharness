@@ -1,8 +1,8 @@
 // src/core/ext/embedder.ts
 /**
  * The embedding port for semantic node search (REQ-search-06). Pure: no model,
- * no IO. The model runs behind `Embedder`; an adapter (the Transformers.js one,
- * not in this change) implements it. Tests use the deterministic fake in
+ * no IO. The model runs behind `Embedder`; the Transformers.js adapter
+ * (src/server/ext/embedder-transformers.ts) implements it. Tests use the deterministic fake in
  * tests/helpers/fake-embedder.ts.
  *
  * Templates: EmbeddingGemma expects a task prefix on queries and a title/text
@@ -105,13 +105,13 @@ export function topK(query: ArrayLike<number>, items: ReadonlyArray<{ id: string
 		.slice(0, Math.floor(k));
 }
 
-/** The message the app and the MCP server show while no model adapter is installed. */
-export const MODEL_UNAVAILABLE = "unavailable: model not installed";
+/** The reason given while the model files are not in the local cache (the owner has not run the download command). */
+export const MODEL_UNAVAILABLE = "unavailable: model not downloaded";
 
 /** An embedder, or the reason none can be had. */
 export type EmbedderLoad = { ok: true; embedder: Embedder } | { ok: false; reason: string };
 
-/** The loader until the model adapter exists: always unavailable. */
+/** A loader that is always unavailable. Tests use it to exercise the "no model" path. */
 export function unavailableEmbedder(): Promise<EmbedderLoad> {
 	return Promise.resolve({ ok: false, reason: MODEL_UNAVAILABLE });
 }
