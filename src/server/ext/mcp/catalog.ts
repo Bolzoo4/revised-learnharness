@@ -9,6 +9,8 @@
 
 import { z } from "zod";
 import { LIMITS } from "../../../core/ext/mcp/limits.ts";
+import { LINK_TYPES } from "../../../core/ext/links.ts";
+import { WRITE_LIMITS } from "../../../core/ext/mcp/write.ts";
 
 const id = z.string().min(1).max(LIMITS.idMaxChars);
 const limit = z.number().int().min(1).max(LIMITS.listMax).optional();
@@ -28,18 +30,19 @@ export const CATALOG: Record<string, ToolSpec> = {
 	search_nodes: {
 		title: "Search knowledge nodes",
 		description:
-			"Fuzzy text search over node names, statements and aliases. Returns id, name, a shortened statement and the trust level. Read-only.",
+			"Fuzzy text search over node names, statements and aliases. Returns id, name, a shortened statement, the trust level and the stage (staged, unrevised or confirmed). stage filters before the limit: the default is confirmed (settled nodes only); use all to include staged and unrevised nodes. Read-only.",
 		input: strict({
 			query: z.string().min(1).max(LIMITS.queryMaxChars),
 			limit,
 			trust: z.enum(["unverified", "sourced", "contested", "refuted"]).optional(),
 			goalId: id.optional(),
+			stage: z.enum(["staged", "unrevised", "confirmed", "all"]).optional(),
 		}),
 	},
 	get_node: {
 		title: "Read one knowledge node",
 		description:
-			"Statement, aliases, trust level with evidence, the current explanation (flagged stale or without source context), premises, conclusions, alternative arguments, citing lectures (null with citingLecturesOmitted true while the lecture index is still being built), card count, review state and goals. Read-only.",
+			"Statement, aliases, trust level with evidence, the stage (staged, unrevised or confirmed; null under --knowledge-only), the current explanation (flagged stale or without source context), premises, conclusions, alternative arguments, citing lectures (null with citingLecturesOmitted true while the lecture index is still being built), card count, review state and goals. Read-only.",
 		input: strict({ id }),
 	},
 	get_neighbors: {
@@ -60,12 +63,12 @@ export const CATALOG: Record<string, ToolSpec> = {
 	},
 	list_goals: {
 		title: "List study goals",
-		description: "Goals with scope size and the share of solid nodes. Study-state group (disabled by --knowledge-only). Read-only.",
+		description: "Goals with scope size, the share of solid nodes and per-stage counts (staged, unrevised, confirmed) of the scope. Study-state group (disabled by --knowledge-only). Read-only.",
 		input: strict({ status: z.enum(["active", "paused", "reached"]).optional() }),
 	},
 	get_goal: {
 		title: "Read one study goal",
-		description: "Scope summary, due counts and the state of the exercise set. Study-state group. Read-only.",
+		description: "Scope summary, per-stage counts of the scope, due counts and the state of the exercise set. Study-state group. Read-only.",
 		input: strict({ id }),
 	},
 	get_daily_plan: {
@@ -93,5 +96,39 @@ export const CATALOG: Record<string, ToolSpec> = {
 		title: "List registered documents",
 		description: "Registered PDFs with title, page count and reading progress. Study-state group. Read-only.",
 		input: strict({}),
+	},
+	create_goal: {
+		title: "Create a study goal",
+		description:
+			"Use when the learner asks to start learning a topic. Creates a goal from a title, optional target statements the goal must reach (up to 20; the app needs at least one), optional PDFs read from local absolute paths (up to 5, each at most 20 MB, names ending in .pdf), optional weights per link type and a priority from 1 to 5. Returns goalId and nodeIds. Needs the running LearnHarness app. A refusal from the app (for example the daily agent spending ceiling) is returned as is. Writes through the app only.",
+		input: strict({
+			title: z.string().min(1).max(LIMITS.titleChars),
+			targets: z.array(z.string().min(1).max(WRITE_LIMITS.targetChars)).max(WRITE_LIMITS.targetsMax).optional(),
+			files: z
+				.array(strict({ name: z.string().min(1).max(WRITE_LIMITS.fileNameChars), path: z.string().min(1).max(WRITE_LIMITS.pathChars) }))
+				.max(WRITE_LIMITS.filesMax)
+				.optional(),
+			weights: z.record(z.string(), z.number()).optional(),
+			priority: z.number().int().min(WRITE_LIMITS.priorityMin).max(WRITE_LIMITS.priorityMax).optional(),
+		}),
+	},
+	set_goal_weights: {
+		title: "Set a goal's link weights",
+		description:
+			"Use when the learner wants more or less emphasis on one kind of link (chain, evolution, sequence, case-of, part-of, analogy, contrast) for a goal. weights is a partial object of key to number; the app merges it onto the goal's current weights. Needs the running LearnHarness app. Writes through the app only.",
+		input: strict({
+			goalId: z.string().min(1).max(LIMITS.idMaxChars),
+			weights: z.record(z.string(), z.number()),
+		}),
+	},
+	create_link: {
+		title: "Create a typed link between two nodes",
+		description:
+			"Use when two existing nodes are related in a way the graph does not yet show (ids come from search_nodes). linkType is one of evolution, sequence, case-of, part-of, analogy, contrast; directed types read from -> to. Needs the running LearnHarness app. Writes through the app only.",
+		input: strict({
+			from: z.string().min(1).max(LIMITS.idMaxChars),
+			to: z.string().min(1).max(LIMITS.idMaxChars),
+			linkType: z.enum(LINK_TYPES),
+		}),
 	},
 };

@@ -35,8 +35,20 @@ export interface LectureReader {
 	citing(nodeId: string): CitingLecture[] | null;
 }
 
+/**
+ * The app's own write endpoints, reached over loopback (the write tools only).
+ * A non-2xx answer is a ToolError carrying the app's text; an unreachable app is
+ * a ToolError too. Neither ever crashes the server.
+ */
+export interface AppApiPort {
+	post(path: string, body: unknown): Promise<unknown>;
+	put(path: string, body: unknown): Promise<unknown>;
+}
+
 export interface McpDeps {
 	review: ReviewDeps;
+	/** The write tools' only way to change anything: the running app's API. */
+	appApi: AppApiPort;
 	verification: ReadLog<VerificationEvent>;
 	explanations: ReadLog<ExplanationEvent>;
 	exercises: ReadLog<ExerciseEvent>;
@@ -54,6 +66,6 @@ export interface McpDeps {
 }
 
 export interface RunOptions {
-	/** Disable the study-state group and the learner-performance fields of get_node (REQ-mcp-06). */
+	/** Disable the study-state group, the write group and the stage fields (REQ-mcp-06). */
 	knowledgeOnly: boolean;
 }

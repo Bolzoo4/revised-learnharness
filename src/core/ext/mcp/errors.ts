@@ -16,6 +16,8 @@ export type ToolErrorCode =
 	| "data_too_large"
 	| "data_inconsistent"
 	| "response_too_large"
+	| "app_rejected"
+	| "app_unreachable"
 	| "internal";
 
 export class ToolError extends Error {

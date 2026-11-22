@@ -18,13 +18,13 @@ describe("catalog and registration", () => {
 		for (const name of TOOL_NAMES) assert.deepEqual(Object.keys(CATALOG[name]!.input.shape).sort(), [...toolFields(name)].sort(), name);
 	});
 
-	it("lists every tool as read-only, closed-world, non-destructive, with a description and an input schema", async () => {
+	it("lists every tool with its annotations: read tools read-only, write tools not, all closed-world and non-destructive", async () => {
 		const f = makeFixture();
 		const { client, close } = await connect(f);
 		const { tools } = await client.listTools();
 		assert.deepEqual(tools.map((t) => t.name).sort(), [...TOOL_NAMES].sort());
 		for (const t of tools) {
-			assert.equal(t.annotations?.readOnlyHint, true, t.name);
+			assert.equal(t.annotations?.readOnlyHint, toolGroup(t.name) !== "write", t.name);
 			assert.equal(t.annotations?.destructiveHint, false, t.name);
 			assert.equal(t.annotations?.openWorldHint, false, t.name);
 			assert.ok((t.description ?? "").length > 20, t.name);
@@ -46,8 +46,8 @@ describe("catalog and registration", () => {
 		await close();
 	});
 
-	it("no tool name suggests a write", async () => {
-		for (const name of TOOL_NAMES) assert.ok(!/^(set|add|create|update|delete|remove|write|mark|put|post|run|start|apply|save|import|upload)/.test(name), name);
+	it("no read tool name suggests a write (the write tools are the only ones that write, and they are named for it)", async () => {
+		for (const name of TOOL_NAMES.filter((n) => toolGroup(n) !== "write")) assert.ok(!/^(set|add|create|update|delete|remove|write|mark|put|post|run|start|apply|save|import|upload)/.test(name), name);
 	});
 });
 
@@ -57,7 +57,7 @@ describe("calls over the protocol", () => {
 		seedStandard(f);
 		const { client, close } = await connect(f);
 		const valid: Record<string, unknown[]> = {
-			search_nodes: [{ query: "set" }, { query: "set", limit: 5, trust: "sourced", goalId: GOAL_ID }],
+			search_nodes: [{ query: "set" }, { query: "set", limit: 5, trust: "sourced", goalId: GOAL_ID, stage: "all" }],
 			get_node: [{ id: N.a }],
 			get_neighbors: [{ id: N.c }, { id: N.c, depth: 2 }],
 			list_lectures: [{}, { chapter: 2 }],
@@ -69,7 +69,8 @@ describe("calls over the protocol", () => {
 			get_recent_debriefs: [{}, { limit: 5, since: "2026-11-01T00:00:00Z", kind: "weekly" }],
 			list_documents: [{}],
 		};
-		assert.deepEqual(Object.keys(valid).sort(), [...TOOL_NAMES].sort());
+		// The write tools reach the app, which this fixture does not run: their protocol path is in ext-mcp-write.test.ts.
+		assert.deepEqual(Object.keys(valid).sort(), TOOL_NAMES.filter((n) => toolGroup(n) !== "write").sort());
 		for (const [tool, inputs] of Object.entries(valid)) {
 			for (const input of inputs) {
 				const r = await callTool(client, tool, input);
@@ -150,7 +151,7 @@ describe("calls over the protocol", () => {
 		await close();
 	});
 
-	it("a result above the response limit is refused, not cut: the core returns it whole, and the server layer answers with the error only", () => {
+	it("a result above the response limit is refused, not cut: the core returns it whole, and the server layer answers with the error only", async () => {
 		const f = makeFixture();
 		seedGraph(f);
 		const big = "x".repeat(LIMITS.statementChars);
@@ -159,11 +160,11 @@ describe("calls over the protocol", () => {
 		const whole = runTool("search_nodes", f.deps, input, { knowledgeOnly: false }) as { items: unknown[] };
 		const wholeBytes = Buffer.byteLength(JSON.stringify(whole), "utf-8");
 		assert.ok(wholeBytes > 1024, `the fixture must produce a large answer (${wholeBytes} bytes)`);
-		const refused = safeCall("search_nodes", f.deps, input, { knowledgeOnly: false, responseMaxBytes: 1024 });
+		const refused = await safeCall("search_nodes", f.deps, input, { knowledgeOnly: false, responseMaxBytes: 1024 });
 		assert.equal(refused.isError, true, "the server layer takes the isError branch");
 		assert.deepEqual(refused.structuredContent, { error: { code: "response_too_large", message: "The result is larger than this server's response limit. Narrow the request." } });
 		assert.ok(!refused.content.map((c) => (c as { text: string }).text).join("").includes('"items"'), "no partial items leak");
-		const allowed = safeCall("search_nodes", f.deps, input, { knowledgeOnly: false, responseMaxBytes: wholeBytes });
+		const allowed = await safeCall("search_nodes", f.deps, input, { knowledgeOnly: false, responseMaxBytes: wholeBytes });
 		assert.equal(allowed.isError, false, "at exactly the limit the answer goes out whole");
 	});
 

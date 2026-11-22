@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { debriefId } from "../src/core/ext/debrief/journal.ts";
-import { TOOL_NAMES } from "../src/core/ext/mcp/tools.ts";
+import { TOOL_NAMES, toolGroup } from "../src/core/ext/mcp/tools.ts";
 import { makeLecture } from "./helpers/lecture-fixture.ts";
 import { cleanupAllFixtures, GOAL_ID, makeFixture, N, seedStandard, type Fixture } from "./helpers/mcp-fixture.ts";
 import { fsTripwire, treeDigest } from "./helpers/mcp-dir-hash.ts";
@@ -40,7 +40,8 @@ const INPUTS: Record<string, unknown[]> = {
 function exercise(f: Fixture, label: string, knowledgeOnly: boolean): void {
 	const before = treeDigest(f.root);
 	const files = fs.readdirSync(f.root, { recursive: true }).map(String).sort();
-	for (const tool of TOOL_NAMES) {
+	// The write tools are async and answer through the app port; ext-mcp-write.test.ts covers them.
+	for (const tool of TOOL_NAMES.filter((t) => toolGroup(t) !== "write")) {
 		for (const input of INPUTS[tool] ?? [{}]) {
 			const trip = fsTripwire();
 			try {

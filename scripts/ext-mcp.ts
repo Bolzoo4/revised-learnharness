@@ -2,7 +2,7 @@
 /**
  * Entry of the read-only MCP server (stdio). Launched by the client:
  *   LH_DATA_DIR=<dir> npx tsx scripts/ext-mcp.ts [--knowledge-only]
- * Imports only the read-only layer (see tests/ext-mcp-closure.test.ts). Nothing
+ * Imports only the read-only layer and the app client (see tests/ext-mcp-closure.test.ts). Nothing
  * but protocol goes to stdout; diagnostics go to stderr. The process exits when
  * the transport closes (an oversized request, a closed stdin, a dead stdout).
  */
@@ -17,6 +17,7 @@ import { validateDataRoot } from "../src/store/ext/readonly.ts";
 import { parseArgs } from "../src/server/ext/mcp/args.ts";
 import { createMcpDeps } from "../src/server/ext/mcp/deps.ts";
 import { createServer } from "../src/server/ext/mcp/server.ts";
+import { createAppApi } from "../src/server/ext/mcp/app-api.ts";
 
 const log = (message: string): void => void process.stderr.write(`[ext-mcp] ${message}\n`);
 
@@ -24,7 +25,8 @@ try {
 	const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 	const args = parseArgs(process.argv.slice(2), process.env, path.join(root, "data"));
 	validateDataRoot(args.dataRoot);
-	const server = createServer(createMcpDeps(args.dataRoot), { knowledgeOnly: args.knowledgeOnly, log });
+	const appApi = createAppApi({ tokenFile: process.env.LH_ACCESS_TOKEN_FILE, allowedHosts: process.env.LH_ACCESS_ALLOWED_HOSTS });
+	const server = createServer(createMcpDeps(args.dataRoot, undefined, appApi), { knowledgeOnly: args.knowledgeOnly, log });
 	// Set before connect: the transport closes on an oversized request, on end of stdin and on a fatal write, and the process must end then.
 	server.server.onclose = () => process.exit(0);
 	const transport = new StdioServerTransport(process.stdin, stdioGuard.protocolOut, { maxBufferSize: LIMITS.requestMaxBytes });

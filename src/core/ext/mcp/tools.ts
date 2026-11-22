@@ -25,18 +25,21 @@ import { getNeighbors, getNode } from "./node.ts";
 import type { McpDeps, RunOptions } from "./ports.ts";
 import { researchStatus } from "./research.ts";
 import { searchNodes } from "./search.ts";
+import { createGoal, createLink, setGoalWeights } from "./write.ts";
 
-export type ToolGroup = "knowledge" | "study";
+/** knowledge: read-only knowledge. study: read-only study state. write: the app's write endpoints (never the data). */
+export type ToolGroup = "knowledge" | "study" | "write";
 
 interface Handler {
 	group: ToolGroup;
 	/** The only argument names the tool accepts (a test pins them to the zod schemas of the catalog). */
 	fields: readonly string[];
+	/** A promise for the write group; the knowledge and study answers are synchronous. */
 	run(call: Call, input: Record<string, unknown>, opts: RunOptions): unknown;
 }
 
 const HANDLERS: Record<string, Handler> = {
-	search_nodes: { group: "knowledge", fields: ["query", "limit", "trust", "goalId"], run: searchNodes },
+	search_nodes: { group: "knowledge", fields: ["query", "limit", "trust", "goalId", "stage"], run: searchNodes },
 	get_node: { group: "knowledge", fields: ["id"], run: getNode },
 	get_neighbors: { group: "knowledge", fields: ["id", "depth"], run: (c, i) => getNeighbors(c, i) },
 	list_lectures: { group: "knowledge", fields: ["chapter"], run: (c, i) => listLectures(c, i) },
@@ -47,6 +50,9 @@ const HANDLERS: Record<string, Handler> = {
 	research_status: { group: "study", fields: [], run: (c) => researchStatus(c) },
 	get_recent_debriefs: { group: "study", fields: ["limit", "since", "kind"], run: (c, i) => getRecentDebriefs(c, i) },
 	list_documents: { group: "study", fields: [], run: (c) => listDocuments(c) },
+	create_goal: { group: "write", fields: ["title", "targets", "files", "weights", "priority"], run: (c, i) => createGoal(c, i) },
+	set_goal_weights: { group: "write", fields: ["goalId", "weights"], run: (c, i) => setGoalWeights(c, i) },
+	create_link: { group: "write", fields: ["from", "to", "linkType"], run: (c, i) => createLink(c, i) },
 };
 
 export const TOOL_NAMES: readonly string[] = Object.freeze(Object.keys(HANDLERS));
@@ -65,6 +71,9 @@ export function runTool(name: string, deps: McpDeps, input: unknown, opts: RunOp
 	const call = openCall(deps); // stamps first
 	if (opts.knowledgeOnly && handler.group === "study") {
 		throw new ToolError("disabled", "Study-state tools are disabled (--knowledge-only).");
+	}
+	if (opts.knowledgeOnly && handler.group === "write") {
+		throw new ToolError("disabled", "Write tools are disabled (--knowledge-only).");
 	}
 	const args = plainObject(input);
 	for (const key of Object.keys(args)) {

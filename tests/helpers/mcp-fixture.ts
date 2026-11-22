@@ -16,7 +16,7 @@ import type { ExplanationEvent } from "../../src/core/ext/explanations.ts";
 import type { FrontierEvent } from "../../src/core/ext/frontier.ts";
 import type { GoalEvent } from "../../src/core/ext/goals.ts";
 import type { InboxEvent } from "../../src/core/ext/inbox.ts";
-import type { McpDeps } from "../../src/core/ext/mcp/ports.ts";
+import type { AppApiPort, McpDeps } from "../../src/core/ext/mcp/ports.ts";
 import type { ExerciseEvent } from "../../src/core/ext/practice/exercises.ts";
 import type { CycleLogEntry } from "../../src/core/ext/research-log.ts";
 import type { ReviewEvent } from "../../src/core/ext/review.ts";
@@ -57,6 +57,16 @@ export interface Fixture {
 
 const roots: string[] = [];
 
+/** An app that is never running: the default for fixtures, so a write tool in a test fails loudly, never reaches a real app. */
+const UNREACHABLE_APP: AppApiPort = {
+	post: async () => {
+		throw new Error("no app in the fixture");
+	},
+	put: async () => {
+		throw new Error("no app in the fixture");
+	},
+};
+
 export function makeFixture(clock: () => string = () => NOW): Fixture {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "lh-mcp-"));
 	roots.push(root);
@@ -68,7 +78,7 @@ export function makeFixture(clock: () => string = () => NOW): Fixture {
 		root,
 		extDir,
 		graphDir,
-		deps: createMcpDeps(root, clock),
+		deps: createMcpDeps(root, clock, UNREACHABLE_APP),
 		ext(file, v) {
 			fs.mkdirSync(extDir, { recursive: true });
 			fs.appendFileSync(path.join(extDir, file), `${line(v)}\n`);

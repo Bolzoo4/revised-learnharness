@@ -6,8 +6,10 @@
  *   - any other error (including an SDK or filesystem error) becomes the fixed
  *     `internal` failure, and the real error is logged on STDERR only;
  *   - a result above responseMaxBytes is refused, never truncated silently.
- * All tools are annotated readOnlyHint, closed-world and non-destructive.
- * Under --knowledge-only the study tools are not even registered.
+ * The knowledge and study tools are annotated readOnlyHint, closed-world and
+ * non-destructive. The write tools (create_goal, set_goal_weights, create_link)
+ * are not read-only: they ask the running app to write, and are not registered
+ * under --knowledge-only, together with the study tools.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -36,9 +38,9 @@ function asResult(payload: object, isError: boolean): CallToolResult {
 	return { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload as Record<string, unknown>, isError };
 }
 
-export function safeCall(name: string, deps: McpDeps, input: unknown, opts: ServerOptions): CallToolResult {
+export async function safeCall(name: string, deps: McpDeps, input: unknown, opts: ServerOptions): Promise<CallToolResult> {
 	try {
-		const result = runTool(name, deps, input, { knowledgeOnly: opts.knowledgeOnly }) as object;
+		const result = (await runTool(name, deps, input, { knowledgeOnly: opts.knowledgeOnly })) as object;
 		const bytes = Buffer.byteLength(JSON.stringify(result), "utf-8");
 		if (bytes > (opts.responseMaxBytes ?? LIMITS.responseMaxBytes)) {
 			throw new ToolError("response_too_large", "The result is larger than this server's response limit. Narrow the request.");
@@ -57,7 +59,8 @@ export function createServer(deps: McpDeps, opts: ServerOptions): McpServer {
 		{ instructions: INSTRUCTIONS, maxToolInputElements: LIMITS.maxToolInputElements },
 	);
 	for (const name of TOOL_NAMES) {
-		if (opts.knowledgeOnly && toolGroup(name) === "study") continue;
+		const group = toolGroup(name);
+		if (opts.knowledgeOnly && group !== "knowledge") continue;
 		const spec = CATALOG[name];
 		if (spec === undefined) throw new Error(`tool ${name} has no catalog entry`);
 		server.registerTool(
@@ -66,7 +69,10 @@ export function createServer(deps: McpDeps, opts: ServerOptions): McpServer {
 				title: spec.title,
 				description: spec.description,
 				inputSchema: spec.input,
-				annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+				annotations:
+					group === "write"
+						? { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+						: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 			},
 			(args: unknown) => safeCall(name, deps, args, opts),
 		);

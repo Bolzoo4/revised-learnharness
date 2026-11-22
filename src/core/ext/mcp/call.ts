@@ -7,6 +7,7 @@
  */
 
 import type { GraphChain, GraphNode } from "../../contracts.ts";
+import { stagesOf, type NodeStage } from "../stage.ts";
 import type { GraphStore } from "../../ports.ts";
 import type { ReviewDeps } from "../review-service.ts";
 import { snapshot, type Snapshot } from "../review-service.ts";
@@ -76,3 +77,12 @@ export function guardReplay<T>(replay: () => T): T {
 export function snapshotOf(call: Call): Snapshot {
 	return guardReplay(() => snapshot(call.review, call.now));
 }
+
+/**
+ * The stage of every node at this call's instant, from the call's single reads.
+ * A review history that cannot be replayed is data_inconsistent.
+ */
+export function stagesOfCall(call: Call): Map<string, NodeStage> {
+	return guardReplay(() => stagesOf(call.review, call.now));
+}
+

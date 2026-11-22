@@ -10,12 +10,13 @@ import { deriveCards } from "../cards.ts";
 import { neighbourhood } from "../neighbourhood.ts";
 import { buildNodePanel } from "../node-panel.ts";
 import { snapshot } from "../review-service.ts";
-import { guardReplay, type Call } from "./call.ts";
+import { guardReplay, stagesOfCall, type Call } from "./call.ts";
 import { ToolError } from "./errors.ts";
 import { parseDepth, requireId } from "./input.ts";
 import { capText, LIMITS, page, round4, textPage } from "./limits.ts";
 import type { RunOptions } from "./ports.ts";
 import { evidencePage, trustLevels } from "./trust-view.ts";
+import type { NodeStage } from "../stage.ts";
 
 const notFoundNode = (id: string): ToolError => new ToolError("not_found", `No node with id "${capText(id, 60)}".`);
 
@@ -45,8 +46,19 @@ export function getNode(call: Call, input: Record<string, unknown>, opts: RunOpt
 	const conclusions = new Map<string, { id: string; name: string }>();
 	for (const u of panel.usedAsPremise) if (!conclusions.has(u.conclusion.id)) conclusions.set(u.conclusion.id, u.conclusion);
 
+	// The stage needs study state: null under --knowledge-only, and null when the review history cannot be replayed (the node stays readable).
+	let stage: NodeStage | null = null;
+	if (!opts.knowledgeOnly) {
+		try {
+			stage = stagesOfCall(call).get(id) ?? null;
+		} catch {
+			stage = null;
+		}
+	}
+
 	const base = {
 		id: panel.node.id,
+		stage,
 		name: capText(panel.node.name, LIMITS.nameChars),
 		statement: capText(panel.node.statement, LIMITS.statementChars),
 		aliases: textPage(panel.node.aliases, LIMITS.aliasesMax, LIMITS.nameChars),

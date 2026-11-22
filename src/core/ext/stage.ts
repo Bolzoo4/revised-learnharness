@@ -1,8 +1,9 @@
 // src/core/ext/stage.ts
 /**
  * The derived node stage (REQ-graph-agent-13/14). Never stored: computed on
- * demand from the graph, the active goals' scope and the review ledger. Pure:
- * no IO, no clock.
+ * demand from the graph, the active goals' scope and the review ledger. The
+ * rules (nodeStage, isTaught, stageCounts) are pure; stagesOf only reads the
+ * stores it is handed, so the MCP server can call it too.
  *
  * "TAUGHT" (one definition, used everywhere): a node is taught when
  *   (a) it has a provenance entry whose chatId starts with "chat_" (it was
@@ -21,6 +22,8 @@
  */
 
 import { DERIVABLE_RECALL } from "./deck.ts";
+import { activeScope } from "./goals.ts";
+import { snapshot, type ReviewDeps } from "./review-service.ts";
 
 export type NodeStage = "staged" | "unrevised" | "confirmed";
 
@@ -86,3 +89,21 @@ export function stageCounts(stages: Iterable<NodeStage>): Record<NodeStage, numb
 	for (const stage of stages) counts[stage] += 1;
 	return counts;
 }
+
+/**
+ * Stage of every node, given the ledgers behind `deps` at `now`. Read-only: it
+ * only reads the stores it is handed (the app and the MCP server share it).
+ */
+export function stagesOf(deps: ReviewDeps, now: string): Map<string, NodeStage> {
+	const snap = snapshot(deps, now);
+	const reviewed = new Set<string>();
+	for (const e of deps.reviewStore.readEvents()) if (e.type === "review") reviewed.add(e.nodeId);
+	const recall = new Map<string, number>();
+	for (const id of snap.states.keys()) recall.set(id, snap.recall(id));
+	return stagesFor(snap.nodes, {
+		activeScope: new Set(activeScope(snap.goals, snap.chains)),
+		recall,
+		reviewed,
+	});
+}
+

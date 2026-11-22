@@ -16,7 +16,7 @@ import { parseFrontierEvent } from "../../../core/ext/frontier.ts";
 import { parseGoalEvent } from "../../../core/ext/goals.ts";
 import { deriveLinks, parseLinkEvent } from "../../../core/ext/links.ts";
 import { parseInboxEvent } from "../../../core/ext/inbox.ts";
-import type { McpDeps, ReadLog } from "../../../core/ext/mcp/ports.ts";
+import type { AppApiPort, McpDeps, ReadLog } from "../../../core/ext/mcp/ports.ts";
 import { parseExerciseEvent } from "../../../core/ext/practice/exercises.ts";
 import { parseReadingEvent } from "../../../core/ext/study/reading.ts";
 import { parseCycleLogEntry } from "../../../core/ext/research-log.ts";
@@ -34,11 +34,16 @@ function asStore<T>(log: ReadLog<T>): { appendEvent(event: T): void; readEvents(
 	return { appendEvent: refuseWrite, readEvents: () => log.readAll() };
 }
 
-export function createMcpDeps(dataRoot: string, clock: () => string = () => new Date().toISOString()): McpDeps {
+/**
+ * `appApi` is the only write path of the server: the running app's endpoints, used by the write tools.
+ * The data stores below still refuse every write.
+ */
+export function createMcpDeps(dataRoot: string, clock: () => string = () => new Date().toISOString(), appApi: AppApiPort): McpDeps {
 	const extDir = path.join(dataRoot, "ext");
 	const graph = createGraphReader(path.join(dataRoot, "graph"));
 	const linksLog = readOnlyLedger(extDir, "links.jsonl", parseLinkEvent);
 	return {
+		appApi,
 		review: {
 			graphStore: graph,
 			goalsStore: asStore(readOnlyLedger(extDir, "goals.jsonl", parseGoalEvent)),

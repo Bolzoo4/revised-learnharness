@@ -7,22 +7,31 @@ import { DEFAULT_RETENTION } from "../fsrs.ts";
 import { deriveGoals, goalScopeWeighted, type Goal } from "../goals.ts";
 import { deriveExerciseSets, setComplete, type ExerciseSetState } from "../practice/exercises.ts";
 import type { Call } from "./call.ts";
-import { guardReplay, snapshotOf } from "./call.ts";
+import { guardReplay, snapshotOf, stagesOfCall } from "./call.ts";
 import { ToolError } from "./errors.ts";
 import { instantMs, optionalEnum, requireId } from "./input.ts";
 import { capText, fitToBudget, LIMITS, page, round4 } from "./limits.ts";
 import { trustLevels } from "./trust-view.ts";
+import { stageCounts, type NodeStage } from "../stage.ts";
 
 export const GOAL_STATUSES = ["active", "paused", "reached"] as const;
+
+/** Per-stage counts of the nodes a goal's weighted scope holds (weight above zero). */
+export function scopeStageCounts(weighted: ReadonlyMap<string, number>, stages: ReadonlyMap<string, NodeStage>) {
+	const inScope = [...weighted].filter(([, w]) => w > 0).map(([id]) => stages.get(id)).filter((s): s is NodeStage => s !== undefined);
+	return stageCounts(inScope);
+}
 
 export function listGoals(call: Call, input: Record<string, unknown>) {
 	const status = optionalEnum(input.status, GOAL_STATUSES, "status");
 	const snap = snapshotOf(call);
+	const stages = stagesOfCall(call);
 	const rows = snap.goals
 		.filter((g) => status === undefined || g.status === status)
 		.map((g) => {
 			// Same weighted scope and readiness as the app's goalReadinessReport.
-			const r = goalReadiness(goalScopeWeighted(g, snap.chains, snap.links), snap.recall);
+			const weighted = goalScopeWeighted(g, snap.chains, snap.links);
+			const r = goalReadiness(weighted, snap.recall);
 			return {
 				id: g.id,
 				title: capText(g.title, LIMITS.titleChars),
@@ -35,6 +44,7 @@ export function listGoals(call: Call, input: Record<string, unknown>) {
 				solidNodes: r.solid,
 				solidShare: round4(r.fraction),
 				ready: r.ready,
+				stages: scopeStageCounts(weighted, stages),
 			};
 		});
 	// No caller limit: the list is bounded by the goal maximum and the list byte budget, and says so when it cuts.
@@ -88,6 +98,7 @@ export function getGoal(call: Call, input: Record<string, unknown>) {
 		else scheduled += 1;
 	}
 	const targets = page(goal.targetNodeIds, LIMITS.targetsMax);
+	const stages = stagesOfCall(call);
 	return {
 		id: goal.id,
 		title: capText(goal.title, LIMITS.titleChars),
@@ -102,6 +113,7 @@ export function getGoal(call: Call, input: Record<string, unknown>) {
 			items: targets.items.map((t) => ({ id: t, name: capText(names.get(t) ?? t, LIMITS.nameChars), trust: levels.get(t)?.level ?? "unverified" })),
 		},
 		scope: { size: r.total, solid: r.solid, solidShare: r.total === 0 ? 0 : round4(r.solid / r.total), ready: r.ready, byTrust },
+		stages: scopeStageCounts(weighted, stages),
 		due: { dueNow, unseen, scheduled },
 		exerciseSet: exerciseSetOf(call, goal.id),
 	};

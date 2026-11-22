@@ -7,7 +7,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, it } from "node:test";
 import { installStdioGuard } from "../src/server/ext/mcp/stdio-guard.ts";
-import { TOOL_NAMES } from "../src/core/ext/mcp/tools.ts";
+import { TOOL_NAMES, toolGroup } from "../src/core/ext/mcp/tools.ts";
 import { cleanupAllFixtures, makeFixture, N, seedStandard, GOAL_ID } from "./helpers/mcp-fixture.ts";
 import { makeLecture } from "./helpers/lecture-fixture.ts";
 import { treeDigest } from "./helpers/mcp-dir-hash.ts";
@@ -31,6 +31,10 @@ const VALID_INPUTS: Record<string, unknown> = {
 	research_status: {},
 	get_recent_debriefs: {},
 	list_documents: {},
+	// Valid inputs, so the stamp refusal (not the schema) is what answers these.
+	create_goal: { title: "Stamp check" },
+	set_goal_weights: { goalId: GOAL_ID, weights: { chain: 1 } },
+	create_link: { from: N.a, to: N.b, linkType: "analogy" },
 };
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -149,7 +153,8 @@ describe("the server process", () => {
 		const list = await s.request("tools/list");
 		assert.equal(list.result.tools.length, TOOL_NAMES.length);
 		const all: string[] = [JSON.stringify(list)];
-		for (const name of TOOL_NAMES) {
+		// The write tools need the app (not running here): their protocol path is in ext-mcp-write.test.ts.
+		for (const name of TOOL_NAMES.filter((n) => toolGroup(n) !== "write")) {
 			const r = await s.request("tools/call", { name, arguments: VALID_INPUTS[name] ?? {} });
 			all.push(JSON.stringify(r));
 			assert.ok(r.result, `${name}: ${JSON.stringify(r)}`);

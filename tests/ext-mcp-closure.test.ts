@@ -26,6 +26,9 @@ const FORBIDDEN_FILES = [
 ];
 const FORBIDDEN_NODE = /^node:(child_process|net|http|https|http2|dgram|tls|worker_threads|cluster|vm|dns|inspector)$/;
 
+/** The only file of the closure that may use fetch: the loopback client of the write tools, which the entry passes its environment to. */
+const NETWORK_FILES = ["src/server/ext/mcp/app-api.ts"];
+
 /** The only fs members the closure may reach. */
 const FS_ALLOWED = new Set(["statSync", "readFileSync", "readdirSync", "lstatSync"]);
 
@@ -117,10 +120,13 @@ describe("the server's import closure (REQ-mcp-01, -02, -11)", () => {
 		}
 	});
 
-	it("no file of the closure reads process.env except the entry arguments, or touches fetch/WebSocket/listen", () => {
+	it("the only network file of the closure is the app client of the write tools; no file reads process.env except the entry arguments", () => {
+		// The write tools call the running app on loopback (REQ-graph-agent-16). The client is the one exemption.
+		assert.deepEqual(NETWORK_FILES.filter((f) => !closure.files.includes(f)), [], "the exempt client must be in the closure, or the exemption is stale");
 		for (const f of closure.files) {
 			const src = stripComments(fs.readFileSync(path.join(ROOT, f), "utf-8"));
-			assert.ok(!/\b(fetch|WebSocket|XMLHttpRequest)\s*\(|\.listen\s*\(/.test(src), `${f} uses the network`);
+			if (!NETWORK_FILES.includes(f)) assert.ok(!/\b(fetch|WebSocket|XMLHttpRequest)\s*\(|\.listen\s*\(/.test(src), `${f} uses the network`);
+			else assert.ok(!/\.listen\s*\(|WebSocket|XMLHttpRequest/.test(src), `${f} opens a server or a socket`);
 			if (f !== "scripts/ext-mcp.ts" && f !== "src/server/ext/mcp/args.ts") assert.ok(!/process\.env/.test(src), `${f} reads process.env`);
 		}
 	});

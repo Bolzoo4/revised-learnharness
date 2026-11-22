@@ -10,75 +10,75 @@ describe("search_nodes (REQ-mcp-04)", () => {
 	it("finds by name, statement and alias, best match first, with trust", () => {
 		const f = makeFixture();
 		seedStandard(f);
-		const r = call(f, "search_nodes", { query: "subset" });
+		const r = call(f, "search_nodes", { stage: "all", query: "subset" });
 		assert.equal(r.query, "subset");
 		assert.deepEqual(r.items.map((i: { id: string }) => i.id).sort(), [N.a, N.b, N.c].sort()); // C by its alias "Subset order"
 		assert.equal(r.count, r.items.length);
 		assert.equal(r.truncated, false);
 		const a = r.items.find((i: { id: string }) => i.id === N.a);
-		assert.deepEqual(Object.keys(a).sort(), ["id", "name", "statement", "trust"]);
+		assert.deepEqual(Object.keys(a).sort(), ["id", "name", "stage", "statement", "trust"]);
 		assert.equal(a.trust, "sourced");
-		assert.equal(call(f, "search_nodes", { query: "Axiom" }).items[0].id, N.a);
+		assert.equal(call(f, "search_nodes", { stage: "all", query: "Axiom" }).items[0].id, N.a);
 	});
 
 	it("is deterministic: equal scores order by id", () => {
 		const f = makeFixture();
 		seedGraph(f, [node("n_2", "same"), node("n_1", "same")], []);
-		assert.deepEqual(call(f, "search_nodes", { query: "same" }).items.map((i: { id: string }) => i.id), ["n_1", "n_2"]);
+		assert.deepEqual(call(f, "search_nodes", { stage: "all", query: "same" }).items.map((i: { id: string }) => i.id), ["n_1", "n_2"]);
 	});
 
 	it("bounds the list: default 20, maximum 50, truncated flag, invalid limits mean the default", () => {
 		const f = makeFixture();
 		seedGraph(f, Array.from({ length: 120 }, (_, i) => node(`n_${String(i).padStart(3, "0")}`, `thing ${i}`)), []);
-		const d = call(f, "search_nodes", { query: "thing" });
+		const d = call(f, "search_nodes", { stage: "all", query: "thing" });
 		assert.equal(d.count, 20);
 		assert.equal(d.truncated, true);
-		assert.equal(call(f, "search_nodes", { query: "thing", limit: 1_000 }).count, 50);
-		assert.equal(call(f, "search_nodes", { query: "thing", limit: 3 }).count, 3);
-		assert.equal(call(f, "search_nodes", { query: "thing", limit: Number.NaN }).count, 20);
-		assert.equal(call(f, "search_nodes", { query: "thing", limit: 0 }).count, 20);
-		assert.equal(call(f, "search_nodes", { query: "thing 11" }).count, 11 /* thing 11, 110-119 */);
+		assert.equal(call(f, "search_nodes", { stage: "all", query: "thing", limit: 1_000 }).count, 50);
+		assert.equal(call(f, "search_nodes", { stage: "all", query: "thing", limit: 3 }).count, 3);
+		assert.equal(call(f, "search_nodes", { stage: "all", query: "thing", limit: Number.NaN }).count, 20);
+		assert.equal(call(f, "search_nodes", { stage: "all", query: "thing", limit: 0 }).count, 20);
+		assert.equal(call(f, "search_nodes", { stage: "all", query: "thing 11" }).count, 11 /* thing 11, 110-119 */);
 	});
 
 	it("filters by trust and by goal scope; a no-hit search is an empty page, not an error", () => {
 		const f = makeFixture();
 		seedStandard(f);
-		assert.deepEqual(call(f, "search_nodes", { query: "set", trust: "sourced" }).items.map((i: { id: string }) => i.id), [N.a]);
-		const inGoal = call(f, "search_nodes", { query: "node", goalId: GOAL_ID });
+		assert.deepEqual(call(f, "search_nodes", { stage: "all", query: "set", trust: "sourced" }).items.map((i: { id: string }) => i.id), [N.a]);
+		const inGoal = call(f, "search_nodes", { stage: "all", query: "node", goalId: GOAL_ID });
 		assert.equal(inGoal.count, 0); // the loner is outside the goal's scope
-		assert.ok(call(f, "search_nodes", { query: "set", goalId: GOAL_ID }).items.length >= 3);
-		assert.deepEqual(call(f, "search_nodes", { query: "zzzz-nothing" }), { query: "zzzz-nothing", items: [], count: 0, truncated: false });
+		assert.ok(call(f, "search_nodes", { stage: "all", query: "set", goalId: GOAL_ID }).items.length >= 3);
+		assert.deepEqual(call(f, "search_nodes", { stage: "all", query: "zzzz-nothing" }), { query: "zzzz-nothing", items: [], count: 0, truncated: false });
 	});
 
 	it("rejects bad input: empty or oversized queries, unknown trust, unknown goal", () => {
 		const f = makeFixture();
 		seedStandard(f);
-		for (const query of [undefined, "", "   ", 5, "x".repeat(201), "a b c d e f g h i"]) expectError(f, "search_nodes", { query }, "invalid_input");
-		expectError(f, "search_nodes", { query: "set", trust: "maybe" }, "invalid_input");
-		expectError(f, "search_nodes", { query: "set", goalId: "goal_unknown" }, "not_found");
-		expectError(f, "search_nodes", { query: "set", goalId: "" }, "invalid_input");
+		for (const query of [undefined, "", "   ", 5, "x".repeat(201), "a b c d e f g h i"]) expectError(f, "search_nodes", { stage: "all", query }, "invalid_input");
+		expectError(f, "search_nodes", { stage: "all", query: "set", trust: "maybe" }, "invalid_input");
+		expectError(f, "search_nodes", { stage: "all", query: "set", goalId: "goal_unknown" }, "not_found");
+		expectError(f, "search_nodes", { stage: "all", query: "set", goalId: "" }, "invalid_input");
 	});
 
 	it("goalId is refused under --knowledge-only", () => {
 		const f = makeFixture();
 		seedStandard(f);
-		expectError(f, "search_nodes", { query: "set", goalId: GOAL_ID }, "disabled", true);
-		assert.ok(call(f, "search_nodes", { query: "set" }, true).count > 0);
+		expectError(f, "search_nodes", { stage: "all", query: "set", goalId: GOAL_ID }, "disabled", true);
+		assert.ok(call(f, "search_nodes", { stage: "all", query: "set" }, true).count > 0);
 	});
 
 	it("a hostile query costs no more than a plain one (no regex, bounded tokens)", () => {
 		const f = makeFixture();
 		seedGraph(f, Array.from({ length: 3000 }, (_, i) => node(`n_${i}`, `name ${i}`, "x".repeat(300))), []);
 		const started = Date.now();
-		call(f, "search_nodes", { query: "(a+)+$ ".repeat(8).trim() });
-		call(f, "search_nodes", { query: "a".repeat(200) });
+		call(f, "search_nodes", { stage: "all", query: "(a+)+$ ".repeat(8).trim() });
+		call(f, "search_nodes", { stage: "all", query: "a".repeat(200) });
 		assert.ok(Date.now() - started < 3000, "search took too long");
 	});
 
 	it("duplicate node lines (link-appends) are one node whose phrasing becomes an alias", () => {
 		const f = makeFixture();
 		seedGraph(f, [node("n_1", "Base", "first phrasing"), node("n_1", "Other name", "second phrasing")], []);
-		const r = call(f, "search_nodes", { query: "second" });
+		const r = call(f, "search_nodes", { stage: "all", query: "second" });
 		assert.deepEqual(r.items.map((i: { id: string }) => i.id), ["n_1"]);
 		assert.equal(r.items[0].name, "Base");
 	});

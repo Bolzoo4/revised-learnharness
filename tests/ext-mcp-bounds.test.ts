@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { LIMITS } from "../src/core/ext/mcp/limits.ts";
-import { runTool, TOOL_NAMES } from "../src/core/ext/mcp/tools.ts";
+import { runTool, TOOL_NAMES, toolGroup } from "../src/core/ext/mcp/tools.ts";
 import { safeCall } from "../src/server/ext/mcp/server.ts";
 import type { Block, Slide } from "../src/core/ext/lecture/lecture.ts";
 import fs from "node:fs";
@@ -118,7 +118,9 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 			walk(out, tool, strings);
 			assert.ok(strings.max <= MAX_STRING, `${tool}: a string of ${strings.max} characters`);
 		}
-		assert.equal(new Set(cases.map(([t]) => t)).size, TOOL_NAMES.length, "every tool is covered by this test");
+		// The write tools are async and answer through the app port: they are covered by ext-mcp-write.test.ts.
+		const readTools = TOOL_NAMES.filter((t) => toolGroup(t) !== "write");
+		assert.equal(new Set(cases.map(([t]) => t)).size, readTools.length, "every read tool is covered by this test");
 	});
 
 	it("truncation is explicit: the kept prefix is exactly the bound, and the marker counts the rest", () => {
@@ -166,7 +168,7 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 		assert.equal(n.nodes.truncated, true);
 	});
 
-	it("a maximum-size lecture is truncated, flagged and answered: never response_too_large", () => {
+	it("a maximum-size lecture is truncated, flagged and answered: never response_too_large", async () => {
 		const f = makeFixture();
 		const id = "lec_b0000beef_c02_l01";
 		fs.mkdirSync(path.join(f.extDir, "lectures", id), { recursive: true });
@@ -182,7 +184,7 @@ describe("bounded outputs at scale (REQ-mcp-08)", () => {
 		assert.ok(whole.exercises.count >= 1 && whole.exercises.count < LIMITS.exercisesMax + 10);
 		assert.ok(whole.citedNodes.count < LIMITS.citedNodesMax);
 		assert.match(whole.exercises.items[0].prompt, /… \[truncated: \d+ more characters\]$/, "a long prompt is capped with the marker");
-		const served = safeCall("get_lecture", f.deps, { id }, { knowledgeOnly: false });
+		const served = await safeCall("get_lecture", f.deps, { id }, { knowledgeOnly: false });
 		assert.equal(served.isError, false, "the server answers it");
 	});
 });
