@@ -14,6 +14,7 @@ import type { PiEngine } from "../src/agent/models.ts";
 import { newPlanBlockMessage, type LhMessage } from "../src/core/native-messages.ts";
 import { coverageOf } from "../src/core/coverage.ts";
 import { handleChatRequest } from "../src/server/chat-handler.ts";
+import { clearNotExtracted as trackClear } from "../src/server/teaching-gate.ts";
 import {
 	forceExtractionFor,
 	markNotExtracted,
@@ -25,6 +26,11 @@ import { isTurnRunning } from "../src/server/turn-liveness.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { graphStore } from "../src/store/graph.ts";
 import { PATHS } from "../config.ts";
+import * as os from "node:os";
+import { startExtractionIfDue } from "../src/server/turn-service.ts";
+import type { ExtractionPipeline } from "../src/agent/subagents/extraction.ts";
+import { graphStore as liveGraphStore } from "../src/store/graph.ts";
+import { makeTeachingGateLedger, planInProgress, setTeachingGateLedger } from "../src/server/teaching-gate.ts";
 
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
@@ -82,8 +88,12 @@ async function runTurn(chatId: string, text: string, engine: PiEngine, onCall: (
 }
 
 const createdChats: string[] = [];
+const tmpLedgerDir = fs.mkdtempSync(path.join(os.tmpdir(), "teaching-gate-"));
+setTeachingGateLedger(makeTeachingGateLedger(tmpLedgerDir));
 after(() => {
 	setTeachingGateTiming(null);
+	setTeachingGateLedger(null);
+	fs.rmSync(tmpLedgerDir, { recursive: true, force: true });
 	for (const id of createdChats) {
 		try {
 			fs.unlinkSync(path.join(PATHS.chats, `${id}.json`));
@@ -219,5 +229,82 @@ describe("extractor input builder keeps teacher prose only (REQ-graph-agent-21)"
 		assert.match(input!.view, /TEACHER \[a-mixed\] Only this is prose\./);
 		assert.doesNotMatch(input!.view, /Secret plan step/);
 		assert.doesNotMatch(input!.view, /Tool input must not leak/);
+	});
+});
+
+/** A fake extraction pipeline: records the chats it was asked to extract. */
+function fakeExtraction(run: Promise<unknown>): { pipeline: ExtractionPipeline; calls: string[] } {
+	const calls: string[] = [];
+	const pipeline = { runExtraction: (chatId: string) => (calls.push(chatId), run) } as unknown as ExtractionPipeline;
+	return { pipeline, calls };
+}
+
+describe("extraction after every plan turn (REQ-graph-agent-19)", () => {
+	it("a plan in progress starts extraction after a short turn below the budget, and the next turn waits for it", async () => {
+		setTeachingGateTiming(null); // the real 60 s cap: an earlier test shortened it
+		const chat = createConfiguredChat("Test: plan forces extraction");
+		createdChats.push(chat.id);
+		await runTurn(chat.id, "teach me the planets", scriptedTeacher([textTurn("Short.")]));
+
+		let resolveRun!: (v: unknown) => void;
+		const fake = fakeExtraction(new Promise((r) => (resolveRun = r)));
+		const started = startExtractionIfDue({ chatStore, graphStore: liveGraphStore }, fake.pipeline, chat.id, 1_000_000);
+		assert.ok(started, "a plan in progress starts a run even far below the chunk budget");
+		assert.deepEqual(fake.calls, [chat.id]);
+
+		let modelCalls = 0;
+		const ackP = handleChatRequest(post(chat.id, "next step"), countingFactory(scriptedTeacher([textTurn("Next.")]), () => modelCalls++));
+		await new Promise((r) => setTimeout(r, 60));
+		assert.equal(modelCalls, 0, "the next user turn waits for the previous turn's extraction");
+		resolveRun({ nodes: 0, chains: 0 });
+		assert.equal((await ackP).status, 200);
+		await waitFor(() => !isTurnRunning(chat.id), 8000, "turn settle");
+		assert.equal(modelCalls, 1);
+	});
+
+	it("without a plan a short turn below the budget starts no run (regression)", async () => {
+		const chat = chatStore.createChat("Test: no plan, no forced run");
+		createdChats.push(chat.id);
+		chatStore.saveSettings(chat.id, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
+		await runTurn(chat.id, "just chatting", scriptedTeacher([textTurn("Short.")]));
+
+		const fake = fakeExtraction(Promise.resolve({ nodes: 0, chains: 0 }));
+		const started = startExtractionIfDue({ chatStore, graphStore: liveGraphStore }, fake.pipeline, chat.id, 1_000_000);
+		assert.equal(started, null);
+		assert.deepEqual(fake.calls, []);
+	});
+
+	it("a finished plan (every node visited) no longer forces a run", () => {
+		const chat = createConfiguredChat("Test: finished plan");
+		createdChats.push(chat.id);
+		const messages = [
+			{ id: "a-quiz", role: "assistant", content: [{ type: "toolCall", id: "c1", name: "quiz", arguments: { nodeId: "planet-order" } }] },
+		] as unknown as LhMessage[];
+		chatStore.saveMessages(chat.id, messages);
+		const record = chatStore.getChat(chat.id)!;
+		assert.equal(planInProgress(record), false, "the only node was quizzed: the plan is finished");
+	});
+
+	it("a plan with unvisited nodes is in progress", () => {
+		const chat = createConfiguredChat("Test: unfinished plan");
+		createdChats.push(chat.id);
+		assert.equal(planInProgress(chatStore.getChat(chat.id)!), true, "a plan with no quiz yet is not finished");
+	});
+
+	it("the not-extracted marker survives a restart (durable ledger)", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "teaching-gate-restart-"));
+		try {
+			setTeachingGateLedger(makeTeachingGateLedger(dir));
+			markNotExtracted("chat-durable", ["a-1", "a-2"]);
+			setTeachingGateLedger(makeTeachingGateLedger(dir)); // a fresh process reads the ledger
+			assert.deepEqual([...notExtractedIds("chat-durable")].sort(), ["a-1", "a-2"]);
+			setTeachingGateLedger(makeTeachingGateLedger(dir));
+			trackClear("chat-durable");
+			setTeachingGateLedger(makeTeachingGateLedger(dir));
+			assert.equal(notExtractedIds("chat-durable").size, 0, "a successful run clears the marker durably");
+		} finally {
+			setTeachingGateLedger(makeTeachingGateLedger(tmpLedgerDir));
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

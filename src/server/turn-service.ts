@@ -25,7 +25,7 @@ import { coverageOf } from "../core/coverage.ts";
 import type { ChatStore, GraphStore } from "../core/ports.ts";
 import type { ExtractionPipeline } from "../agent/subagents/extraction.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
-import { clearNotExtracted, forceExtractionFor, pendingExtraction, trackExtraction } from "./teaching-gate.ts";
+import { clearNotExtracted, forceExtractionFor, pendingExtraction, planInProgress, trackExtraction } from "./teaching-gate.ts";
 
 /** Distinguish a failed canonical save from later bookkeeping failures. */
 export class TurnPersistenceError extends Error {
@@ -115,32 +115,50 @@ export function triggerExtraction(
 ): void {
 	if (process.env.NODE_ENV === "test") return;
 	try {
-		const record = deps.chatStore.getChat(chatId);
-		if (!record) return;
-		// One run per chat: an in-flight run already owns the teaching wait.
-		if (pendingExtraction(chatId)) return;
-		const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
-		// A turn marked not-extracted (the teaching gate gave up on it) forces
-		// the catch-up run below the chunk budget (REQ-graph-agent-20).
-		if (covered.uncoveredTokens < chunkTokens && !forceExtractionFor(chatId)) return;
-		const run = extraction.runExtraction(chatId);
-		trackExtraction(chatId, run);
-		void run.then(() => clearNotExtracted(chatId)).catch((err) => {
-			// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
-			// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the
-			// coverage ledger keeps the messages uncovered — the next trigger
-			// retries once slots/keys are set); only real failures log.
-			if (err instanceof ModelsNotConfiguredError) {
-				console.info(`[chat ${chatId}] extraction skipped — ${err.envelope.error} (missing: ${err.envelope.missing.join(", ")})`);
-				return;
-			}
-			if (err instanceof ProviderKeyMissingError) {
-				console.info(`[chat ${chatId}] extraction skipped — ${err.envelope.error} (provider: ${err.envelope.provider})`);
-				return;
-			}
-			console.error(`[chat ${chatId}] extraction pipeline failed:`, err);
-		});
+		startExtractionIfDue(deps, extraction, chatId, chunkTokens);
 	} catch (err) {
 		console.error(`[chat ${chatId}] extraction trigger failed:`, err);
 	}
+}
+
+/**
+ * The trigger's decision and start, without the test guard (the seam the
+ * gate tests drive). A run starts when no run is in flight AND one of:
+ *  - a teaching plan is in progress (REQ-graph-agent-19: extraction after
+ *    EVERY plan turn, whatever the budget),
+ *  - the uncovered prose crosses the chunk budget,
+ *  - the chat has not-extracted turns (the catch-up run).
+ * Returns the started run, or null.
+ */
+export function startExtractionIfDue(
+	deps: { chatStore: ChatStore; graphStore: GraphStore },
+	extraction: ExtractionPipeline,
+	chatId: string,
+	chunkTokens: number,
+): Promise<unknown> | null {
+	// One run per chat: an in-flight run already owns the teaching wait.
+	if (pendingExtraction(chatId)) return null;
+	const record = deps.chatStore.getChat(chatId);
+	if (!record) return null;
+	const covered = coverageOf(record.messages, deps.graphStore.readCoverage(), chatId);
+	const due = planInProgress(record) || covered.uncoveredTokens >= chunkTokens || forceExtractionFor(chatId);
+	if (!due) return null;
+	const run = extraction.runExtraction(chatId);
+	trackExtraction(chatId, run);
+	void run.then(() => clearNotExtracted(chatId)).catch((err) => {
+		// BYOK (owner, 2026-09-22) + key presence (provider-key interlude,
+		// 2026-09-25): an unconfigured OR keyless write channel SKIPS (the
+		// coverage ledger keeps the messages uncovered — the next trigger
+		// retries once slots/keys are set); only real failures log.
+		if (err instanceof ModelsNotConfiguredError) {
+			console.info(`[chat ${chatId}] extraction skipped — ${err.envelope.error} (missing: ${err.envelope.missing.join(", ")})`);
+			return;
+		}
+		if (err instanceof ProviderKeyMissingError) {
+			console.info(`[chat ${chatId}] extraction skipped — ${err.envelope.error} (provider: ${err.envelope.provider})`);
+			return;
+		}
+		console.error(`[chat ${chatId}] extraction pipeline failed:`, err);
+	});
+	return run;
 }
