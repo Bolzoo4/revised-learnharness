@@ -80,3 +80,26 @@ it("the section route persists language independently and rejects unsupported va
 	assert.equal(general.status, 200);
 	assert.deepEqual(readSettings(), { ...saved, general: { autoUpdate: true } }, "auto-update cannot erase dictation language");
 });
+
+describe("voice listen URL (REQ-chat-tts-15)", () => {
+	it("is the dictation URL plus the interim, utterance-end and voice-activity parameters", async () => {
+		const { deepgramVoiceListenUrl, deepgramListenUrl } = await import("../src/core/dictation.ts");
+		for (const language of DICTATION_LANGUAGES.map((l) => l.code).slice(0, 3)) {
+			const voice = new URL(deepgramVoiceListenUrl(language));
+			const dictation = new URL(deepgramListenUrl(language));
+			assert.equal(voice.origin + voice.pathname, dictation.origin + dictation.pathname);
+			assert.equal(voice.searchParams.get("interim_results"), "true");
+			assert.equal(voice.searchParams.get("utterance_end_ms"), "1000");
+			assert.equal(voice.searchParams.get("vad_events"), "true");
+			for (const [key, value] of dictation.searchParams) assert.equal(voice.searchParams.get(key), value, key);
+		}
+	});
+
+	it("leaves the dictation URL exactly as it was", async () => {
+		const { deepgramListenUrl } = await import("../src/core/dictation.ts");
+		assert.equal(
+			deepgramListenUrl("en" as never),
+			"wss://api.deepgram.com/v1/listen?model=nova-3&encoding=linear16&sample_rate=16000&channels=1&smart_format=true&punctuate=true&endpointing=300&language=en",
+		);
+	});
+});

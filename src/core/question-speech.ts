@@ -63,11 +63,12 @@ function withCoercedOptions(input: unknown): unknown {
 	return { ...record, options: parseOptionsIfString(record.options as string | unknown[] | undefined) };
 }
 
-function build(question: string, items: SpeechItem[] | undefined, multiSelect: boolean): SpokenForm {
+function build(question: string, items: SpeechItem[] | undefined, multiSelect: boolean, languageHint: Language | undefined): SpokenForm {
 	const q = question.trim();
 	const labels = (items ?? []).map((item) => item.label.trim());
 	const detected = guessLanguage([q, ...labels].join(" "));
-	const language: Language = detected === "it" ? "it" : "en";
+	// A short question names no language by its words: the hint (the session's language) decides, else English.
+	const language: Language = detected === "unknown" ? (languageHint ?? "en") : detected;
 
 	if (items === undefined || items.length === 0) {
 		return { text: `${q} ${CLOSING.open[language]}`, language, options: [] };
@@ -92,7 +93,12 @@ function build(question: string, items: SpeechItem[] | undefined, multiSelect: b
  * The spoken form of a pending question part, or null when the part is not a pending
  * `ask_user_question` or `quiz` (or `probe`, the quiz's probe-phase name) with a valid input.
  */
-export function spokenForm(part: unknown): SpokenForm | null {
+export interface SpokenFormOptions {
+	/** The language to speak when the question's own words name none (a short question). Ignored when they do. */
+	languageHint?: Language;
+}
+
+export function spokenForm(part: unknown, opts: SpokenFormOptions = {}): SpokenForm | null {
 	if (typeof part !== "object" || part === null) return null;
 	const { type, state, input } = part as { type?: unknown; state?: unknown; input?: unknown };
 	if (state !== "input-available" || typeof type !== "string" || !type.startsWith("tool-")) return null;
@@ -102,7 +108,7 @@ export function spokenForm(part: unknown): SpokenForm | null {
 		const parsed = parseAskInput(withCoercedOptions(input));
 		if (!parsed) return null;
 		const items = parsed.options?.map((o) => ({ label: o.label, value: o.value, description: o.description }));
-		return build(parsed.question, items, parsed.multiSelect === true);
+		return build(parsed.question, items, parsed.multiSelect === true, opts.languageHint);
 	}
 
 	if (tool === "quiz" || tool === "probe") {
@@ -110,7 +116,7 @@ export function spokenForm(part: unknown): SpokenForm | null {
 		if (!parsed) return null;
 		// Bare claims only: label and value, never a description, correctAnswer or explanation.
 		const items = parsed.options.map((o) => ({ label: o.label, value: o.value }));
-		return build(parsed.question, items, parsed.multiSelect === true);
+		return build(parsed.question, items, parsed.multiSelect === true, opts.languageHint);
 	}
 
 	return null;

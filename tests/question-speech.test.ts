@@ -190,3 +190,29 @@ describe("spokenForm: language", () => {
 		assert.equal(out.language, "en");
 	});
 });
+
+describe("spokenForm: language hint", () => {
+	const shortItalian = { question: "Scegli la risposta?", options: [{ label: "Mars" }, { label: "Jupiter" }] };
+
+	it("uses the hint when the question's own language is unknown", () => {
+		const out = spokenForm(askPart(shortItalian), { languageHint: "it" });
+		assert.ok(out);
+		assert.equal(out.language, "it");
+		assert.match(out.text, /A: Mars/);
+	});
+
+	it("without a hint an unknown language is still English", () => {
+		const out = spokenForm(askPart(shortItalian));
+		assert.ok(out);
+		assert.equal(out.language, "en");
+	});
+
+	it("a clear language of the question wins over the hint", () => {
+		const out = spokenForm(
+			askPart({ question: "What is the capital of France and what is the river that flows through it?" }),
+			{ languageHint: "it" },
+		);
+		assert.ok(out);
+		assert.equal(out.language, "en");
+	});
+});

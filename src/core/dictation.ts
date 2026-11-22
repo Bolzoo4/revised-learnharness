@@ -82,6 +82,11 @@ export function isDictationLanguage(value: unknown): value is DictationLanguage 
 }
 
 /** Only language varies. Keep the owner's tuned streaming parameters. */
+/** The voice-mode stream (REQ-chat-tts-15): the dictation URL plus interim results, utterance ends and voice-activity events. */
+export function deepgramVoiceListenUrl(language: DictationLanguage): string {
+	return `${deepgramListenUrl(language)}&interim_results=true&utterance_end_ms=1000&vad_events=true`;
+}
+
 export function deepgramListenUrl(language: DictationLanguage): string {
 	return "wss://api.deepgram.com/v1/listen" +
 		"?model=nova-3&encoding=linear16&sample_rate=16000&channels=1" +
