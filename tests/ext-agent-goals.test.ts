@@ -15,8 +15,20 @@ import {
 import { createMemoryGraphStore } from "./helpers/memory-graph-store.ts";
 
 const PDF_BYTES = new TextEncoder().encode("%PDF-1.4 sample");
-const pdfBase64 = (bytes: Uint8Array = PDF_BYTES) => Buffer.from(bytes).toString("base64");
 const NOW = "2026-11-22T10:00:00.000Z";
+
+/** Stands in for the sandbox folder: the names it holds, and a refusal for any other name (the real checks are in ext-sandbox.test.ts). */
+function fakeSandbox() {
+	const files = new Map<string, Uint8Array>();
+	return {
+		put(name: string, bytes: Uint8Array = PDF_BYTES) {
+			files.set(name, bytes);
+		},
+		root: () => "/sandbox-under-test",
+		list: async () => ({ items: [], count: 0, truncated: false }),
+		read: async (name: string) => (files.has(name) ? { ok: true as const, bytes: files.get(name)! } : { ok: false as const, reason: "is not a file in the sandbox folder" }),
+	};
+}
 
 function memoryGoalsStore(): GoalsStore & { events: GoalEvent[] } {
 	const events: GoalEvent[] = [];
@@ -74,6 +86,7 @@ function setup(overrides: Partial<AgentGoalsDeps> = {}) {
 	const linksStore = memoryLinks();
 	const gate = recordingGate();
 	const documents = fakeDocuments(graphStore);
+	const sandbox = fakeSandbox();
 	let g = 0;
 	const deps: AgentGoalsDeps = {
 		graphStore,
@@ -81,11 +94,12 @@ function setup(overrides: Partial<AgentGoalsDeps> = {}) {
 		linksStore,
 		gate,
 		documents,
+		sandbox,
 		now: () => NOW,
 		newGoalId: () => `goal_agent${++g}`,
 		...overrides,
 	};
-	return { deps, graphStore, goalsStore, linksStore, gate, documents };
+	return { deps, graphStore, goalsStore, linksStore, gate, documents, sandbox };
 }
 
 const validInput = (over: Partial<AgentGoalInput> = {}): AgentGoalInput => ({
@@ -115,7 +129,8 @@ describe("createAgentGoal", () => {
 	it("with the daily ceiling spent it returns 429 and writes nothing", async () => {
 		const s = setup();
 		s.gate.setOpen(false);
-		const result = await createAgentGoal(validInput({ files: [{ name: "a.pdf", dataBase64: pdfBase64() }] }), s.deps);
+		s.sandbox.put("a.pdf");
+		const result = await createAgentGoal(validInput({ files: [{ name: "a.pdf" }] }), s.deps);
 		assert.equal(result.ok, false);
 		if (result.ok) return;
 		assert.equal(result.status, 429);
@@ -165,7 +180,7 @@ describe("createAgentGoal", () => {
 		assert.equal(!many.ok && many.status, 400);
 		const long = await createAgentGoal(validInput({ targets: ["y".repeat(501)] }), s.deps);
 		assert.equal(!long.ok && long.status, 400);
-		const files = Array.from({ length: 6 }, (_, i) => ({ name: `f${i}.pdf`, dataBase64: pdfBase64() }));
+		const files = Array.from({ length: 6 }, (_, i) => ({ name: `f${i}.pdf` }));
 		const tooMany = await createAgentGoal(validInput({ files }), s.deps);
 		assert.equal(!tooMany.ok && tooMany.status, 400);
 		assert.match(!tooMany.ok ? tooMany.message : "", /files/);
@@ -174,23 +189,19 @@ describe("createAgentGoal", () => {
 		assert.equal(s.documents.imported.length, 0);
 	});
 
-	it("a file over 20 MB decoded, or one that is not base64 or not a PDF, is a 400 with zero writes", async () => {
+	it("a name the sandbox refuses is a 400 naming the file, with zero writes (file checks are in ext-sandbox.test.ts)", async () => {
 		const s = setup();
-		const big = Buffer.alloc(20 * 1024 * 1024 + 1, 0x25).toString("base64");
-		const tooBig = await createAgentGoal(validInput({ files: [{ name: "big.pdf", dataBase64: big }] }), s.deps);
-		assert.equal(!tooBig.ok && tooBig.status, 400);
-		assert.match(!tooBig.ok ? tooBig.message : "", /20 MB/);
-		const notBase64 = await createAgentGoal(validInput({ files: [{ name: "x.pdf", dataBase64: "not base64!!" }] }), s.deps);
-		assert.equal(!notBase64.ok && notBase64.status, 400);
-		const notPdf = await createAgentGoal(validInput({ files: [{ name: "x.pdf", dataBase64: pdfBase64(new TextEncoder().encode("plain")) }] }), s.deps);
-		assert.equal(!notPdf.ok && notPdf.status, 400);
+		const refused = await createAgentGoal(validInput({ files: [{ name: "missing.pdf" }] }), s.deps);
+		assert.equal(!refused.ok && refused.status, 400);
+		assert.match(!refused.ok ? refused.message : "", /missing\.pdf/);
 		assert.equal(s.goalsStore.events.length, 0);
 		assert.equal(s.documents.imported.length, 0);
 	});
 
 	it("an attached file's nodes carry src_ document provenance, and the spend is recorded once on the agent kind after success", async () => {
 		const s = setup();
-		const result = await createAgentGoal(validInput({ files: [{ name: "notes.pdf", dataBase64: pdfBase64() }] }), s.deps);
+		s.sandbox.put("notes.pdf");
+		const result = await createAgentGoal(validInput({ files: [{ name: "notes.pdf" }] }), s.deps);
 		assert.equal(result.ok, true);
 		if (!result.ok) return;
 		assert.equal(s.documents.imported.length, 1);
@@ -205,7 +216,8 @@ describe("createAgentGoal", () => {
 		const s = setup({
 			documents: { importPdf: async () => Promise.reject(new Error("extraction failed")) },
 		});
-		await assert.rejects(createAgentGoal(validInput({ files: [{ name: "a.pdf", dataBase64: pdfBase64() }] }), s.deps), /extraction failed/);
+		s.sandbox.put("a.pdf");
+		await assert.rejects(createAgentGoal(validInput({ files: [{ name: "a.pdf" }] }), s.deps), /extraction failed/);
 		assert.equal(s.goalsStore.events.length, 0);
 		assert.equal(s.gate.records.length, 0);
 	});

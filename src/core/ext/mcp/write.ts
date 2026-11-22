@@ -1,13 +1,13 @@
 // src/core/ext/mcp/write.ts
 /**
- * The agent write tools (REQ-graph-agent-16): create_goal, set_goal_weights and
- * create_link. They validate the arguments here, read the local PDFs for
- * create_goal, and hand the result to the app's own endpoints through the
- * injected AppApiPort. The server never writes the data itself; the app does.
+ * The agent write tools (REQ-graph-agent-16, 23): create_goal, set_goal_weights and
+ * create_link, and the sandbox listing get_sandbox (REQ-graph-agent-22). They validate
+ * the arguments here and hand the request to the app's own endpoints through the
+ * injected AppApiPort. This module reads no local file and no path: an attached PDF is
+ * named relative to the agent sandbox folder, and the app reads it. The server never
+ * writes the data itself; the app does.
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import { LINK_TYPES } from "../links.ts";
 import type { Call } from "./call.ts";
 import { invalid } from "./errors.ts";
@@ -18,14 +18,10 @@ export const WRITE_LIMITS = Object.freeze({
 	targetsMax: 20,
 	targetChars: 500,
 	filesMax: 5,
-	fileBytesMax: 20 * 1024 * 1024,
-	pathChars: 1024,
 	fileNameChars: 200,
 	priorityMin: 1,
 	priorityMax: 5,
 });
-
-const PDF_MAGIC = "%PDF-";
 
 function plainObject(value: unknown, field: string): Record<string, number> {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid(`${field} must be an object of key to number.`);
@@ -37,33 +33,12 @@ function plainObject(value: unknown, field: string): Record<string, number> {
 	return out;
 }
 
-/** One attached PDF, read and base64-encoded. Every refusal is decided before the app is called and names no path. */
-function readPdf(index: number, file: unknown): { name: string; dataBase64: string } {
-	const f = file as { name?: unknown; path?: unknown } | null;
-	if (typeof f !== "object" || f === null || Array.isArray(f)) throw invalid(`files[${index}] must be an object with name and path.`);
-	const name = requireText(f.name, `files[${index}].name`, WRITE_LIMITS.fileNameChars);
-	if (!name.toLowerCase().endsWith(".pdf")) throw invalid(`files[${index}].name must end in .pdf.`);
-	if (typeof f.path !== "string" || f.path.length > WRITE_LIMITS.pathChars || f.path.includes("\0")) {
-		throw invalid(`files[${index}].path must be a string of at most ${WRITE_LIMITS.pathChars} characters without NUL.`);
-	}
-	if (!path.isAbsolute(f.path)) throw invalid(`files[${index}].path must be an absolute path.`);
-	let size: number;
-	try {
-		const st = fs.statSync(f.path);
-		if (!st.isFile()) throw new Error("not a file");
-		size = st.size;
-	} catch {
-		throw invalid(`files[${index}] cannot be read: no file at that path.`);
-	}
-	if (size > WRITE_LIMITS.fileBytesMax) throw invalid(`files[${index}] is over the 20 MB limit.`);
-	let bytes: Buffer;
-	try {
-		bytes = fs.readFileSync(f.path);
-	} catch {
-		throw invalid(`files[${index}] cannot be read.`);
-	}
-	if (bytes.subarray(0, PDF_MAGIC.length).toString("latin1") !== PDF_MAGIC) throw invalid(`files[${index}] is not a PDF.`);
-	return { name, dataBase64: bytes.toString("base64") };
+/** One attached file: the name of a file in the sandbox folder, and nothing else (a path or any payload is refused). */
+function sandboxName(index: number, file: unknown): { name: string } {
+	const f = file as Record<string, unknown> | null;
+	if (typeof f !== "object" || f === null || Array.isArray(f)) throw invalid(`files[${index}] must be an object with a name.`);
+	if (Object.keys(f).some((key) => key !== "name")) throw invalid(`files[${index}] takes a name only: the file is read from the agent sandbox folder.`);
+	return { name: requireText(f.name, `files[${index}].name`, WRITE_LIMITS.fileNameChars) };
 }
 
 /** POST /api/ext/agent/goals. Only the fields the agent gave are sent. */
@@ -77,8 +52,8 @@ export async function createGoal(call: Call, input: Record<string, unknown>): Pr
 	}
 	if (input.files !== undefined) {
 		if (!Array.isArray(input.files)) throw invalid("files must be an array.");
-		if (input.files.length > WRITE_LIMITS.filesMax) throw invalid(`files must contain at most ${WRITE_LIMITS.filesMax} PDFs.`);
-		body.files = input.files.map((file, i) => readPdf(i, file));
+		if (input.files.length > WRITE_LIMITS.filesMax) throw invalid(`files must contain at most ${WRITE_LIMITS.filesMax} names.`);
+		body.files = input.files.map((file, i) => sandboxName(i, file));
 	}
 	if (input.weights !== undefined) body.weights = plainObject(input.weights, "weights");
 	if (input.priority !== undefined) {
@@ -105,4 +80,9 @@ export async function createLink(call: Call, input: Record<string, unknown>): Pr
 	const linkType = optionalEnum(input.linkType, LINK_TYPES, "linkType");
 	if (linkType === undefined) throw invalid(`linkType must be one of: ${LINK_TYPES.join(", ")}.`);
 	return call.deps.appApi.post("/api/ext/agent/links", { from, to, linkType });
+}
+
+/** GET /api/ext/agent/sandbox: the sandbox folder's absolute path and its files, as the app answers them. */
+export async function getSandbox(call: Call): Promise<unknown> {
+	return call.deps.appApi.get("/api/ext/agent/sandbox");
 }

@@ -1,14 +1,14 @@
 // tests/ext-mcp-write.test.ts
 /**
- * The agent write tools (REQ-graph-agent-16): create_goal, set_goal_weights and
+ * The agent write tools (REQ-graph-agent-16, 23): create_goal, set_goal_weights and
  * create_link reach the app only through the injected AppApiPort. These tests use
- * a fake port, real temp files and real data directories. The server itself never
+ * a fake port and real data directories. create_goal names sandbox files only; the
+ * module reads no local file (ext-sandbox.test.ts pins that). The server itself never
  * writes: every store's write method here throws.
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { ToolError } from "../src/core/ext/mcp/errors.ts";
@@ -20,19 +20,9 @@ import { cleanupAllFixtures, makeFixture, N, seedStandard, type Fixture } from "
 afterEach(cleanupAllFixtures);
 
 const WRITE_TOOLS = ["create_goal", "set_goal_weights", "create_link"];
-const PDF_BYTES = Buffer.from("%PDF-1.4\n% a small test document\n%%EOF\n");
-const tmpDirs: string[] = [];
-function tempDir(): string {
-	const d = fs.mkdtempSync(path.join(os.tmpdir(), "lh-mcp-write-"));
-	tmpDirs.push(d);
-	return d;
-}
-afterEach(() => {
-	for (const d of tmpDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
-});
 
 interface Sent {
-	method: "post" | "put";
+	method: "post" | "put" | "get";
 	path: string;
 	body: any;
 }
@@ -45,7 +35,12 @@ function fakeApi(reply: (sent: Sent) => unknown = () => ({})): { port: AppApiPor
 		sent.push(s);
 		return reply(s);
 	};
-	return { port: { post: send("post"), put: send("put") }, sent };
+	const get = async (p: string) => {
+		const s: Sent = { method: "get", path: p, body: undefined };
+		sent.push(s);
+		return reply(s);
+	};
+	return { port: { post: send("post"), put: send("put"), get }, sent };
 }
 
 /** The fixture's deps with the fake port and stores that refuse every write (spied). */
@@ -92,12 +87,6 @@ function treeDigest(root: string): string {
 	return hash.digest("hex");
 }
 
-function pdf(name: string, bytes: Buffer = PDF_BYTES): string {
-	const p = path.join(tempDir(), name);
-	fs.writeFileSync(p, bytes);
-	return p;
-}
-
 describe("registration of the write tools (REQ-graph-agent-16)", () => {
 	it("the three write tools are in the write group, and their zod schemas match the core field lists", () => {
 		for (const name of WRITE_TOOLS) {
@@ -119,16 +108,15 @@ describe("registration of the write tools (REQ-graph-agent-16)", () => {
 	});
 });
 
-describe("create_goal (REQ-graph-agent-16)", () => {
-	it("forwards title, targets, weights and priority, sends the PDF as base64, and returns the app's goalId", async () => {
+describe("create_goal names sandbox files only (REQ-graph-agent-16, 23)", () => {
+	it("forwards title, targets, weights and priority, sends the file NAMES only, and returns the app's goalId", async () => {
 		const f = makeFixture();
 		seedStandard(f);
-		const file = pdf("book.pdf");
 		const api = fakeApi(() => ({ goalId: "goal_new000000001", nodeIds: ["n_new1"] }));
 		const out = await runTool(
 			"create_goal",
 			depsWith(f, api.port, []),
-			{ title: "Measure theory", targets: ["Every sigma algebra is closed under countable unions."], files: [{ name: "book.pdf", path: file }], weights: { chain: 2 }, priority: 4 },
+			{ title: "Measure theory", targets: ["Every sigma algebra is closed under countable unions."], files: [{ name: "book.pdf" }], weights: { chain: 2 }, priority: 4 },
 			{ knowledgeOnly: false },
 		);
 		assert.deepEqual(out, { goalId: "goal_new000000001", nodeIds: ["n_new1"] });
@@ -138,7 +126,7 @@ describe("create_goal (REQ-graph-agent-16)", () => {
 		assert.deepEqual(api.sent[0]!.body, {
 			title: "Measure theory",
 			targets: ["Every sigma algebra is closed under countable unions."],
-			files: [{ name: "book.pdf", dataBase64: PDF_BYTES.toString("base64") }],
+			files: [{ name: "book.pdf" }],
 			weights: { chain: 2 },
 			priority: 4,
 		});
@@ -162,30 +150,16 @@ describe("create_goal (REQ-graph-agent-16)", () => {
 		assert.equal((o as { message: string }).message, text);
 	});
 
-	it("a missing file is a clear error before any call is made, and the message names no path", async () => {
+	it("a file given by a path, a path or a dataBase64 next to the name, a non-text name, or more than 5 files is refused before any call", async () => {
 		const f = makeFixture();
 		const api = fakeApi();
-		const missing = path.join(tempDir(), "absent.pdf");
-		const o = await attempt(() => runTool("create_goal", depsWith(f, api.port, []), { title: "T", files: [{ name: "absent.pdf", path: missing }] }, { knowledgeOnly: false }));
-		assert.equal(o.ok, false);
-		assert.equal((o as { code: string }).code, "invalid_input");
-		assert.ok(!(o as { message: string }).message.includes(missing));
-		assert.equal(api.sent.length, 0);
-	});
-
-	it("refuses a relative path, a non-PDF file, a name that is not .pdf, a file over 20 MB and more than 5 files, all before any call", async () => {
-		const f = makeFixture();
-		const api = fakeApi();
-		const notPdf = pdf("notes.pdf", Buffer.from("hello, not a pdf"));
-		const wrongName = pdf("notes.txt");
-		const huge = pdf("huge.pdf");
-		fs.truncateSync(huge, 20 * 1024 * 1024 + 1);
 		const cases: Array<[string, unknown]> = [
-			["relative", { title: "T", files: [{ name: "a.pdf", path: "relative/a.pdf" }] }],
-			["not a pdf", { title: "T", files: [{ name: "notes.pdf", path: notPdf }] }],
-			["name not pdf", { title: "T", files: [{ name: "notes.txt", path: wrongName }] }],
-			["over 20 MB", { title: "T", files: [{ name: "huge.pdf", path: huge }] }],
-			["six files", { title: "T", files: Array.from({ length: 6 }, (_, i) => ({ name: `f${i}.pdf`, path: pdf(`f${i}.pdf`) })) }],
+			["absolute path", { title: "T", files: [{ name: "a.pdf", path: "/Users/someone/a.pdf" }] }],
+			["relative path", { title: "T", files: [{ name: "a.pdf", path: "relative/a.pdf" }] }],
+			["base64 payload", { title: "T", files: [{ name: "a.pdf", dataBase64: "JVBERi0=" }] }],
+			["name not text", { title: "T", files: [{ name: 5 }] }],
+			["not an object", { title: "T", files: ["a.pdf"] }],
+			["six files", { title: "T", files: Array.from({ length: 6 }, (_, i) => ({ name: `f${i}.pdf` })) }],
 		];
 		for (const [label, input] of cases) {
 			const o = await attempt(() => runTool("create_goal", depsWith(f, api.port, []), input, { knowledgeOnly: false }));
@@ -234,13 +208,13 @@ describe("set_goal_weights and create_link (REQ-graph-agent-16)", () => {
 
 describe("the server never writes the data (REQ-graph-agent-16)", () => {
 	it("no write tool calls a store's write method, and the data directory is byte-identical afterwards", async () => {
-		const f = makeFixture();
+		const f: Fixture = makeFixture();
 		seedStandard(f);
 		const before = treeDigest(f.root);
 		const writes: string[] = [];
 		const api = fakeApi(() => ({ goalId: "goal_x", nodeIds: [], goal: {}, link: {} }));
 		const deps = depsWith(f, api.port, writes);
-		await runTool("create_goal", deps, { title: "T", files: [{ name: "a.pdf", path: pdf("a.pdf") }] }, { knowledgeOnly: false });
+		await runTool("create_goal", deps, { title: "T", files: [{ name: "a.pdf" }] }, { knowledgeOnly: false });
 		await runTool("set_goal_weights", deps, { goalId: "goal_x", weights: { chain: 1 } }, { knowledgeOnly: false });
 		await runTool("create_link", deps, { from: N.a, to: N.b, linkType: "analogy" }, { knowledgeOnly: false });
 		assert.equal(api.sent.length, 3);

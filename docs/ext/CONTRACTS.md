@@ -736,7 +736,7 @@ A subscription plan, a rate limit or an overloaded provider refuses a call witho
 
 Process: `LH_DATA_DIR=<data directory> npx tsx scripts/ext-mcp.ts [--knowledge-only]`, started by the client, speaking MCP (JSON-RPC 2.0, newline-delimited) over stdin/stdout. Stdout carries only protocol; diagnostics go to stderr. The server reads `ext/*.jsonl`, `ext/lectures/*/lecture.json` and `graph/*.jsonl`; it never writes, creates, locks or stamps anything in the data directory. It opens no socket except the loopback calls of the three write tools to the running app (see "Write group"), and it calls no model. Corrupt or torn ledger lines are skipped. A `format.json` stamp newer than the build makes every tool fail with `data_newer_than_build`. A request line above 256 KiB ends the session: the process exits with code 0 and the client restarts it. A closed stdout (the client went away) also ends the process quietly, with nothing on stderr.
 
-Every read tool is annotated `readOnlyHint: true`; the three write tools are `readOnlyHint: false`. Every tool is `destructiveHint: false` and `openWorldHint: false`. Every input object is strict: an unknown field is an error, never ignored. Arguments are validated twice (JSON Schema at the protocol edge, the same rules in the core).
+Every read tool is annotated `readOnlyHint: true`; the three write tools are `readOnlyHint: false`; `get_sandbox` (app-backed, in the write group) is `readOnlyHint: true`. Every tool is `destructiveHint: false` and `openWorldHint: false`. Every input object is strict: an unknown field is an error, never ignored. Arguments are validated twice (JSON Schema at the protocol edge, the same rules in the core).
 
 ### Result envelope
 
@@ -773,7 +773,8 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 | each array of a lecture outline (slides, exercises, cited nodes) | 24 KiB, then truncated |
 | response | 128 KiB |
 | future day for `get_daily_plan` | 30 days |
-| `create_goal`: title, targets, files | 200 characters; 20 targets of 500 characters; 5 PDFs of 20 MiB each, read from absolute local paths |
+| `create_goal`: title, targets, files | 200 characters; 20 targets of 500 characters; 5 sandbox file names, each a PDF of at most 20 MiB read by the app from the sandbox folder |
+| sandbox listing (`get_sandbox`) | 200 entries, 3 folder levels |
 
 ### Knowledge group
 
@@ -789,9 +790,13 @@ Every list is a page `{items, count, truncated}` (`count` is the number of items
 
 ### Write group (through the app, disabled by `--knowledge-only`)
 
-These three tools never write the data. Each one signs in to the running app on `127.0.0.1` with the access token in the file named by `LH_ACCESS_TOKEN_FILE` (the port is the loopback entry of `LH_ACCESS_ALLOWED_HOSTS`, else 47890), keeps the `lh_session` cookie, sends `Host` and `Origin` on each call, signs in again once on a 401, and waits at most 30 seconds. The app's own error text comes back as `app_rejected`; an app that is not running or not paired gives `app_unreachable` with the fixed text "the LearnHarness app is not running or not paired; start it and try again.". Arguments are checked before the app is called.
+These four tools never write the data (`get_sandbox` only reads the sandbox listing). Each one signs in to the running app on `127.0.0.1` with the access token in the file named by `LH_ACCESS_TOKEN_FILE` (the port is the loopback entry of `LH_ACCESS_ALLOWED_HOSTS`, else 47890), keeps the `lh_session` cookie, sends `Host` and `Origin` on each call, signs in again once on a 401, and waits at most 30 seconds. The app's own error text comes back as `app_rejected`; an app that is not running or not paired gives `app_unreachable` with the fixed text "the LearnHarness app is not running or not paired; start it and try again.". Arguments are checked before the app is called.
 
-`create_goal` input: `title` (string, required), `targets` (array of statements, at most 20), `files` (array of `{name, path}`, at most 5; `name` ends in `.pdf`, `path` is an absolute path to a PDF of at most 20 MiB, read and sent as base64), `weights` (object of link type to number), `priority` (integer 1..5). Output: `{goalId, nodeIds}` as the app answers it.
+`create_goal` input: `title` (string, required), `targets` (array of statements, at most 20), `files` (array of `{name}`, at most 5; `name` is relative to the agent sandbox folder, see below; no path, no payload), `weights` (object of link type to number), `priority` (integer 1..5). Output: `{goalId, nodeIds}` as the app answers it.
+
+Attached files are read by the app, never by this server. The app keeps one folder, `<extension data>/agent-sandbox` (created on demand, mode 0700), and accepts a name only when it resolves to a regular PDF inside that folder: the name is not empty, NUL-free, absolute, backslashed, trailing-separated or `..`-containing; no component on its path is a symbolic link (links are never followed); the real path stays inside the real folder; it ends in `.pdf` and its first bytes are `%PDF-`; it is at most 20 MiB. All names of a call are checked before any file is imported: one refusal is a `400` naming that file (by index, and by name when the name is relative), and nothing is written. The sandbox file itself stays where it is; the app imports a copy exactly as a user upload.
+
+`get_sandbox` input: no arguments. Output: `{path, files}` as the app answers it: `path` is the absolute path of the sandbox folder (the agent moves a document there, then names it); `files` is a page `{items, count, truncated}` of `{name, size, modifiedAt}`, where `name` is relative to the folder (with `/` between levels), `size` is in bytes and `modifiedAt` is ISO-8601. The listing walks three folder levels, keeps at most 200 entries, lists PDFs and other files alike and never lists or follows a symbolic link. Needs the running app; disabled by `--knowledge-only`.
 
 `set_goal_weights` input: `goalId` (string, required), `weights` (object of key to number, merged by the app onto the goal's current weights). Output: the app's answer, `{goal}`.
 

@@ -36,13 +36,14 @@ export interface LectureReader {
 }
 
 /**
- * The app's own write endpoints, reached over loopback (the write tools only).
+ * The app's own endpoints, reached over loopback (the write tools and get_sandbox only).
  * A non-2xx answer is a ToolError carrying the app's text; an unreachable app is
  * a ToolError too. Neither ever crashes the server.
  */
 export interface AppApiPort {
 	post(path: string, body: unknown): Promise<unknown>;
 	put(path: string, body: unknown): Promise<unknown>;
+	get(path: string): Promise<unknown>;
 }
 
 export interface McpDeps {

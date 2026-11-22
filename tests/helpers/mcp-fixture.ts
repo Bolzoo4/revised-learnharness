@@ -65,6 +65,9 @@ const UNREACHABLE_APP: AppApiPort = {
 	put: async () => {
 		throw new Error("no app in the fixture");
 	},
+	get: async () => {
+		throw new Error("no app in the fixture");
+	},
 };
 
 export function makeFixture(clock: () => string = () => NOW): Fixture {

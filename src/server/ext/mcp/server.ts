@@ -8,7 +8,8 @@
  *   - a result above responseMaxBytes is refused, never truncated silently.
  * The knowledge and study tools are annotated readOnlyHint, closed-world and
  * non-destructive. The write tools (create_goal, set_goal_weights, create_link)
- * are not read-only: they ask the running app to write, and are not registered
+ * are not read-only: they ask the running app to write. get_sandbox asks the app
+ * for the sandbox listing and is read-only. The app-backed tools are not registered
  * under --knowledge-only, together with the study tools.
  */
 
@@ -17,7 +18,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { failureOf, INTERNAL_MESSAGE, ToolError, type ToolFailure } from "../../../core/ext/mcp/errors.ts";
 import { LIMITS } from "../../../core/ext/mcp/limits.ts";
 import type { McpDeps } from "../../../core/ext/mcp/ports.ts";
-import { runTool, toolGroup, TOOL_NAMES } from "../../../core/ext/mcp/tools.ts";
+import { runTool, toolGroup, toolReadOnly, TOOL_NAMES } from "../../../core/ext/mcp/tools.ts";
 import { CATALOG } from "./catalog.ts";
 
 export const SERVER_NAME = "learning-platform";
@@ -69,10 +70,9 @@ export function createServer(deps: McpDeps, opts: ServerOptions): McpServer {
 				title: spec.title,
 				description: spec.description,
 				inputSchema: spec.input,
-				annotations:
-					group === "write"
-						? { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
-						: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+				annotations: toolReadOnly(name)
+						? { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+						: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
 			},
 			(args: unknown) => safeCall(name, deps, args, opts),
 		);

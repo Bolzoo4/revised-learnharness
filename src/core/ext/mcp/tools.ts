@@ -25,10 +25,17 @@ import { getNeighbors, getNode } from "./node.ts";
 import type { McpDeps, RunOptions } from "./ports.ts";
 import { researchStatus } from "./research.ts";
 import { searchNodes } from "./search.ts";
-import { createGoal, createLink, setGoalWeights } from "./write.ts";
+import { createGoal, createLink, getSandbox, setGoalWeights } from "./write.ts";
 
-/** knowledge: read-only knowledge. study: read-only study state. write: the app's write endpoints (never the data). */
+/**
+ * knowledge: read-only knowledge. study: read-only study state. write: the app's endpoints (never the data). The
+ * write group also holds get_sandbox, a read of the app's sandbox listing: it is registered like the write tools
+ * (not under --knowledge-only) and annotated read-only (toolReadOnly).
+ */
 export type ToolGroup = "knowledge" | "study" | "write";
+
+/** The write-group tool that only reads. */
+const READ_THROUGH_APP = new Set(["get_sandbox"]);
 
 interface Handler {
 	group: ToolGroup;
@@ -53,12 +60,18 @@ const HANDLERS: Record<string, Handler> = {
 	create_goal: { group: "write", fields: ["title", "targets", "files", "weights", "priority"], run: (c, i) => createGoal(c, i) },
 	set_goal_weights: { group: "write", fields: ["goalId", "weights"], run: (c, i) => setGoalWeights(c, i) },
 	create_link: { group: "write", fields: ["from", "to", "linkType"], run: (c, i) => createLink(c, i) },
+	get_sandbox: { group: "write", fields: [], run: (c) => getSandbox(c) },
 };
 
 export const TOOL_NAMES: readonly string[] = Object.freeze(Object.keys(HANDLERS));
 
 export function toolGroup(name: string): ToolGroup | null {
 	return Object.hasOwn(HANDLERS, name) ? HANDLERS[name]!.group : null;
+}
+
+/** True for a tool that never writes: every knowledge and study tool, and the read-through-app get_sandbox. */
+export function toolReadOnly(name: string): boolean {
+	return toolGroup(name) !== "write" || READ_THROUGH_APP.has(name);
 }
 
 export function toolFields(name: string): readonly string[] {

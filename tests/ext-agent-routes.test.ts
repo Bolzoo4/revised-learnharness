@@ -22,6 +22,7 @@ const { issueSession } = await import("../src/server/access/session.ts");
 const goals = await import("../app/api/ext/agent/goals/route.ts");
 const weights = await import("../app/api/ext/agent/goals/[id]/weights/route.ts");
 const links = await import("../app/api/ext/agent/links/route.ts");
+const sandbox = await import("../app/api/ext/agent/sandbox/route.ts");
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
 
@@ -41,7 +42,7 @@ function gateFor(path: string, method: string, withCookie: boolean) {
 
 describe("agent endpoints are behind the access gate", () => {
 	it("refuse every call without a session with 401 JSON", () => {
-		for (const [p, m] of [["/api/ext/agent/goals", "POST"], ["/api/ext/agent/goals/goal_x/weights", "PUT"], ["/api/ext/agent/links", "POST"]] as const) {
+		for (const [p, m] of [["/api/ext/agent/goals", "POST"], ["/api/ext/agent/goals/goal_x/weights", "PUT"], ["/api/ext/agent/links", "POST"], ["/api/ext/agent/sandbox", "GET"]] as const) {
 			const res = gateFor(p, m, false);
 			assert.equal(res.status, 401, `${m} ${p}`);
 		}
@@ -70,6 +71,14 @@ describe("agent endpoints", () => {
 	it("PUT weights on an unknown goal is a 404", async () => {
 		const res = await weights.PUT(json({ chain: 2 }), params("goal_ghost"));
 		assert.equal(res.status, 404);
+	});
+
+	it("GET sandbox answers 200 with the folder's path and its page of files, and creates the folder", async () => {
+		const res = await sandbox.GET();
+		assert.equal(res.status, 200);
+		const body = (await res.json()) as { path: string; files: { items: unknown[]; count: number; truncated: boolean } };
+		assert.equal(path.basename(body.path), "agent-sandbox");
+		assert.deepEqual(body.files, { items: [], count: 0, truncated: false });
 	});
 
 	it("POST links with an unknown node is a 400 listing the problems", async () => {

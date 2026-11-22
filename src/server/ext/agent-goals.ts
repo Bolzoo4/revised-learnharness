@@ -1,9 +1,10 @@
 // src/server/ext/agent-goals.ts
 /**
- * The study agent's write endpoints (REQ-graph-agent-08, 10, 11, 12, 18): create a goal with its target
- * statements and attached PDFs, set a goal's weights, and create a typed link. Pure service over injected
- * ports; the live wiring is agent-goals-live.ts. Every refusal is decided before the first write, and a
- * goal created here never marks anything learned.
+ * The study agent's endpoints (REQ-graph-agent-08, 10, 11, 12, 18, 22, 23, 25): create a goal with its target
+ * statements and attached PDFs, read the sandbox folder, set a goal's weights, and create a typed link. The
+ * attached PDFs are named files of the sandbox folder; each is checked and read before the first write. Pure
+ * service over injected ports; the live wiring is agent-goals-live.ts. Every refusal is decided before the first
+ * write, and a goal created here never marks anything learned.
  */
 
 import { randomBytes } from "node:crypto";
@@ -25,18 +26,19 @@ import { setWeights } from "../../core/ext/goal-service.ts";
 import { validateLink, type Link, type LinkOrigin, type LinkType } from "../../core/ext/links.ts";
 import type { GoalsStore } from "../../core/ext/ports.ts";
 import type { GraphStore, ChatStore } from "../../core/ports.ts";
+import type { Page } from "../../core/ext/mcp/limits.ts";
+import { SANDBOX_MAX_FILES, type SandboxFile, type SandboxRefusal } from "../../core/ext/sandbox.ts";
 
 export const MAX_TITLE_CHARS = 200;
 export const MAX_TARGETS = 20;
 export const MAX_TARGET_CHARS = 500;
-export const MAX_FILES = 5;
-export const MAX_FILE_BYTES = 20 * 1024 * 1024;
+export const MAX_FILES = SANDBOX_MAX_FILES;
 /** Estimated spend per imported PDF: the notes pipeline does not report its billed total (see research-live.ts). */
 export const ESTIMATED_IMPORT_USD_PER_FILE = 0.05;
 
+/** An attached file: the name of a file in the sandbox folder, nothing else (REQ-graph-agent-23). */
 export interface AgentFile {
 	name: string;
-	dataBase64: string;
 }
 
 export interface AgentGoalInput {
@@ -55,12 +57,20 @@ export interface DocumentImportPort {
 	importPdf(bytes: Uint8Array): Promise<{ sourceId: string }>;
 }
 
+/** The sandbox folder: its path, its listing, and one checked read of a named file (live: sandbox-live.ts). */
+export interface SandboxPort {
+	root(): string;
+	list(): Promise<Page<SandboxFile>>;
+	read(name: string): Promise<{ ok: true; bytes: Uint8Array } | SandboxRefusal>;
+}
+
 export interface AgentGoalsDeps {
 	graphStore: GraphStore;
 	goalsStore: GoalsStore;
 	linksStore: { readLinks(): Link[]; appendLink(input: { from: string; to: string; linkType: LinkType; origin: LinkOrigin }, nodeIds: ReadonlySet<string>): Link };
 	gate: Pick<CostGate, "allowed" | "record">;
 	documents: DocumentImportPort;
+	sandbox: SandboxPort;
 	now?: () => string;
 	newGoalId?: () => string;
 }
@@ -73,8 +83,6 @@ const fail = (status: AgentFailure["status"], message: string, problems?: string
 });
 
 const newGoalId = () => `goal_${randomBytes(6).toString("hex")}`;
-const PDF_MAGIC = "%PDF-";
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /** The merger is chat-store-free; if it ever reaches for one, fail loudly (the same guard as goal-service.ts). */
 const noChatStore = new Proxy(
@@ -86,23 +94,23 @@ const noChatStore = new Proxy(
 	},
 ) as ChatStore;
 
-/** Decoded bytes of a base64 string, or null when it is not base64 or is over the cap. */
-function decodeFile(index: number, file: unknown): { bytes: Uint8Array; problem?: never } | AgentFailure {
-	const f = file as Partial<AgentFile> | null;
-	if (typeof f !== "object" || f === null || typeof f.dataBase64 !== "string") {
-		return fail(400, `files[${index}].dataBase64 must be a base64 string`);
+/** The name of one attached file. An entry is { name } and nothing else: the old { name, dataBase64 } shape is refused. */
+function nameOf(index: number, file: unknown): string | AgentFailure {
+	const f = file as Record<string, unknown> | null;
+	if (typeof f !== "object" || f === null || Array.isArray(f) || typeof f.name !== "string" || Object.keys(f).some((key) => key !== "name")) {
+		return fail(400, `files[${index}] must be an object with a name only; attached files are read from the sandbox folder`);
 	}
-	const text = f.dataBase64;
-	if (text.length % 4 !== 0 || !BASE64.test(text)) return fail(400, `files[${index}].dataBase64 must be valid base64`);
-	const padding = text.endsWith("==") ? 2 : text.endsWith("=") ? 1 : 0;
-	if ((text.length * 3) / 4 - padding > MAX_FILE_BYTES) return fail(400, `files[${index}] is over the 20 MB limit`);
-	const bytes = new Uint8Array(Buffer.from(text, "base64"));
-	if (new TextDecoder().decode(bytes.subarray(0, PDF_MAGIC.length)) !== PDF_MAGIC) return fail(400, `files[${index}] is not a PDF`);
-	return { bytes };
+	return f.name;
 }
 
-/** Validates the whole input, returning the decoded files or the first refusal. Pure: no writes. */
-function validateCreate(input: AgentGoalInput): AgentFailure | { title: string; targets: string[]; files: Uint8Array[]; weights?: Record<string, number>; priority: number } {
+/** How a refusal names its file: the index, and the name unless the name is absolute (an absolute name would carry a path). */
+function fileLabel(index: number, name: string): string {
+	const shown = name.startsWith("/") || name.includes("\0") ? "" : ` "${name.slice(0, 200)}"`;
+	return `files[${index}]${shown}`;
+}
+
+/** Validates the whole input, returning the file names or the first refusal. Pure: no reads, no writes. */
+function validateCreate(input: AgentGoalInput): AgentFailure | { title: string; targets: string[]; names: string[]; weights?: Record<string, number>; priority: number } {
 	if (typeof input.title !== "string" || input.title.trim() === "" || [...input.title].length > MAX_TITLE_CHARS) {
 		return fail(400, `title must be a non-empty string of at most ${MAX_TITLE_CHARS} characters`);
 	}
@@ -118,11 +126,11 @@ function validateCreate(input: AgentGoalInput): AgentFailure | { title: string; 
 	const files = input.files ?? [];
 	if (!Array.isArray(files)) return fail(400, "files must be an array");
 	if (files.length > MAX_FILES) return fail(400, `files must contain at most ${MAX_FILES} PDFs`);
-	const bytes: Uint8Array[] = [];
+	const names: string[] = [];
 	for (const [i, file] of files.entries()) {
-		const decoded = decodeFile(i, file);
-		if ("ok" in decoded) return decoded;
-		bytes.push(decoded.bytes);
+		const name = nameOf(i, file);
+		if (typeof name !== "string") return name;
+		names.push(name);
 	}
 	const priority = input.priority ?? DEFAULT_GOAL_PRIORITY;
 	if (!isValidGoalPriority(priority)) return fail(400, `priority must be an integer from ${MIN_GOAL_PRIORITY} to ${MAX_GOAL_PRIORITY}`);
@@ -132,7 +140,7 @@ function validateCreate(input: AgentGoalInput): AgentFailure | { title: string; 
 		if (!w.ok) return fail(400, "weights are not valid", w.problems);
 		weights = w.weights;
 	}
-	return { title: input.title, targets, files: bytes, weights, priority };
+	return { title: input.title, targets, names, weights, priority };
 }
 
 /** Thrown inside the target check only so a forEach can stop with a refusal; caught in createAgentGoal. */
@@ -157,7 +165,15 @@ function nodeIdsWithProvenance(graphStore: GraphStore, pick: (chatId: string) =>
 		.map((n) => n.id);
 }
 
-/** POST /api/ext/agent/goals. Gate first (429, nothing written), then validation (400, nothing written), then the writes. */
+/** GET /api/ext/agent/sandbox: the sandbox folder's absolute path and the page of files in it (REQ-graph-agent-22). */
+export async function readAgentSandbox(deps: { sandbox: SandboxPort }): Promise<AgentResult<{ path: string; files: Page<SandboxFile> }>> {
+	return { ok: true, path: deps.sandbox.root(), files: await deps.sandbox.list() };
+}
+
+/**
+ * POST /api/ext/agent/goals. Gate first (429, nothing written), then validation (400, nothing written), then every
+ * named file read from the sandbox (400 naming the first refused file, nothing imported), then the writes.
+ */
 export async function createAgentGoal(input: AgentGoalInput, deps: AgentGoalsDeps): Promise<AgentResult<{ goalId: string; nodeIds: string[] }>> {
 	if (!gateOpen(deps.gate)) return fail(429, "the daily spending ceiling for agent work is reached; try again tomorrow");
 	let checked: ReturnType<typeof validateCreate>;
@@ -169,11 +185,18 @@ export async function createAgentGoal(input: AgentGoalInput, deps: AgentGoalsDep
 	}
 	if ("ok" in checked) return checked;
 
+	const attached: Uint8Array[] = [];
+	for (const [i, name] of checked.names.entries()) {
+		const read = await deps.sandbox.read(name);
+		if (!read.ok) return fail(400, `${fileLabel(i, name)} ${read.reason}`);
+		attached.push(read.bytes);
+	}
+
 	const now = (deps.now ?? (() => new Date().toISOString()))();
 	const goalId = (deps.newGoalId ?? newGoalId)();
 
 	const sourceIds = new Set<string>();
-	for (const bytes of checked.files) sourceIds.add((await deps.documents.importPdf(bytes)).sourceId);
+	for (const bytes of attached) sourceIds.add((await deps.documents.importPdf(bytes)).sourceId);
 	const fileNodeIds = nodeIdsWithProvenance(deps.graphStore, (id) => sourceIds.has(id));
 
 	const findings: SessionFindings = {
@@ -195,7 +218,7 @@ export async function createAgentGoal(input: AgentGoalInput, deps: AgentGoalsDep
 		...(checked.weights ? { weights: checked.weights as Goal["weights"] } : {}),
 		at: now,
 	});
-	if (checked.files.length > 0) deps.gate.record(checked.files.length * ESTIMATED_IMPORT_USD_PER_FILE, AGENT_SPEND_SOURCE);
+	if (attached.length > 0) deps.gate.record(attached.length * ESTIMATED_IMPORT_USD_PER_FILE, AGENT_SPEND_SOURCE);
 	return { ok: true, goalId, nodeIds: [...new Set([...targetNodeIds, ...fileNodeIds])] };
 }
 

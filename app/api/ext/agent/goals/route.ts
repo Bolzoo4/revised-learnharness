@@ -3,8 +3,8 @@ import { agentGoals, agentResponse, httpErrorResponse, readJsonObject, type Agen
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/ext/agent/goals { title, targets?, files?, weights?, priority? }: the study agent creates a goal
- * (REQ-graph-agent-08). Authentication is enforced by proxy.ts for every /api route. → 200 { goalId, nodeIds }.
+ * POST /api/ext/agent/goals { title, targets?, files?: [{ name }], weights?, priority? }: the study agent creates a goal
+ * (REQ-graph-agent-08). Each file is the name of a file in the agent sandbox folder (REQ-graph-agent-23). Authentication is enforced by proxy.ts for every /api route. → 200 { goalId, nodeIds }.
  */
 export async function POST(req: Request) {
 	try {

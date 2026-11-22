@@ -11,14 +11,16 @@ import { emit } from "../../core/events.ts";
 import { sourceDirectory } from "../source-organization.ts";
 import { stores } from "../stores.ts";
 import { liveAgentGate } from "./cost-live.ts";
-import { type AgentGoalInput, type AgentGoalsDeps, type AgentResult, createAgentGoal, createAgentLink, setAgentGoalWeights } from "./agent-goals.ts";
+import { type AgentGoalInput, type AgentGoalsDeps, type AgentResult, createAgentGoal, createAgentLink, readAgentSandbox, setAgentGoalWeights } from "./agent-goals.ts";
 import { DEFAULT_UPLOAD_TITLE, uploadTempRoot } from "./pdf-upload.ts";
+import { liveSandbox } from "./sandbox-live.ts";
 import { extStores } from "./stores.ts";
 import { sourceIdOf, studyService } from "./study-live.ts";
 
 /**
  * Stores an attached PDF exactly as a user upload is stored (studyService.registerDocument), then runs the
  * notes extraction on the stored copy so its nodes carry that copy's src_ provenance (REQ-graph-agent-12).
+ * The bytes come from the sandbox file, which stays where it is (REQ-graph-agent-25).
  */
 async function importAgentPdf(bytes: Uint8Array): Promise<{ sourceId: string }> {
 	const root = uploadTempRoot();
@@ -51,11 +53,13 @@ function liveDeps(): AgentGoalsDeps {
 		linksStore: extStores.linksStore,
 		gate: liveAgentGate,
 		documents: { importPdf: importAgentPdf },
+		sandbox: liveSandbox,
 	};
 }
 
 export const agentGoals = {
 	create: (input: AgentGoalInput) => createAgentGoal(input, liveDeps()),
+	sandbox: () => readAgentSandbox(liveDeps()),
 	setWeights: (goalId: string, raw: unknown) => setAgentGoalWeights(goalId, raw, liveDeps()),
 	createLink: (input: { from: unknown; to: unknown; linkType: unknown }) => createAgentLink(input, liveDeps()),
 };

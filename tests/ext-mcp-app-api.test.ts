@@ -132,6 +132,25 @@ describe("sign-in and calls (REQ-graph-agent-16)", () => {
 	});
 });
 
+describe("GET through the same client (REQ-graph-agent-22)", () => {
+	it("signs in, then GETs with the cookie, Host and Origin and no body, and answers the JSON", async () => {
+		const f = fakeFetch((req) => (req.url.endsWith("/api/access/signin") ? signinOk("cookie-g") : json(200, { path: "/x", files: { items: [], count: 0, truncated: false } })));
+		const answer = await api({}, f.fetch).get("/api/ext/agent/sandbox");
+		assert.deepEqual(answer, { path: "/x", files: { items: [], count: 0, truncated: false } });
+		const call = f.reqs[1]!;
+		assert.equal(call.method, "GET");
+		assert.equal(call.url, `http://127.0.0.1:${PORT}/api/ext/agent/sandbox`);
+		assert.equal(call.headers.cookie, "lh_session=cookie-g");
+		assert.equal(call.body, undefined);
+	});
+
+	it("maps the app's error text verbatim, as the other methods do", async () => {
+		const f = fakeFetch((req) => (req.url.endsWith("/api/access/signin") ? signinOk("c") : json(500, { error: "the sandbox cannot be listed" })));
+		const err = await failure(api({}, f.fetch).get("/api/ext/agent/sandbox"));
+		assert.equal(err.message, "the sandbox cannot be listed");
+	});
+});
+
 describe("the app is not reachable (REQ-graph-agent-16)", () => {
 	it("a refused connection gives the fixed 'not running or not paired' text", async () => {
 		const f = fakeFetch(() => {

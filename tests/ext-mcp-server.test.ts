@@ -5,7 +5,7 @@ import { afterEach, describe, it } from "node:test";
 import { CATALOG } from "../src/server/ext/mcp/catalog.ts";
 import { runTool } from "../src/core/ext/mcp/tools.ts";
 import { safeCall } from "../src/server/ext/mcp/server.ts";
-import { TOOL_NAMES, toolFields, toolGroup } from "../src/core/ext/mcp/tools.ts";
+import { TOOL_NAMES, toolFields, toolGroup, toolReadOnly } from "../src/core/ext/mcp/tools.ts";
 import { LIMITS } from "../src/core/ext/mcp/limits.ts";
 import { cleanupAllFixtures, GOAL_ID, HIDDEN, makeFixture, N, node, seedGraph, seedStandard } from "./helpers/mcp-fixture.ts";
 import { callTool, connect } from "./helpers/mcp-client.ts";
@@ -24,7 +24,7 @@ describe("catalog and registration", () => {
 		const { tools } = await client.listTools();
 		assert.deepEqual(tools.map((t) => t.name).sort(), [...TOOL_NAMES].sort());
 		for (const t of tools) {
-			assert.equal(t.annotations?.readOnlyHint, toolGroup(t.name) !== "write", t.name);
+			assert.equal(t.annotations?.readOnlyHint, toolReadOnly(t.name), t.name);
 			assert.equal(t.annotations?.destructiveHint, false, t.name);
 			assert.equal(t.annotations?.openWorldHint, false, t.name);
 			assert.ok((t.description ?? "").length > 20, t.name);

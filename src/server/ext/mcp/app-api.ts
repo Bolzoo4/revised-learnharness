@@ -1,6 +1,6 @@
 // src/server/ext/mcp/app-api.ts
 /**
- * The live AppApiPort: the write tools' only network use (REQ-graph-agent-16).
+ * The live AppApiPort: the write tools' and get_sandbox's only network use (REQ-graph-agent-16, 22).
  * It signs in to the running app on loopback with the access token (the token
  * file named by LH_ACCESS_TOKEN_FILE), keeps the session cookie, sends it with
  * the Host and Origin the app's gate requires, signs in again once on a 401, and
@@ -127,5 +127,6 @@ export function createAppApi(opts: AppApiOptions): AppApiPort {
 	return {
 		post: (path, body) => request("POST", path, body),
 		put: (path, body) => request("PUT", path, body),
+		get: (path) => request("GET", path, undefined),
 	};
 }

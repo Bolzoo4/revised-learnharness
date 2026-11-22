@@ -100,12 +100,12 @@ export const CATALOG: Record<string, ToolSpec> = {
 	create_goal: {
 		title: "Create a study goal",
 		description:
-			"Use when the learner asks to start learning a topic. Creates a goal from a title, optional target statements the goal must reach (up to 20; the app needs at least one), optional PDFs read from local absolute paths (up to 5, each at most 20 MB, names ending in .pdf), optional weights per link type and a priority from 1 to 5. Returns goalId and nodeIds. Needs the running LearnHarness app. A refusal from the app (for example the daily agent spending ceiling) is returned as is. Writes through the app only.",
+			"Use when the learner asks to start learning a topic. Creates a goal from a title, optional target statements the goal must reach (up to 20; the app needs at least one), optional PDFs named relative to the agent sandbox folder (up to 5 names from get_sandbox; the app reads each file, which must be a PDF of at most 20 MB, and the file stays where it is), optional weights per link type and a priority from 1 to 5. Returns goalId and nodeIds. Needs the running LearnHarness app. A refusal from the app (for example the daily agent spending ceiling) is returned as is. Writes through the app only.",
 		input: strict({
 			title: z.string().min(1).max(LIMITS.titleChars),
 			targets: z.array(z.string().min(1).max(WRITE_LIMITS.targetChars)).max(WRITE_LIMITS.targetsMax).optional(),
 			files: z
-				.array(strict({ name: z.string().min(1).max(WRITE_LIMITS.fileNameChars), path: z.string().min(1).max(WRITE_LIMITS.pathChars) }))
+				.array(strict({ name: z.string().min(1).max(WRITE_LIMITS.fileNameChars) }))
 				.max(WRITE_LIMITS.filesMax)
 				.optional(),
 			weights: z.record(z.string(), z.number()).optional(),
@@ -130,5 +130,11 @@ export const CATALOG: Record<string, ToolSpec> = {
 			to: z.string().min(1).max(LIMITS.idMaxChars),
 			linkType: z.enum(LINK_TYPES),
 		}),
+	},
+	get_sandbox: {
+		title: "Read the agent sandbox folder",
+		description:
+			"Use before create_goal to see which PDFs can be attached. Returns the absolute path of the agent sandbox folder and its files (relative name, size in bytes, modification time as ISO-8601), recursively to depth 3, at most 200 entries; PDFs and other files are both listed. Move a document into that folder first, then name it in create_goal. Needs the running LearnHarness app. Read-only.",
+		input: strict({}),
 	},
 };
