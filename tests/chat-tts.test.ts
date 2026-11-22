@@ -54,11 +54,13 @@ const assistant = (content: unknown[]): ChatTtsMessage => ({ role: "assistant", 
 const SESSION = "chat_1";
 const MESSAGE = "msg_1";
 
-/** Messages by "session/message"; a session that is not in the map is unknown, as is a message that is not in it. */
+/** Messages by "session/message", in insertion order; a session that is not listed is unknown. */
 function reader(messages: Record<string, ChatTtsMessage>, sessions: string[] = [SESSION]) {
-	return (sessionId: string, messageId: string): ChatTtsMessage | null => {
+	return (sessionId: string): ChatTtsMessage[] | null => {
 		if (!sessions.includes(sessionId)) return null;
-		return messages[`${sessionId}/${messageId}`] ?? null;
+		return Object.entries(messages)
+			.filter(([key]) => key.startsWith(`${sessionId}/`))
+			.map(([key, message]) => ({ ...message, id: key.slice(sessionId.length + 1) }));
 	};
 }
 
@@ -73,7 +75,7 @@ function service(opts: {
 	const gateFake = opts.gate === undefined ? fakeGate() : { gate: opts.gate, events: [] as CostEvent[] };
 	const dir = opts.dir ?? tmpDir();
 	const deps: ChatTtsDeps = {
-		readMessage: reader(opts.messages ?? { [`${SESSION}/${MESSAGE}`]: assistant([{ type: "text", text: EN_TEXT }]) }),
+		readSession: reader(opts.messages ?? { [`${SESSION}/${MESSAGE}`]: assistant([{ type: "text", text: EN_TEXT }]) }),
 		apiKey: () => ("key" in opts ? opts.key : KEY),
 		voices: () => VOICES,
 		synthesis: { dir, gate: gateFake.gate, fetch: dgram.fetchFn, sleep: async () => undefined, timeoutMs: 5000, maxAttempts: 3 },
@@ -165,6 +167,58 @@ describe("chat TTS message checks", () => {
 		await tts.speak(body());
 		assert.equal(sent.length, 1);
 		assert.match(sent[0]!.url, /model=aura-2-livia-it/);
+	});
+});
+
+describe("chat TTS language of a short reply", () => {
+	const ITALIAN_PROSE = assistant([{ type: "text", text: IT_TEXT }]);
+	const SHORT = assistant([{ type: "text", text: "Sì, è corretto." }]);
+
+	it("reads a short reply with the voice of the session's recent Italian prose", async () => {
+		const { tts, sent } = service({ messages: { [`${SESSION}/msg_0`]: ITALIAN_PROSE, [`${SESSION}/${MESSAGE}`]: SHORT } });
+		await tts.speak(body());
+		assert.equal(sent.length, 1);
+		assert.match(sent[0]!.url, /model=aura-2-livia-it/);
+		assert.equal(sent[0]!.text, "Sì, è corretto.");
+	});
+
+	it("still answers 422 when the session has no prose to take the language from", async () => {
+		const { tts, sent } = service({
+			messages: {
+				[`${SESSION}/${MESSAGE}`]: SHORT,
+				[`${SESSION}/msg_tools`]: assistant([{ type: "toolCall", id: "t1", name: "ask", arguments: {} }]),
+			},
+		});
+		const res = await statusOf(tts.speak(body()));
+		assert.equal(res.status, 422);
+		assert.equal(res.message, "this message's language has no text-to-speech voice");
+		assert.equal(sent.length, 0);
+	});
+
+	it("looks only at the last three assistant messages of the session", async () => {
+		const { tts, sent } = service({
+			messages: {
+				[`${SESSION}/msg_0`]: ITALIAN_PROSE,
+				[`${SESSION}/msg_a`]: assistant([{ type: "toolCall", id: "t1", name: "ask", arguments: {} }]),
+				[`${SESSION}/msg_b`]: assistant([{ type: "toolCall", id: "t2", name: "ask", arguments: {} }]),
+				[`${SESSION}/msg_c`]: assistant([{ type: "toolCall", id: "t3", name: "ask", arguments: {} }]),
+				[`${SESSION}/msg_4`]: SHORT,
+			},
+		});
+		const res = await statusOf(tts.speak(body({ messageId: "msg_4" })));
+		assert.equal(res.status, 422);
+		assert.equal(sent.length, 0);
+	});
+
+	it("uses the message's own language when it is clear, whatever the session says", async () => {
+		const { tts, sent } = service({
+			messages: {
+				[`${SESSION}/msg_0`]: ITALIAN_PROSE,
+				[`${SESSION}/${MESSAGE}`]: assistant([{ type: "text", text: EN_TEXT }]),
+			},
+		});
+		await tts.speak(body());
+		assert.match(sent[0]!.url, /model=aura-2-thalia-en/);
 	});
 });
 

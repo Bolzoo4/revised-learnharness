@@ -17,16 +17,33 @@ const UNKNOWN_MESSAGE_TEXT = "unknown session or message";
 const NOT_ASSISTANT_TEXT = "only an assistant message can be read aloud";
 const NO_TEXT = "this message has no text to read aloud";
 const BODY_FIELDS: readonly string[] = ["sessionId", "messageId"];
+/** How many of the session's most recent assistant messages decide the language of a reply with no clear language of its own. */
+const LANGUAGE_CONTEXT_MESSAGES = 3;
 
-/** The part of a stored message this service reads: its role and its content parts. */
+/** The part of a stored message this service reads: its id, its role and its content parts. */
 export interface ChatTtsMessage {
+	id?: string;
 	role: string;
 	content?: unknown;
 }
 
+function partsOf(message: ChatTtsMessage): SpeechPart[] {
+	return Array.isArray(message.content) ? (message.content as SpeechPart[]) : [];
+}
+
+/** The speech text of the session's last assistant messages, joined: the context a short reply's language is read from. */
+function recentAssistantSpeech(session: readonly ChatTtsMessage[]): string {
+	return session
+		.filter((m) => m.role === "assistant")
+		.slice(-LANGUAGE_CONTEXT_MESSAGES)
+		.map((m) => speechText(partsOf(m)))
+		.filter((text) => text !== "")
+		.join("\n");
+}
+
 export interface ChatTtsDeps {
-	/** The message of a session, or null when the session or the message is unknown. */
-	readMessage(sessionId: string, messageId: string): ChatTtsMessage | null;
+	/** The messages of a session in order, or null when the session is unknown. */
+	readSession(sessionId: string): ChatTtsMessage[] | null;
 	apiKey(): string | undefined;
 	voices(): Record<AudioLanguage, string>;
 	/** The shared synthesis: the cache directory, the audio gate, and the injected network. */
@@ -53,12 +70,15 @@ export function createChatTts(deps: ChatTtsDeps) {
 		 */
 		async speak(body: unknown): Promise<Buffer> {
 			const { sessionId, messageId } = requestIds(body);
-			const message = deps.readMessage(sessionId, messageId);
-			if (message === null) throw new HttpError(404, UNKNOWN_MESSAGE_TEXT);
+			const session = deps.readSession(sessionId);
+			const message = session?.find((m) => m.id === messageId) ?? null;
+			if (session === null || message === null) throw new HttpError(404, UNKNOWN_MESSAGE_TEXT);
 			if (message.role !== "assistant") throw new HttpError(422, NOT_ASSISTANT_TEXT);
-			const text = speechText(Array.isArray(message.content) ? (message.content as SpeechPart[]) : []);
+			const text = speechText(partsOf(message));
 			if (text === "") throw new HttpError(422, NO_TEXT);
-			const language = guessLanguage(text);
+			// A short reply ("Sì, è corretto.") carries too few function words to name its language; then the
+			// session's recent assistant prose decides it. Still unknown: no voice, 422.
+			const language = guessLanguage(text) === "unknown" ? guessLanguage(recentAssistantSpeech(session)) : guessLanguage(text);
 			if (language === "unknown") throw new HttpError(422, CHAT_NO_VOICE_TEXT);
 			const key = deps.apiKey();
 			if (!key) throw new HttpError(503, NO_KEY_TEXT);

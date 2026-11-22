@@ -18,6 +18,7 @@ import { PathText } from "@/components/file-path-chip";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
+import { ListenButton } from "@/components/listen-button";
 import { LiveToolCard } from "@/components/artifacts/live-tool-card";
 import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
@@ -1655,6 +1656,7 @@ export function Chat({
 												}
 											})}
 										</MessageContent>
+										<ListenButton sessionId={chatId} messageId={m.id} parts={m.parts} />
 									</Message>
 									)}
 								</Fragment>

@@ -12,9 +12,8 @@ import { createChatTts } from "./chat-tts.ts";
 import { keyValue } from "./keys.ts";
 
 export const chatTts = createChatTts({
-	readMessage(sessionId, messageId) {
-		const chat = getChat(sessionId);
-		return chat?.messages.find((message) => message.id === messageId) ?? null;
+	readSession(sessionId) {
+		return getChat(sessionId)?.messages ?? null;
 	},
 	apiKey: () => keyValue("DEEPGRAM_API_KEY") || undefined,
 	voices: () => audioVoicesFromEnv(process.env),
