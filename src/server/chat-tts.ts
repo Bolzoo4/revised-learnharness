@@ -3,11 +3,14 @@
  * Speech for a chat message (REQ-chat-tts-02..05, 07): the teacher's reply read aloud on the shared
  * synthesis (ext/speech-synthesis.ts), with the same content cache and audio gate as lecture narration.
  * The request names a message by its session and id, never a text, so a caller cannot spend the audio
- * budget on arbitrary text. Everything impure is injected; the live wiring is chat-tts-live.ts.
+ * budget on arbitrary text. Three parts of one message can be read: its prose (the default), its pending
+ * question (part "question": the spoken form of its ask or quiz call), and the fixed retry phrase (part
+ * "retry" with a language). Everything impure is injected; the live wiring is chat-tts-live.ts.
  */
 
 import { speechText, type SpeechPart } from "../core/chat-speech.ts";
 import { guessLanguage, type AudioLanguage } from "../core/ext/lecture/audio.ts";
+import { spokenForm } from "../core/question-speech.ts";
 import { BUDGET_TEXT, FAILED_TEXT, NO_KEY_TEXT } from "./ext/lecture-audio.ts";
 import { HttpError } from "./ext/http-error.ts";
 import { BudgetRefused, TtsError, synthesizeText, type SynthesisDeps } from "./ext/speech-synthesis.ts";
@@ -16,7 +19,15 @@ export const CHAT_NO_VOICE_TEXT = "this message's language has no text-to-speech
 const UNKNOWN_MESSAGE_TEXT = "unknown session or message";
 const NOT_ASSISTANT_TEXT = "only an assistant message can be read aloud";
 const NO_TEXT = "this message has no text to read aloud";
-const BODY_FIELDS: readonly string[] = ["sessionId", "messageId"];
+const NO_QUESTION_TEXT = "this message has no question to read aloud";
+const BODY_FIELDS: readonly string[] = ["sessionId", "messageId", "part", "language"];
+/** The fixed phrase of the retry part, per language. */
+export const RETRY_PHRASES: Readonly<Record<AudioLanguage, string>> = {
+	it: "Non ho capito.",
+	en: "Sorry, I did not catch that.",
+};
+/** The tool calls whose input is a question the learner answers. */
+const QUESTION_TOOLS: readonly string[] = ["ask_user_question", "quiz", "probe"];
 /** How many of the session's most recent assistant messages decide the language of a reply with no clear language of its own. */
 const LANGUAGE_CONTEXT_MESSAGES = 3;
 
@@ -26,6 +37,8 @@ export interface ChatTtsMessage {
 	role: string;
 	content?: unknown;
 }
+
+type Part = "prose" | "question" | "retry";
 
 function partsOf(message: ChatTtsMessage): SpeechPart[] {
 	return Array.isArray(message.content) ? (message.content as SpeechPart[]) : [];
@@ -50,36 +63,70 @@ export interface ChatTtsDeps {
 	synthesis: SynthesisDeps;
 }
 
-/** The body must be exactly {sessionId, messageId}: any other field is refused before anything is read or sent. */
-function requestIds(body: unknown): { sessionId: string; messageId: string } {
+interface Request {
+	sessionId: string;
+	messageId: string;
+	part: Part;
+	language: AudioLanguage | null;
+}
+
+/** The body: {sessionId, messageId} and, optionally, part ("question" | "retry") and language (with "retry" only). */
+function requestOf(body: unknown): Request {
 	if (typeof body !== "object" || body === null || Array.isArray(body)) throw new HttpError(400, "the request body must be a JSON object");
 	const record = body as Record<string, unknown>;
-	if (Object.keys(record).some((key) => !BODY_FIELDS.includes(key))) throw new HttpError(400, "the body takes only sessionId and messageId");
-	const { sessionId, messageId } = record;
+	if (Object.keys(record).some((key) => !BODY_FIELDS.includes(key))) throw new HttpError(400, "the body takes only sessionId, messageId, part and language");
+	const { sessionId, messageId, part, language } = record;
 	if (typeof sessionId !== "string" || sessionId === "") throw new HttpError(400, "sessionId must be a non-empty string");
 	if (typeof messageId !== "string" || messageId === "") throw new HttpError(400, "messageId must be a non-empty string");
-	return { sessionId, messageId };
+	if (part !== undefined && part !== "question" && part !== "retry") throw new HttpError(400, "part must be question or retry");
+	if (part !== "retry" && language !== undefined) throw new HttpError(400, "language is only for the retry part");
+	if (part === "retry" && language !== "it" && language !== "en") throw new HttpError(400, "retry needs a language: it or en");
+	return {
+		sessionId,
+		messageId,
+		part: (part as Part | undefined) ?? "prose",
+		language: part === "retry" ? (language as AudioLanguage) : null,
+	};
 }
 
 export function createChatTts(deps: ChatTtsDeps) {
+	/** Language of a text: its own words, else the session's recent prose, else unknown. */
+	const languageOf = (text: string, session: readonly ChatTtsMessage[]): AudioLanguage | "unknown" => {
+		const own = guessLanguage(text);
+		return own === "unknown" ? guessLanguage(recentAssistantSpeech(session)) : own;
+	};
+
+	/** The text to speak and its language for one part of a message. Refusals are HttpErrors. */
+	function textFor(req: Request, session: readonly ChatTtsMessage[], message: ChatTtsMessage): { text: string; language: AudioLanguage } {
+		if (req.part === "retry") return { text: RETRY_PHRASES[req.language!], language: req.language! };
+		if (message.role !== "assistant") throw new HttpError(422, NOT_ASSISTANT_TEXT);
+		if (req.part === "question") {
+			const call = [...partsOf(message)].reverse().find((p) => p.type === "toolCall" && QUESTION_TOOLS.includes(String(p.name)));
+			if (call === undefined) throw new HttpError(422, NO_QUESTION_TEXT);
+			const hint = languageOf(speechText(partsOf(message)), session);
+			const form = spokenForm({ type: `tool-${String(call.name)}`, state: "input-available", input: call.arguments }, { languageHint: hint === "unknown" ? undefined : hint });
+			if (form === null) throw new HttpError(422, NO_QUESTION_TEXT);
+			return { text: form.text, language: form.language };
+		}
+		const text = speechText(partsOf(message));
+		if (text === "") throw new HttpError(422, NO_TEXT);
+		const language = languageOf(text, session);
+		if (language === "unknown") throw new HttpError(422, CHAT_NO_VOICE_TEXT);
+		return { text, language };
+	}
+
 	return {
 		/**
-		 * The audio (audio/mpeg bytes) of a message's speech text. Every refusal is an HttpError: 400 a bad body,
+		 * The audio (audio/mpeg bytes) of a message's speech. Every refusal is an HttpError: 400 a bad body,
 		 * 404 an unknown session or message, 422 a message that is not speakable, 503 no key, 429 budget spent,
 		 * 502 an upstream failure (fixed text).
 		 */
 		async speak(body: unknown): Promise<Buffer> {
-			const { sessionId, messageId } = requestIds(body);
-			const session = deps.readSession(sessionId);
-			const message = session?.find((m) => m.id === messageId) ?? null;
+			const req = requestOf(body);
+			const session = deps.readSession(req.sessionId);
+			const message = session?.find((m) => m.id === req.messageId) ?? null;
 			if (session === null || message === null) throw new HttpError(404, UNKNOWN_MESSAGE_TEXT);
-			if (message.role !== "assistant") throw new HttpError(422, NOT_ASSISTANT_TEXT);
-			const text = speechText(partsOf(message));
-			if (text === "") throw new HttpError(422, NO_TEXT);
-			// A short reply ("Sì, è corretto.") carries too few function words to name its language; then the
-			// session's recent assistant prose decides it. Still unknown: no voice, 422.
-			const language = guessLanguage(text) === "unknown" ? guessLanguage(recentAssistantSpeech(session)) : guessLanguage(text);
-			if (language === "unknown") throw new HttpError(422, CHAT_NO_VOICE_TEXT);
+			const { text, language } = textFor(req, session, message);
 			const key = deps.apiKey();
 			if (!key) throw new HttpError(503, NO_KEY_TEXT);
 			try {

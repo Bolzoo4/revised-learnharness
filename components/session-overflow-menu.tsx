@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { EllipsisIcon } from "lucide-react";
 import { getSpeechPlayer, type SpeechPlayer } from "./use-speech-player";
+import { announceVoiceMode } from "./use-voice-mode";
 
 export const VOICE_MODE_SAVE_FAILED = "Voice mode could not be changed.";
 
@@ -47,6 +48,7 @@ export function SessionOverflowMenu({ chatId, player }: { chatId: string; player
 		})
 			.then((res) => {
 				if (!res.ok) throw new Error(`voice mode ${res.status}`);
+				announceVoiceMode(chatId, next);
 			})
 			.catch(() => {
 				setVoiceMode(!next);

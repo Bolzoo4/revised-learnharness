@@ -297,3 +297,58 @@ describe("chat TTS key, budget and cache", () => {
 		assert.equal(closed.sent.length, 0);
 	});
 });
+
+describe("chat TTS parts: the question and the retry phrase", () => {
+	const QUESTION_MESSAGE = assistant([
+		{ type: "text", text: "Here is a check." },
+		{ type: "toolCall", id: "t1", name: "ask_user_question", arguments: { question: "Which planet is closest?", options: [{ label: "Mercury" }, { label: "Venus" }] } },
+	]);
+
+	it("question: speaks the spoken form of the message's pending question, not its prose", async () => {
+		const { tts, sent } = service({ messages: { [`${SESSION}/${MESSAGE}`]: QUESTION_MESSAGE } });
+		await tts.speak(body({ part: "question" }));
+		assert.equal(sent.length, 1);
+		assert.ok(sent[0]!.text.includes("Which planet is closest?"));
+		assert.ok(sent[0]!.text.includes("A: Mercury"));
+		assert.ok(!sent[0]!.text.includes("Here is a check."));
+	});
+
+	it("question: a message with no question to read is 422 and nothing is sent", async () => {
+		const { tts, sent } = service({});
+		assert.equal((await statusOf(tts.speak(body({ part: "question" })))).status, 422);
+		assert.equal(sent.length, 0);
+	});
+
+	it("retry: speaks the fixed phrase in the language asked for, with that language's voice", async () => {
+		const it1 = service({});
+		await it1.tts.speak(body({ part: "retry", language: "it" }));
+		assert.equal(it1.sent[0]!.text, "Non ho capito.");
+		assert.match(it1.sent[0]!.url, /model=aura-2-livia-it/);
+		const en1 = service({});
+		await en1.tts.speak(body({ part: "retry", language: "en" }));
+		assert.equal(en1.sent[0]!.text, "Sorry, I did not catch that.");
+		assert.match(en1.sent[0]!.url, /model=aura-2-thalia-en/);
+	});
+
+	it("retry: the phrase is cached like any other speech", async () => {
+		const dir = tmpDir();
+		await service({ dir }).tts.speak(body({ part: "retry", language: "it" }));
+		const again = service({ dir });
+		await again.tts.speak(body({ part: "retry", language: "it" }));
+		assert.equal(again.sent.length, 0);
+	});
+
+	it("refuses a malformed part or language with 400 and sends nothing", async () => {
+		const { tts, sent } = service({});
+		assert.equal((await statusOf(tts.speak(body({ part: "retry" })))).status, 400, "retry needs a language");
+		assert.equal((await statusOf(tts.speak(body({ part: "retry", language: "fr" })))).status, 400);
+		assert.equal((await statusOf(tts.speak(body({ language: "it" })))).status, 400, "language only with retry");
+		assert.equal((await statusOf(tts.speak(body({ part: "prose" })))).status, 400);
+		assert.equal(sent.length, 0);
+	});
+
+	it("retry on an unknown message is 404", async () => {
+		const { tts } = service({});
+		assert.equal((await statusOf(tts.speak(body({ part: "retry", language: "it", messageId: "msg_ghost" })))).status, 404);
+	});
+});

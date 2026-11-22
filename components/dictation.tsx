@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2Icon, MicIcon } from "lucide-react";
 import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
-import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
+import { deepgramListenUrl, deepgramVoiceListenUrl, type DictationLanguage } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
 import { setDictationActive } from "@/components/dictation-state";
 export { isDictationActive } from "@/components/dictation-state";
@@ -246,6 +246,8 @@ export type DictationPhase = "idle" | "connecting" | "recording" | "stopping";
 
 export type Dictation = {
 	phase: DictationPhase;
+	/** Starts a run (voice mode starts its listening turns with it; the toggle is the same start). */
+	start: () => Promise<void>;
 	/** Terminal-state explanation, shown inside the wide button (cleared on the next start). */
 	error: string | null;
 	/** Latest observed RMS, 0..1 — sampled by the meter's own tick, never reset. */
@@ -281,8 +283,20 @@ export type Dictation = {
  * composer fallback; the mounted question form's claim wins while a
  * question waits.
  */
-export function useDictation({ append }: { append: (text: string) => void }): Dictation {
+/**
+ * Voice mode's listener (REQ-chat-tts-15): the words and the utterance ends of the stream, instead of the
+ * composer buffer. A dictation with a listener opens the voice URL, claims no composer target, and never
+ * appends to the input. Without one, the dictation is exactly as before.
+ */
+export interface VoiceListener {
+	onWords(text: string, final: boolean): void;
+	onUtteranceEnd(): void;
+}
+
+export function useDictation({ append, voice }: { append: (text: string) => void; voice?: VoiceListener }): Dictation {
 	const { getLanguage } = useDictationLanguage();
+	const voiceRef = useRef(voice);
+	voiceRef.current = voice;
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
 	/** Latest RMS from the worklet — the meter samples this (dictate pattern). */
@@ -292,6 +306,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	const appendRef = useRef(append);
 	appendRef.current = append;
 	useEffect(() => {
+		// A voice dictation never claims the composer: its words go to the voice listener.
+		if (voiceRef.current) return;
 		const target = (text: string) => appendRef.current(text);
 		composerTarget = target;
 		return () => {
@@ -371,7 +387,8 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			// Minted JWTs authenticate via the "bearer" subprotocol — ["token",
 			// jwt] is rejected at the handshake (verified live; "token" is for
 			// raw API keys only, as in the owner's pi dictate extension).
-			const ws = new WebSocket(deepgramListenUrl(language), ["bearer", token]);
+			const listenUrl = voiceRef.current ? deepgramVoiceListenUrl(language) : deepgramListenUrl(language);
+			const ws = new WebSocket(listenUrl, ["bearer", token]);
 			wsRef.current = ws;
 
 			ws.addEventListener("open", () => {
@@ -389,6 +406,16 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 				try {
 					msg = JSON.parse(ev.data as string);
 				} catch {
+					return;
+				}
+				const listener = voiceRef.current;
+				if (listener) {
+					if (msg.type === "Results") {
+						const words: string | undefined = msg.channel?.alternatives?.[0]?.transcript;
+						if (words) listener.onWords(words, msg.is_final === true);
+					} else if (msg.type === "UtteranceEnd") {
+						listener.onUtteranceEnd();
+					}
 					return;
 				}
 				if (msg.type === "Results") {
@@ -619,6 +646,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 
 	return {
 		phase,
+		start,
 		error,
 		levelRef,
 		active: phase !== "idle",

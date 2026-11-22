@@ -20,6 +20,7 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { ListenButton } from "@/components/listen-button";
 import { SessionOverflowMenu } from "@/components/session-overflow-menu";
+import { useVoiceMode } from "@/components/use-voice-mode";
 import { LiveToolCard } from "@/components/artifacts/live-tool-card";
 import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
@@ -533,6 +534,23 @@ export function Chat({
 	 * separate `readingThinking` field. Reset per pending question. */
 	const [readingThinkingSeed, setReadingThinkingSeed] = useState({ questionId: null as string | null, value: "", revision: 0 });
 	const readingThinkingRef = useRef("");
+	// The question card's submit, by name: the card's tap and a spoken answer (voice mode) both go through it.
+	const submitPendingAnswer = (output: QuestionAnswerData) => {
+		if (!pending) return;
+		// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner 2026-09-26): one input event, one turn.
+		// The reading-thinking draft rides along (owner 2026-10-03): the check answer is its only carrier.
+		saveQuestionDraft(pending.key, { readingThinking: readingThinkingRef.current });
+		const reading = readingThinkingRef.current.trim() || undefined;
+		submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, pending.key);
+	};
+	// Voice mode: replies play on their own when the flag is on; spoken answers go through submitPendingAnswer.
+	const voice = useVoiceMode({
+		chatId,
+		messages,
+		busy,
+		pending: pending ? { tool: pending.tool, toolCallId: pending.toolCallId, input: pending.input } : null,
+		submitPending: submitPendingAnswer,
+	});
 
 	// ⌘T (toggle-user-thinking, owner round 2026-10-07): set EVERY user
 	// thinking row to one state — transcript rows default open, so the
@@ -1415,7 +1433,12 @@ export function Chat({
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
-								<SessionOverflowMenu chatId={chatId} />
+								{voice.notice !== null && (
+					<span role="status" className="lh-no-drag max-w-[28ch] truncate text-xs text-muted-foreground">
+						{voice.notice}
+					</span>
+				)}
+				<SessionOverflowMenu chatId={chatId} />
 				</TopBar>
 				{pinned}
 
@@ -1791,20 +1814,8 @@ export function Chat({
 						/>
 					}
 					onSubmitAnswer={(output) => {
-						if (!pending) return;
-						// THE ANSWER IS THE QUESTION CALL'S TOOL RESULT (fork 1, owner
-						// 2026-09-26): one input event, one turn — the hook appends
-						// the optimistic graded result (the AnsweredCard shows at
-						// once) and the server's write-ahead persists it before the
-						// turn; the teacher's reaction streams below it. Dismissals
-						// ride the same callback (QuestionAnswerData.dismissed). The
-						// reading-thinking draft rides along (owner 2026-10-03) — the
-						// check answer is its only carrier.
-						saveQuestionDraft(pending.key, { readingThinking: readingThinkingRef.current });
-						const reading = readingThinkingRef.current.trim() || undefined;
-						// The pending-id effect clears this only when the question
-						// actually leaves. An offline preflight keeps the draft visible.
-						submitAnswer(pending.tool, pending.toolCallId, reading ? { ...output, readingThinking: reading } : output, pending.key);
+						voice.noteTap();
+						submitPendingAnswer(output);
 					}}
 				/>
 				</Conversation>

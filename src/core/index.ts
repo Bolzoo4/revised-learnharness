@@ -47,6 +47,20 @@ export * from "./native-messages.ts";
 export * from "./chat-speech.ts";
 export * from "./question-speech.ts";
 export * from "./answer-resolver.ts";
+// Voice mode (REQ-chat-tts-11..16): the pure machine and the turn detector, for the page's voice layer.
+export {
+	initialVoiceState,
+	step as voiceStep,
+	MAX_RETRIES,
+	type VoiceState,
+	type VoiceEvent,
+	type VoiceEffect,
+	type VoiceLanguage,
+	type VoiceMode,
+	type PendingQuestion,
+	type Answer as VoiceAnswer,
+} from "./voice-machine.ts";
+export { createTurnDetector, clearOptionCheck, VOICE_SILENCE_MS, VOICE_CLEAR_MS, type TurnDetector, type TurnDetectorEvent, type TurnDetectorDeps } from "./turn-detector.ts";
 export * from "./compaction.ts";
 export * from "./input-events.ts";
 export { parseFilePaths, quoteFilePath, filePathLabel, isDirectoryReference, directoryReferencePath } from "./file-paths.ts";

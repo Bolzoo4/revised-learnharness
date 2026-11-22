@@ -1,13 +1,16 @@
 // components/use-speech-player.ts
 /**
- * Playback of a teacher reply's speech (REQ-chat-tts-01, 03, 05, 06): one shared audio element, one message at a time.
+ * Playback of a teacher reply's speech (REQ-chat-tts-01, 03, 05, 06): one shared audio element, one clip at a time.
  *
  * iOS (Safari) starts audio only from a user gesture. The element is unlocked inside the click itself: play()
  * is called synchronously on a short silent clip, on the SAME element. The fetch of the real audio then
  * takes time, and when it arrives the element's src is replaced and play() is called again. Safari keeps the
- * element unlocked from the gesture, so the second play() is allowed. A new Audio per message would lose that
- * unlock, which is why there is exactly one element, created once. Playing another message stops the first;
- * pressing the same message again stops it.
+ * element unlocked from the gesture, so the second play() is allowed. A new Audio per clip would lose that
+ * unlock, which is why there is exactly one element, created once. Playing another clip stops the first;
+ * pressing the same clip again stops it.
+ *
+ * A clip is a message's prose (the default), its pending question (part "question"), or the retry phrase
+ * (part "retry", with a language). Each has its own state key. onSettle reports how a clip ended, for voice mode.
  *
  * Everything impure is injected (the element, fetch, object URLs); getSpeechPlayer() wires the browser's.
  */
@@ -23,21 +26,27 @@ export interface SpeechAudio {
 export type SpeechState =
 	| { status: "loading" }
 	| { status: "playing" }
-	/** `retryable` false: the server refused this message (422, 429); the reason is its own fixed text. */
+	/** `retryable` false: the server refused this clip (422, 429); the reason is its own fixed text. */
 	| { status: "error"; reason: string; retryable: boolean };
 
 export interface SpeechSnapshot {
-	/** Per message id: loading, playing or error. A message with no entry is idle. */
+	/** Per clip key: loading, playing or error. A key with no entry is idle. */
 	readonly states: Readonly<Record<string, SpeechState>>;
 	/** The server has no speech for this session (no key): the control is hidden for the rest of the session. */
 	readonly unavailable: boolean;
 }
 
+/** Which clip of a message: the prose by default, the question, or the retry phrase in a language. */
+export type SpeechRequest = { part: "question" } | { part: "retry"; language: "it" | "en" };
+
+/** How a clip settled: it ended on its own, it was stopped, or it failed (budget, unavailable, other). */
+export type SpeechOutcome = { type: "ended" } | { type: "stopped" } | { type: "failed"; kind: "budget" | "unavailable" | "other" };
+
 export interface SpeechPlayer {
 	snapshot(): SpeechSnapshot;
 	subscribe(listener: () => void): () => void;
-	/** Plays a message (or stops it when it is the one playing). Synchronous up to the unlock; resolves when the request settles. */
-	play(sessionId: string, messageId: string): Promise<void>;
+	/** Plays a message's prose, question or retry phrase (or stops it when it is the one playing). Synchronous up to the unlock; resolves when the request settles. */
+	play(sessionId: string, messageId: string, request?: SpeechRequest): Promise<void>;
 	stop(): void;
 	/** Unlocks the shared element for later playback, without fetching anything. Call it inside a click (iOS). Stops what plays. */
 	unlock(): void;
@@ -50,18 +59,27 @@ export interface SpeechPlayerDeps {
 	fetch: (url: string, init: RequestInit) => Promise<Response>;
 	createObjectURL(blob: Blob): string;
 	revokeObjectURL(url: string): void;
+	/** Told how each clip settled. Optional: the control needs none. */
+	onSettle?: (key: string, outcome: SpeechOutcome) => void;
 }
 
 export const SPEECH_URL = "/api/chat/tts";
 export const SPEECH_FAILED_TEXT = "this reply could not be read aloud; try again";
+/** The server's text when the daily audio budget is spent (lecture-audio.ts BUDGET_TEXT; a test keeps them equal). */
+export const SPEECH_BUDGET_TEXT = "the daily budget for narration audio is spent";
 
 const NO_SNAPSHOT: SpeechSnapshot = { states: {}, unavailable: false };
+
+/** The state key of a clip. */
+export function clipKey(messageId: string, request?: SpeechRequest): string {
+	return request === undefined ? messageId : `${messageId}#${request.part}`;
+}
 
 export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 	let snap: SpeechSnapshot = NO_SNAPSHOT;
 	const listeners = new Set<() => void>();
-	/** The message that is loading or playing, if any. */
-	let activeId: string | null = null;
+	/** The clip that is loading or playing, if any (its state key). */
+	let activeKey: string | null = null;
 	/** Bumped by every stop or new play: a request that finishes after it is ignored. */
 	let generation = 0;
 	let objectUrl: string | null = null;
@@ -70,31 +88,34 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 		snap = next;
 		for (const listener of listeners) listener();
 	};
-	const withState = (id: string, state: SpeechState | null): void => {
+	const withState = (key: string, state: SpeechState | null): void => {
 		const states = { ...snap.states };
-		if (state === null) delete states[id];
-		else states[id] = state;
+		if (state === null) delete states[key];
+		else states[key] = state;
 		publish({ ...snap, states });
 	};
 	const releaseUrl = (): void => {
 		if (objectUrl !== null) deps.revokeObjectURL(objectUrl);
 		objectUrl = null;
 	};
+	/** Stops whatever plays or loads; the clip that was active settles as stopped. */
 	const halt = (): void => {
 		generation++;
 		deps.audio.pause();
 		releaseUrl();
-		if (activeId !== null) {
-			const id = activeId;
-			activeId = null;
-			withState(id, null);
+		if (activeKey !== null) {
+			const key = activeKey;
+			activeKey = null;
+			withState(key, null);
+			deps.onSettle?.(key, { type: "stopped" });
 		}
 	};
-	const fail = (id: string, token: number, reason: string, retryable: boolean): void => {
+	const fail = (key: string, token: number, reason: string, retryable: boolean, kind: "budget" | "unavailable" | "other" = "other"): void => {
 		if (token !== generation) return;
 		releaseUrl();
-		activeId = null;
-		withState(id, { status: "error", reason, retryable });
+		activeKey = null;
+		withState(key, { status: "error", reason, retryable });
+		deps.onSettle?.(key, { type: "failed", kind });
 	};
 
 	/** The server's own fixed text for a refusal, or the generic text. */
@@ -103,33 +124,34 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 		return typeof data?.error === "string" && data.error !== "" ? data.error : SPEECH_FAILED_TEXT;
 	}
 
-	async function load(sessionId: string, messageId: string, token: number): Promise<void> {
+	async function load(key: string, sessionId: string, messageId: string, request: SpeechRequest | undefined, token: number): Promise<void> {
 		let res: Response;
 		try {
 			res = await deps.fetch(SPEECH_URL, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId, messageId }),
+				body: JSON.stringify({ sessionId, messageId, ...(request ?? {}) }),
 			});
 		} catch {
-			return fail(messageId, token, SPEECH_FAILED_TEXT, true);
+			return fail(key, token, SPEECH_FAILED_TEXT, true);
 		}
 		if (token !== generation) return;
 		if (res.status === 503) {
-			activeId = null;
-			withState(messageId, null);
+			activeKey = null;
+			withState(key, null);
 			publish({ ...snap, unavailable: true });
+			deps.onSettle?.(key, { type: "failed", kind: "unavailable" });
 			return;
 		}
 		if (!res.ok) {
 			const reason = await refusalReason(res);
-			return fail(messageId, token, reason, res.status >= 500);
+			return fail(key, token, reason, res.status >= 500, reason === SPEECH_BUDGET_TEXT ? "budget" : "other");
 		}
 		let blob: Blob;
 		try {
 			blob = await res.blob();
 		} catch {
-			return fail(messageId, token, SPEECH_FAILED_TEXT, true);
+			return fail(key, token, SPEECH_FAILED_TEXT, true);
 		}
 		if (token !== generation) return;
 		releaseUrl();
@@ -138,18 +160,24 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 		try {
 			await deps.audio.play();
 		} catch {
-			return fail(messageId, token, SPEECH_FAILED_TEXT, true);
+			return fail(key, token, SPEECH_FAILED_TEXT, true);
 		}
 		if (token !== generation) return;
-		withState(messageId, { status: "playing" });
+		withState(key, { status: "playing" });
 	}
 
 	deps.audio.addEventListener("ended", () => {
-		// The silent unlock clip also ends; only the real audio finishing ends the message.
-		if (activeId !== null && snap.states[activeId]?.status === "playing") halt();
+		// The silent unlock clip also ends; only the real audio finishing ends the clip.
+		if (activeKey === null || snap.states[activeKey]?.status !== "playing") return;
+		const key = activeKey;
+		generation++;
+		releaseUrl();
+		activeKey = null;
+		withState(key, null);
+		deps.onSettle?.(key, { type: "ended" });
 	});
 	deps.audio.addEventListener("error", () => {
-		if (activeId !== null && snap.states[activeId]?.status === "playing") fail(activeId, generation, SPEECH_FAILED_TEXT, true);
+		if (activeKey !== null && snap.states[activeKey]?.status === "playing") fail(activeKey, generation, SPEECH_FAILED_TEXT, true);
 	});
 
 	return {
@@ -158,16 +186,17 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 			listeners.add(listener);
 			return () => void listeners.delete(listener);
 		},
-		play(sessionId, messageId) {
+		play(sessionId, messageId, request) {
+			const key = clipKey(messageId, request);
 			if (snap.unavailable) return Promise.resolve();
-			if (activeId === messageId) {
+			if (activeKey === key) {
 				halt();
 				return Promise.resolve();
 			}
 			halt();
-			activeId = messageId;
+			activeKey = key;
 			const token = generation;
-			withState(messageId, { status: "loading" });
+			withState(key, { status: "loading" });
 			// The unlock: synchronous, inside the click that called play(). See the file header.
 			deps.audio.src = deps.silentSrc;
 			try {
@@ -175,7 +204,7 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 			} catch {
 				// The unlock did not start; the real play below reports the failure.
 			}
-			return load(sessionId, messageId, token);
+			return load(key, sessionId, messageId, request, token);
 		},
 		stop: halt,
 		unlock() {
@@ -216,6 +245,13 @@ export function silentWavDataUri(): string {
 }
 
 let browserPlayer: SpeechPlayer | null = null;
+/** Set by the voice layer before the first clip, so the one player reports settlements to it. */
+let browserSettle: ((key: string, outcome: SpeechOutcome) => void) | undefined;
+
+/** Registers the settlement listener of the page's player (voice mode). */
+export function setSpeechSettleListener(listener: ((key: string, outcome: SpeechOutcome) => void) | undefined): void {
+	browserSettle = listener;
+}
 
 /** The one player of the page (one audio element). Null where there is no browser (server render). */
 export function getSpeechPlayer(): SpeechPlayer | null {
@@ -227,6 +263,7 @@ export function getSpeechPlayer(): SpeechPlayer | null {
 		fetch: (url, init) => fetch(url, init),
 		createObjectURL: (blob) => URL.createObjectURL(blob),
 		revokeObjectURL: (url) => URL.revokeObjectURL(url),
+		onSettle: (key, outcome) => browserSettle?.(key, outcome),
 	});
 	return browserPlayer;
 }

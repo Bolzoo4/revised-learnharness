@@ -270,3 +270,59 @@ describe("speech player: unlock", () => {
 		assert.ok(audio.pauses >= 1);
 	});
 });
+
+describe("speech player: parts and settlement (voice mode)", () => {
+	function setupWithSettle(answers: Array<() => Promise<Response> | Response> = []) {
+		const audio = new FakeAudio();
+		const { fetch, calls } = fakeFetch(answers);
+		const settled: Array<{ key: string; outcome: unknown }> = [];
+		let n = 0;
+		const player = createSpeechPlayer({
+			audio,
+			silentSrc: SILENT,
+			fetch,
+			createObjectURL: () => `blob:${++n}`,
+			revokeObjectURL: () => undefined,
+			onSettle: (key, outcome) => void settled.push({ key, outcome }),
+		});
+		return { player, audio, calls, settled };
+	}
+
+	it("a question request sends its part and is tracked under its own key", async () => {
+		const { player, calls } = setupWithSettle();
+		await player.play(SESSION, "msg_1", { part: "question" });
+		assert.deepEqual(calls[0]!.body, { sessionId: SESSION, messageId: "msg_1", part: "question" });
+		assert.deepEqual(Object.keys(player.snapshot().states), ["msg_1#question"]);
+	});
+
+	it("a retry request sends its language", async () => {
+		const { player, calls } = setupWithSettle();
+		await player.play(SESSION, "msg_1", { part: "retry", language: "it" });
+		assert.deepEqual(calls[0]!.body, { sessionId: SESSION, messageId: "msg_1", part: "retry", language: "it" });
+	});
+
+	it("reports the end of the audio as ended, and a stop as stopped", async () => {
+		const { player, audio, settled } = setupWithSettle();
+		await player.play(SESSION, "msg_1");
+		audio.emit("ended");
+		assert.deepEqual(settled, [{ key: "msg_1", outcome: { type: "ended" } }]);
+		await player.play(SESSION, "msg_2");
+		player.stop();
+		assert.deepEqual(settled.at(-1), { key: "msg_2", outcome: { type: "stopped" } });
+	});
+
+	it("reports a budget refusal as a budget failure, and a 503 as unavailable", async () => {
+		const { player, settled } = setupWithSettle([() => jsonError(429, BUDGET)]);
+		await player.play(SESSION, "msg_1");
+		assert.deepEqual(settled.at(-1), { key: "msg_1", outcome: { type: "failed", kind: "budget" } });
+		const second = setupWithSettle([() => new Response("{}", { status: 503 })]);
+		await second.player.play(SESSION, "msg_1");
+		assert.deepEqual(second.settled.at(-1), { key: "msg_1", outcome: { type: "failed", kind: "unavailable" } });
+	});
+
+	it("the budget text the client matches is the server's own", async () => {
+		const { BUDGET_TEXT } = await import("../src/server/ext/lecture-audio.ts");
+		const { SPEECH_BUDGET_TEXT } = await import("../components/use-speech-player.ts");
+		assert.equal(SPEECH_BUDGET_TEXT, BUDGET_TEXT);
+	});
+});
