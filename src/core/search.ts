@@ -25,6 +25,9 @@ export interface SearchHit {
 	title: string;
 	url: string;
 	snippet: string;
+	/** The provider's own identifier for the item (OpenAlex work id, Wikipedia
+	 *  article key), when it has one. */
+	sourceId?: string;
 }
 
 /** Search engines in automatic preference order. Keep existing preferences
@@ -39,6 +42,8 @@ export const SEARCH_ENGINES = [
 	// `keyless: true` entries carry no envVar, so the narrowing below is the
 	// only way to reach an envVar.
 	{ id: "searxng", label: "SearXNG", keyless: true },
+	{ id: "openalex", label: "OpenAlex", keyless: true },
+	{ id: "wikipedia", label: "Wikipedia", keyless: true },
 ] as const;
 
 export type SearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];

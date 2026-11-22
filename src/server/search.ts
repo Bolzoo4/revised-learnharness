@@ -19,6 +19,7 @@
  * tool depends on the PORT only and tests never touch the network.
  */
 
+import { guessLanguage } from "../core/ext/lecture/audio.ts";
 import { KEYED_SEARCH_ENGINES, SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../core/search.ts";
 import { keyValue } from "./keys.ts";
 import { effectiveSettings } from "./stores.ts";
@@ -144,6 +145,84 @@ export function searxngProvider(baseUrl: string, fetchFn: FetchLike = fetch): Se
 					if (!result || typeof result !== "object") return [];
 					const row = result as { title?: unknown; url?: unknown; content?: unknown };
 					return searchHit(row.title, row.url, row.content);
+				})
+				.slice(0, count);
+		},
+	};
+}
+
+/** Public, keyless endpoints get a generic identification only: no learner data. */
+const PUBLIC_API_HEADERS = { accept: "application/json", "user-agent": "LearnHarness (local study app)" };
+
+/** Keep the sourceId only when the provider supplied one. */
+function withSourceId(hits: SearchHit[], sourceId: string | undefined): SearchHit[] {
+	return sourceId ? hits.map((hit) => ({ ...hit, sourceId })) : hits;
+}
+
+/** OpenAlex: GET api.openalex.org/works?search=…&per-page=… (no key, and no
+ *  mailto parameter, so the request names nobody). The abstract arrives as an
+ *  inverted index (word → positions); it is rebuilt in order and bounded. */
+export function openAlexProvider(fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "openalex",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const url = new URL("https://api.openalex.org/works");
+			url.searchParams.set("search", query);
+			url.searchParams.set("per-page", String(Math.min(200, Math.max(1, Math.floor(count)))));
+			const resp = await fetchFn(url.toString(), { headers: PUBLIC_API_HEADERS, signal: AbortSignal.timeout(30_000) });
+			if (!resp.ok) throw new Error(`OpenAlex search API ${resp.status}`);
+			const data = await searchJson(resp, "OpenAlex");
+			if (!data || typeof data !== "object" || !Array.isArray((data as { results?: unknown }).results)) {
+				throw new Error("OpenAlex search API returned an invalid response");
+			}
+			return (data as { results: unknown[] }).results.flatMap((row): SearchHit[] => {
+				if (!row || typeof row !== "object") return [];
+				const work = row as { id?: unknown; doi?: unknown; display_name?: unknown; abstract_inverted_index?: unknown };
+				const id = typeof work.id === "string" && work.id ? work.id : undefined;
+				const link = typeof work.doi === "string" && work.doi ? work.doi : id;
+				if (!link) return [];
+				return withSourceId(searchHit(work.display_name, link, abstractText(work.abstract_inverted_index)), id);
+			});
+		},
+	};
+}
+
+/** Rebuild an OpenAlex abstract from its inverted index, bounded to 400 characters. */
+function abstractText(index: unknown): string {
+	if (!index || typeof index !== "object" || Array.isArray(index)) return "";
+	const placed: Array<[number, string]> = [];
+	for (const [word, slots] of Object.entries(index)) {
+		if (!Array.isArray(slots)) continue;
+		for (const slot of slots) if (typeof slot === "number") placed.push([slot, word]);
+	}
+	placed.sort((a, b) => a[0] - b[0]);
+	return placed.map(([, word]) => word).join(" ").slice(0, 400);
+}
+
+/** Wikipedia REST search. The language follows the query (Italian when the
+ *  query reads as Italian, English otherwise). Excerpts lose their markup. */
+export function wikipediaProvider(fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "wikipedia",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const lang = guessLanguage(query) === "it" ? "it" : "en";
+			const url = new URL(`https://${lang}.wikipedia.org/w/rest.php/v1/search/page`);
+			url.searchParams.set("q", query);
+			url.searchParams.set("limit", String(Math.min(100, Math.max(1, Math.floor(count)))));
+			const resp = await fetchFn(url.toString(), { headers: PUBLIC_API_HEADERS, signal: AbortSignal.timeout(30_000) });
+			if (!resp.ok) throw new Error(`Wikipedia search API ${resp.status}`);
+			const data = await searchJson(resp, "Wikipedia");
+			if (!data || typeof data !== "object" || !Array.isArray((data as { pages?: unknown }).pages)) {
+				throw new Error("Wikipedia search API returned an invalid response");
+			}
+			return (data as { pages: unknown[] }).pages
+				.flatMap((page): SearchHit[] => {
+					if (!page || typeof page !== "object") return [];
+					const row = page as { key?: unknown; title?: unknown; excerpt?: unknown };
+					if (typeof row.key !== "string" || !row.key) return [];
+					const link = `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(row.key)}`;
+					const excerpt = typeof row.excerpt === "string" ? row.excerpt.replace(/<[^>]*>/g, "") : "";
+					return withSourceId(searchHit(row.title, link, excerpt), row.key);
 				})
 				.slice(0, count);
 		},
