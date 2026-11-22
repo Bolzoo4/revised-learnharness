@@ -35,9 +35,19 @@ export const SEARCH_ENGINES = [
 	{ id: "exa", label: "Exa", envVar: "EXA_API_KEY" },
 	{ id: "firecrawl", label: "Firecrawl", envVar: "FIRECRAWL_API_KEY" },
 	{ id: "ollama", label: "Ollama", envVar: "OLLAMA_API_KEY" },
+	// Keyless engines need no API key (search spec REQ-search-04). Their
+	// `keyless: true` entries carry no envVar, so the narrowing below is the
+	// only way to reach an envVar.
+	{ id: "searxng", label: "SearXNG", keyless: true },
 ] as const;
 
 export type SearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];
+
+/** The engines whose liveness is the presence of an API key. */
+export type KeyedSearchEngine = Extract<(typeof SEARCH_ENGINES)[number], { envVar: string }>;
+export const KEYED_SEARCH_ENGINES: readonly KeyedSearchEngine[] = SEARCH_ENGINES.filter(
+	(engine): engine is KeyedSearchEngine => "envVar" in engine,
+);
 
 /** The read/write guards' membership check (settings record + PUT body). */
 export function isSearchEngineId(value: unknown): value is SearchEngineId {

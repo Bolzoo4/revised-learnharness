@@ -3,13 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, beforeEach, it } from "node:test";
-import { SEARCH_ENGINES, type SearchEngineId } from "../src/core/search.ts";
+import { KEYED_SEARCH_ENGINES, type SearchEngineId } from "../src/core/search.ts";
 
 // Real settings/auth composition with fake keys and an injected transport only.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lh-search-expansion-"));
 process.env.LH_DATA_DIR = path.join(dir, "data");
 process.env.LH_AUTH_FILE = path.join(dir, "auth.json");
-for (const { envVar } of SEARCH_ENGINES) delete process.env[envVar];
+for (const { envVar } of KEYED_SEARCH_ENGINES) delete process.env[envVar];
 const { saveKey, deleteKey, keyStatuses } = await import("../src/server/keys.ts");
 const { writeSettings, readSettings } = await import("../src/store/settings.ts");
 const { searchStatus, searchProvider } = await import("../src/server/search.ts");
@@ -17,12 +17,12 @@ const realFetch = globalThis.fetch;
 
 beforeEach(() => {
 	globalThis.fetch = async () => { throw new Error("unexpected external request"); };
-	for (const { envVar } of SEARCH_ENGINES) deleteKey(envVar);
+	for (const { envVar } of KEYED_SEARCH_ENGINES) deleteKey(envVar);
 	writeSettings({ version: 1 });
 });
 after(() => {
 	globalThis.fetch = realFetch;
-	for (const { envVar } of SEARCH_ENGINES) delete process.env[envVar];
+	for (const { envVar } of KEYED_SEARCH_ENGINES) delete process.env[envVar];
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -78,11 +78,11 @@ for (const { id, envVar, url, header, prefix, payload } of engines) {
 }
 
 it("all five saved keys follow the approved Automatic order as keys are removed", () => {
-	for (const { id, envVar } of SEARCH_ENGINES) {
+	for (const { id, envVar } of KEYED_SEARCH_ENGINES) {
 		const fake = id === "tavily" ? "tvly-fake-key-1234567890" : id === "firecrawl" ? "fc-fake-key-1234567890" : `${id}-fake-key-1234567890`;
 		assert.equal(saveKey(envVar, fake).ok, true);
 	}
-	for (const { id, envVar } of SEARCH_ENGINES) {
+	for (const { id, envVar } of KEYED_SEARCH_ENGINES) {
 		assert.equal(searchStatus().engine, id);
 		assert.equal(searchProvider()?.id, id);
 		deleteKey(envVar);

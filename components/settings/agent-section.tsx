@@ -63,6 +63,7 @@ import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
 	MODEL_SLOTS,
+	KEYED_SEARCH_ENGINES,
 	SEARCH_ENGINES,
 	resolveSettings,
 	isFileAccessFolder,
@@ -401,7 +402,7 @@ export function AgentSection({
 			.then((r) => r.json())
 			.then((body: { keys: { id: string; present: boolean }[] }) => {
 				const present: Partial<Record<SearchEngineId, boolean>> = {};
-				for (const { id, envVar } of SEARCH_ENGINES) {
+				for (const { id, envVar } of KEYED_SEARCH_ENGINES) {
 					present[id] = body.keys.some((k) => k.id === envVar && k.present);
 				}
 				setEngineKeys(present);
@@ -903,7 +904,7 @@ export function AgentSection({
 				})()}
 				{(() => {
 					const engine = agent?.search?.engine ?? null;
-					const anyKey = SEARCH_ENGINES.some(({ id }) => engineKeys[id] === true);
+					const anyKey = KEYED_SEARCH_ENGINES.some(({ id }) => engineKeys[id] === true);
 					const open = openMenu?.target === "search";
 					return (
 						<SettingsRow
@@ -934,7 +935,7 @@ export function AgentSection({
 											onSectionChange(composeSearchEngine(agent, null));
 											setOpenMenu(null);
 										})}
-										{SEARCH_ENGINES.map(({ id, label }) =>
+										{KEYED_SEARCH_ENGINES.map(({ id, label }) =>
 											engineOption(id, label, engine === id, engineKeys[id] ?? false, () => {
 												onSectionChange(composeSearchEngine(agent, id));
 												setOpenMenu(null);

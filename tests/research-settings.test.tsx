@@ -5,7 +5,7 @@ import { it } from "node:test";
 import { parseHTML } from "linkedom";
 import { AgentSection } from "../components/settings/agent-section.tsx";
 import type { AgentSettings } from "../src/core/index.ts";
-import { SEARCH_ENGINES } from "../src/core/search.ts";
+import { KEYED_SEARCH_ENGINES } from "../src/core/search.ts";
 
 it("keyless settings keep Research interactive while search-engine setup retains its own disabled state", async () => {
 	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
@@ -14,7 +14,7 @@ it("keyless settings keep Research interactive while search-engine setup retains
 	const reason = "No search engine is configured.";
 	const bodies: Record<string, unknown> = {
 		"/api/search": { available: false, engine: null, reason },
-		"/api/keys": { keys: SEARCH_ENGINES.map(({ envVar }) => ({ id: envVar, present: false })) },
+		"/api/keys": { keys: KEYED_SEARCH_ENGINES.map(({ envVar }) => ({ id: envVar, present: false })) },
 		"/api/models": { models: [], slots: { strong: null, cheap: null, vision: null } },
 		"/api/settings/prompts": { prober: [], teacher: [], practice: [] },
 	};
@@ -70,7 +70,7 @@ it("keyless settings keep Research interactive while search-engine setup retains
 	}
 });
 
-for (const { id, label, envVar } of SEARCH_ENGINES) {
+for (const { id, label, envVar } of KEYED_SEARCH_ENGINES) {
 it(`a ${label}-only key enables the engine menu and selecting ${label} saves the pin`, async () => {
 	const dom = parseHTML("<html><body><div id='root'></div></body></html>");
 	Object.assign(dom.window, { innerWidth: 1280, innerHeight: 800 });
@@ -106,7 +106,7 @@ it(`a ${label}-only key enables the engine menu and selecting ${label} saves the
 		assert.ok(!trigger.hasAttribute("disabled"));
 		await act(async () => trigger.click());
 		const optionIds = [...document.querySelectorAll('[data-testid^="engine-option-"]')].map((row) => row.getAttribute("data-testid"));
-		assert.deepEqual(optionIds, ["engine-option-auto", ...SEARCH_ENGINES.map(({ id }) => `engine-option-${id}`)]);
+		assert.deepEqual(optionIds, ["engine-option-auto", ...KEYED_SEARCH_ENGINES.map(({ id }) => `engine-option-${id}`)]);
 		const option = document.querySelector<HTMLButtonElement>(`[data-testid="engine-option-${id}"]`);
 		assert.ok(option);
 		assert.ok(option.textContent?.includes(label));

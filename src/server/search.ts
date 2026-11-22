@@ -19,7 +19,7 @@
  * tool depends on the PORT only and tests never touch the network.
  */
 
-import { SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../core/search.ts";
+import { KEYED_SEARCH_ENGINES, SEARCH_ENGINES, type SearchEngineId, type SearchHit, type SearchProvider, type SearchStatus } from "../core/search.ts";
 import { keyValue } from "./keys.ts";
 import { effectiveSettings } from "./stores.ts";
 
@@ -106,6 +106,58 @@ export function braveProvider(apiKey: string, fetchFn: FetchLike = fetch): Searc
 				}));
 		},
 	};
+}
+
+/** SearXNG: a self-hosted metasearch instance run as a separate process
+ *  (AGPL-3.0; not bundled here). GET <base>/search?q=…&format=json, no key.
+ *  The instance must enable the JSON format (search.formats: [html, json]).
+ *  Every failure rejects with a clear reason; the tool layer reports it as
+ *  a recoverable result. Upstream engines can fail, so an empty answer
+ *  with unresponsive engines says so instead of looking like "no results". */
+export function searxngProvider(baseUrl: string, fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "searxng",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const url = new URL(`${baseUrl.replace(/\/+$/, "")}/search`);
+			url.searchParams.set("q", query);
+			url.searchParams.set("format", "json");
+			let resp: Response;
+			try {
+				resp = await fetchFn(url.toString(), { headers: { accept: "application/json" }, signal: AbortSignal.timeout(30_000) });
+			} catch {
+				throw new Error(`SearXNG is unreachable at ${baseUrl} (connection refused or no answer within 30 s)`);
+			}
+			if (resp.status === 403) throw new Error("JSON output is disabled on the SearXNG instance (set search.formats: [html, json])");
+			if (!resp.ok) throw new Error(`SearXNG search API ${resp.status}`);
+			const data = await searchJson(resp, "SearXNG");
+			if (!data || typeof data !== "object" || !Array.isArray((data as { results?: unknown }).results)) {
+				throw new Error("SearXNG search API returned an invalid response");
+			}
+			const body = data as { results: unknown[]; unresponsive_engines?: unknown };
+			if (body.results.length === 0) {
+				const failed = unresponsiveEngineNames(body.unresponsive_engines);
+				if (failed.length > 0) throw new Error(`SearXNG returned no results; upstream engines failed: ${failed.join(", ")}`);
+				return [];
+			}
+			return body.results
+				.flatMap((result): SearchHit[] => {
+					if (!result || typeof result !== "object") return [];
+					const row = result as { title?: unknown; url?: unknown; content?: unknown };
+					return searchHit(row.title, row.url, row.content);
+				})
+				.slice(0, count);
+		},
+	};
+}
+
+/** SearXNG lists failed upstream engines as [name, reason] pairs (or bare names). */
+function unresponsiveEngineNames(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return value.slice(0, 10).flatMap((entry): string[] => {
+		const [name, reason] = Array.isArray(entry) ? entry : [entry];
+		if (typeof name !== "string" || !name) return [];
+		return [typeof reason === "string" && reason ? `${name} (${reason.slice(0, 80)})` : name];
+	});
 }
 
 /** Invalid JSON must not echo provider response bodies into tool results. */
@@ -228,7 +280,7 @@ function searchHit(title: unknown, url: unknown, snippet: unknown): SearchHit[] 
 /** The engine's key (env-or-file; env wins) — null when the engine is
  *  not keyed, which by owner decision means NOT LIVE. */
 function engineKey(id: SearchEngineId): string | null {
-	const envVar = SEARCH_ENGINES.find((e) => e.id === id)?.envVar;
+	const envVar = KEYED_SEARCH_ENGINES.find((e) => e.id === id)?.envVar;
 	const value = envVar ? keyValue(envVar) : undefined;
 	return value ? value : null;
 }
@@ -236,7 +288,7 @@ function engineKey(id: SearchEngineId): string | null {
 /** Every engine's live key, read fresh (the resolver's input). */
 function engineKeys(): Partial<Record<SearchEngineId, string>> {
 	const keys: Partial<Record<SearchEngineId, string>> = {};
-	for (const { id } of SEARCH_ENGINES) {
+	for (const { id } of KEYED_SEARCH_ENGINES) {
 		const key = engineKey(id);
 		if (key) keys[id] = key;
 	}
@@ -257,7 +309,7 @@ export function resolveSearchEngineFor(
 			return {
 				available: false,
 				engine: null,
-				reason: `search engine is set to "${pinned}" but its API key is missing — set the ${SEARCH_ENGINES.find((e) => e.id === pinned)?.envVar} key`,
+				reason: `search engine is set to "${pinned}" but its API key is missing — set the ${KEYED_SEARCH_ENGINES.find((e) => e.id === pinned)?.envVar} key`,
 				key: null,
 			};
 		}
