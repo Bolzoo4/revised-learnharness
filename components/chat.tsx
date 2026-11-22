@@ -19,6 +19,7 @@ import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-e
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { ListenButton } from "@/components/listen-button";
+import { SessionOverflowMenu } from "@/components/session-overflow-menu";
 import { LiveToolCard } from "@/components/artifacts/live-tool-card";
 import { Separator } from "@/components/ui/separator";
 import { AnsweredCard } from "@/components/answered-card";
@@ -1414,6 +1415,7 @@ export function Chat({
 					) : (
 						<PhaseChip phase={phases.at(-1) ?? "probe"} />
 					)}
+								<SessionOverflowMenu chatId={chatId} />
 				</TopBar>
 				{pinned}
 

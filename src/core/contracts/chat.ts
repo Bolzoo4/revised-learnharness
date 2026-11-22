@@ -37,6 +37,9 @@ export interface ChatRecord {
 	imageSnapshots?: Record<string, ImageSnapshot>;
 	/** The session's kind — absent = teach (pre-practice records). */
 	kind?: ChatKind;
+	/** Voice mode (REQ-chat-tts-08): the lesson is spoken while on. Absent = off. Its own field, not part of
+	 * the replace-whole ChatSettings: the model picker's PUT would drop it. Written by PUT /api/chats/[id]/voice-mode. */
+	voiceMode?: boolean;
 	/** The session's plan tree (vision §2) — written by plan tools via saveTree. */
 	tree?: PlanTree;
 	/** Append-only usage log (observability, 2026-09): one entry per model

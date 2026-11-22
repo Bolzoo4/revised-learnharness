@@ -21,7 +21,7 @@ import { makeNarrationGuard, narrationGuardApplies, SEND_TO_USER_DELIVERY_RULE }
 import { createReadTool, readTool } from "./tools/read.ts";
 import { quizInputObject, quizInputProblems } from "../core/question-core.ts";
 import { QUESTION_TOOLS, type EnabledTools } from "../core/pending.ts";
-import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL } from "../core/native-messages.ts";
+import { toLlmMessages, nativeInputCause, PRACTICE_PROBLEM_TOOL, voiceModeInstruction } from "../core/native-messages.ts";
 import type { ChatGPTRequestCycle } from "./chatgpt-request-cycle.ts";
 import { usageWasAdmitted } from "./subscription-request-cycle.ts";
 
@@ -123,6 +123,8 @@ export interface AgentBuildOptions {
 	 *  fresh per turn, honoring enabled overrides (switch on + file
 	 *  exists); absent → the cached pure-source composition. */
 	promptSwitches?: Record<string, boolean>;
+	/** Voice mode (REQ-chat-tts-08): the session's flag; while on, the standing voice note is composed in. */
+	voiceMode?: boolean;
 	/** A complete system prompt that replaces the composed one (extension
 	 *  agents, docs/ext/TOUCHPOINTS.md). Absent = the kind's composition. */
 	instructions?: string;
@@ -190,7 +192,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const composedPrompt =
 		opts.instructions ??
 		(opts.promptSwitches ? composeInstructions(kind, opts.promptSwitches) : composedInstructions[kind]!);
-	const systemPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
+	const delivered = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
+	// Voice mode (REQ-chat-tts-09): a standing note, appended only while the session's flag is on.
+	const systemPrompt = opts.voiceMode ? `${delivered}\n\n---\n\n${voiceModeInstruction()}` : delivered;
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).

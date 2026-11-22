@@ -943,3 +943,15 @@ export function needsContinuation(messages: readonly LhMessage[]): boolean {
 	);
 	return calls.length > 0 && calls.every((b) => answered.has(b.id!));
 }
+
+/** The standing note of voice mode (REQ-chat-tts-09): while a session's voice mode is on, the teacher's replies are
+ *  read aloud, so they must be written to be heard. Composed into the system prompt only when the flag is on. */
+export function voiceModeInstruction(): string {
+	return [
+		"VOICE MODE (on for this session). The learner hears your replies read aloud and answers by voice or by tapping.",
+		"Speak conversationally, as a teacher talking, in the language the lesson uses. Keep paragraphs short.",
+		"Do not use tables, code blocks or markup: no headings, bullets, bold or links. A list has at most three items, and only when it is needed.",
+		"Write a formula in words, never symbol by symbol.",
+		"Ask a question only as an open question, or as an option question through the ask_user_question or quiz tool; never ask in prose a question that needs a typed reply.",
+	].join(" ");
+}

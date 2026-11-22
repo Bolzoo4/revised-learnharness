@@ -187,6 +187,14 @@ function saveSettings(id: string, settings: ChatSettings): void {
 	writeChat(record);
 }
 
+/** Persist the session's voice mode (REQ-chat-tts-08). Silent like saveSettings: a flag is not conversation activity. */
+function setVoiceMode(id: string, on: boolean): void {
+	const record = getChat(id);
+	if (!record) throw new Error(`Chat not found: ${id}`);
+	record.voiceMode = on;
+	writeChat(record);
+}
+
 /** Rename a session (the header's click-to-edit title, 2026-09-17). Like
  * saveSettings, a rename is NOT conversation activity: updatedAt stays put
  * so sidebar order never churns. Same fallback as createChat — the empty
@@ -234,6 +242,7 @@ export const chatStore: ChatStore = {
 	saveImageSnapshot,
 	saveTree,
 	saveSettings,
+	setVoiceMode,
 	renameChat,
 	deleteChat,
 	appendTurnUsage,

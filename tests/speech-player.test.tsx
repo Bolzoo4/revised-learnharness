@@ -253,3 +253,20 @@ describe("listen button", () => {
 		assert.equal(button(), null);
 	});
 });
+
+describe("speech player: unlock", () => {
+	it("unlock plays the silent clip on the shared element at once, and fetches nothing", () => {
+		const { player, audio, calls } = setup();
+		player.unlock();
+		assert.deepEqual(audio.plays, [SILENT]);
+		assert.equal(calls.length, 0);
+	});
+
+	it("unlock stops a message that is playing", async () => {
+		const { player, audio } = setup();
+		await player.play(SESSION, "msg_1");
+		player.unlock();
+		assert.deepEqual(player.snapshot().states, {});
+		assert.ok(audio.pauses >= 1);
+	});
+});

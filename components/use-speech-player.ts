@@ -39,6 +39,8 @@ export interface SpeechPlayer {
 	/** Plays a message (or stops it when it is the one playing). Synchronous up to the unlock; resolves when the request settles. */
 	play(sessionId: string, messageId: string): Promise<void>;
 	stop(): void;
+	/** Unlocks the shared element for later playback, without fetching anything. Call it inside a click (iOS). Stops what plays. */
+	unlock(): void;
 }
 
 export interface SpeechPlayerDeps {
@@ -176,6 +178,15 @@ export function createSpeechPlayer(deps: SpeechPlayerDeps): SpeechPlayer {
 			return load(sessionId, messageId, token);
 		},
 		stop: halt,
+		unlock() {
+			halt();
+			deps.audio.src = deps.silentSrc;
+			try {
+				void Promise.resolve(deps.audio.play()).catch(() => undefined);
+			} catch {
+				// Nothing to unlock on this platform; the real play reports its own failure.
+			}
+		},
 	};
 }
 
