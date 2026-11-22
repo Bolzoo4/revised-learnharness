@@ -44,8 +44,9 @@ const runs = (g.__lhExtLectureRuns ??= new Map<string, BookRunStatus>());
  * Narration audio (Deepgram). Its files live under <data>/ext/lecture-audio; the key is read server-side
  * (DEEPGRAM_API_KEY), and its spend is on the audio gate, not the model ceiling.
  */
+export const lectureAudioDir = path.join(EXT_PATHS.dir, "lecture-audio");
 export const lectureAudio = createLectureAudio({
-	dir: path.join(EXT_PATHS.dir, "lecture-audio"),
+	dir: lectureAudioDir,
 	apiKey: () => keyValue("DEEPGRAM_API_KEY") || undefined,
 	gate: liveAudioGate,
 	voices: () => audioVoicesFromEnv(process.env),
