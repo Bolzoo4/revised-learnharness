@@ -25,5 +25,7 @@ describe("instrumentation register()", () => {
 		const holder = globalThis as unknown as { __lhResearchScheduler?: { running: boolean; timer?: unknown } };
 		assert.equal(holder.__lhResearchScheduler?.running, true);
 		assert.equal(holder.__lhResearchScheduler?.timer, undefined);
+		const { semanticIndexStatus } = await import("../src/server/ext/semantic-live.ts");
+		assert.equal(semanticIndexStatus().lastRefreshAt, null, "no initial index refresh under test");
 	});
 });
