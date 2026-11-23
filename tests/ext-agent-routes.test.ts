@@ -23,6 +23,10 @@ const goals = await import("../app/api/ext/agent/goals/route.ts");
 const weights = await import("../app/api/ext/agent/goals/[id]/weights/route.ts");
 const links = await import("../app/api/ext/agent/links/route.ts");
 const sandbox = await import("../app/api/ext/agent/sandbox/route.ts");
+const embedQuery = await import("../app/api/ext/agent/embed-query/route.ts");
+const { setQueryEmbedLoadForTests } = await import("../src/server/ext/semantic-live.ts");
+const { EMBEDDINGGEMMA_SPEC, MODEL_UNAVAILABLE } = await import("../src/core/ext/embedder.ts");
+const { createFakeEmbedder } = await import("./helpers/fake-embedder.ts");
 
 after(() => fs.rmSync(TMP_DATA, { recursive: true, force: true }));
 
@@ -42,7 +46,7 @@ function gateFor(path: string, method: string, withCookie: boolean) {
 
 describe("agent endpoints are behind the access gate", () => {
 	it("refuse every call without a session with 401 JSON", () => {
-		for (const [p, m] of [["/api/ext/agent/goals", "POST"], ["/api/ext/agent/goals/goal_x/weights", "PUT"], ["/api/ext/agent/links", "POST"], ["/api/ext/agent/sandbox", "GET"]] as const) {
+		for (const [p, m] of [["/api/ext/agent/goals", "POST"], ["/api/ext/agent/goals/goal_x/weights", "PUT"], ["/api/ext/agent/links", "POST"], ["/api/ext/agent/sandbox", "GET"], ["/api/ext/agent/embed-query", "POST"]] as const) {
 			const res = gateFor(p, m, false);
 			assert.equal(res.status, 401, `${m} ${p}`);
 		}
@@ -86,5 +90,33 @@ describe("agent endpoints", () => {
 		assert.equal(res.status, 400);
 		const body = (await res.json()) as { problems: string[] };
 		assert.ok(body.problems.length >= 1);
+	});
+});
+
+describe("POST /api/ext/agent/embed-query", () => {
+	it("refuses a body that is not a JSON object with 400", async () => {
+		const res = await embedQuery.POST(new Request(`${origin}/api/ext/agent/embed-query`, { method: "POST", headers: { "content-type": "application/json" }, body: "[1]" }));
+		assert.equal(res.status, 400);
+	});
+
+	it("answers 503 with the reason when the model is not downloaded (the test data dir holds no model)", async () => {
+		const res = await embedQuery.POST(json({ text: "heat", kind: "query" }));
+		assert.equal(res.status, 503);
+		assert.deepEqual(await res.json(), { unavailable: MODEL_UNAVAILABLE });
+	});
+
+	it("answers 200 with the vector, model id and dimension when the embedder is loaded", async () => {
+		const fake = createFakeEmbedder({ dim: EMBEDDINGGEMMA_SPEC.dim, spec: EMBEDDINGGEMMA_SPEC });
+		setQueryEmbedLoadForTests(async () => ({ ok: true, embedder: fake }));
+		try {
+			const res = await embedQuery.POST(json({ text: "heat", kind: "query" }));
+			assert.equal(res.status, 200);
+			const body = (await res.json()) as { vector: number[]; modelId: string; dim: number };
+			assert.equal(body.modelId, EMBEDDINGGEMMA_SPEC.id);
+			assert.equal(body.dim, EMBEDDINGGEMMA_SPEC.dim);
+			assert.equal(body.vector.length, body.dim);
+		} finally {
+			setQueryEmbedLoadForTests(null);
+		}
 	});
 });

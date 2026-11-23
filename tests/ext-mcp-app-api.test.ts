@@ -247,3 +247,36 @@ describe("timeouts: create_goal may run long, and is never resent (REQ-graph-age
 		assert.equal(mod.CREATE_GOAL_TIMEOUT_MS, 10 * 60 * 1000);
 	});
 });
+
+describe("embedQuery (the app embeds a search query; the server holds no model)", () => {
+	const EMBED_PATH = "/api/ext/agent/embed-query";
+
+	it("posts the text as a query to the app and returns the vector, model id and dimension", async () => {
+		const f = fakeFetch((req) => (req.url.endsWith("/api/access/signin") ? signinOk("c") : json(200, { vector: [0.5, 0.5], modelId: "m/x", dim: 2 })));
+		const out = await api({}, f.fetch).embedQuery("warmth");
+		assert.deepEqual(out, { vector: [0.5, 0.5], modelId: "m/x", dim: 2 });
+		const call = f.reqs.find((r) => r.url.endsWith(EMBED_PATH))!;
+		assert.equal(call.method, "POST");
+		assert.deepEqual(call.body, { text: "warmth", kind: "query" });
+	});
+
+	it("a 503 with the app's unavailable reason is that reason as the tool error text", async () => {
+		const f = fakeFetch((req) => (req.url.endsWith("/api/access/signin") ? signinOk("c") : json(503, { unavailable: "unavailable: model not downloaded" })));
+		const err = await failure(api({}, f.fetch).embedQuery("warmth"));
+		assert.equal(err.code, "app_rejected");
+		assert.equal(err.message, "unavailable: model not downloaded");
+	});
+
+	it("an answer without a usable vector is refused as an app rejection", async () => {
+		const bad = [
+			{ vector: [0.5], modelId: "m/x", dim: 2 },
+			{ vector: [0.5, "x"], modelId: "m/x", dim: 2 },
+			{ vector: [0.5, 0.5], dim: 2 },
+		];
+		for (const body of bad) {
+			const f = fakeFetch((req) => (req.url.endsWith("/api/access/signin") ? signinOk("c") : json(200, body)));
+			const err = await failure(api({}, f.fetch).embedQuery("warmth"));
+			assert.equal(err.code, "app_rejected");
+		}
+	});
+});

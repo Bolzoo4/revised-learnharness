@@ -41,10 +41,19 @@ export interface LectureReader {
  * A non-2xx answer is a ToolError carrying the app's text; an unreachable app is
  * a ToolError too. Neither ever crashes the server.
  */
+/** The app's answer to one query embedding: the vector and the model and dimension that made it. */
+export interface AppEmbedQueryResult {
+	vector: number[];
+	modelId: string;
+	dim: number;
+}
+
 export interface AppApiPort {
 	post(path: string, body: unknown): Promise<unknown>;
 	put(path: string, body: unknown): Promise<unknown>;
 	get(path: string): Promise<unknown>;
+	/** Embeds one search query with the app's model (POST /api/ext/agent/embed-query). The server holds no model. */
+	embedQuery(text: string): Promise<AppEmbedQueryResult>;
 }
 
 /** The label of each imported source file (its file name, never a path): read-only, from graph/sources.json. */

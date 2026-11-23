@@ -11,7 +11,7 @@
 import fs from "node:fs";
 import { ToolError } from "../../../core/ext/mcp/errors.ts";
 import { capText } from "../../../core/ext/mcp/limits.ts";
-import type { AppApiPort } from "../../../core/ext/mcp/ports.ts";
+import type { AppApiPort, AppEmbedQueryResult } from "../../../core/ext/mcp/ports.ts";
 
 export const NOT_RUNNING_MESSAGE = "the LearnHarness app is not running or not paired; start it and try again.";
 const TIMEOUT_MESSAGE = "the LearnHarness app did not answer in time; try again.";
@@ -20,6 +20,8 @@ const TIMEOUT_MS = 30_000;
 /** create_goal runs the whole PDF extraction before it answers, so it alone gets ten minutes (REQ-graph-agent-08). */
 export const CREATE_GOAL_TIMEOUT_MS = 10 * 60 * 1000;
 const CREATE_GOAL_PATH = "/api/ext/agent/goals";
+const EMBED_QUERY_PATH = "/api/ext/agent/embed-query";
+const NO_VECTOR_MESSAGE = "the app answered without a usable query vector.";
 export const GOAL_TIMEOUT_MESSAGE =
 	"the LearnHarness app did not answer create_goal in time, and it may still be working. Call list_goals before trying again, so that the goal is not created twice.";
 const COOKIE = "lh_session";
@@ -63,18 +65,35 @@ function sessionOf(res: Response): string | null {
 	return null;
 }
 
-/** The app's error as a tool error: its `error` text when the body is JSON with one, else the body, cut. */
+/** The app's error as a tool error: its `error` (or, for an unavailable embedder, `unavailable`) text when the body is JSON with one, else the body, cut. */
 async function rejection(res: Response): Promise<ToolError> {
 	const raw = await res.text().catch(() => "");
 	let text = raw.trim();
 	try {
-		const parsed = JSON.parse(raw) as { error?: unknown };
+		const parsed = JSON.parse(raw) as { error?: unknown; unavailable?: unknown };
 		if (typeof parsed?.error === "string") text = parsed.error;
+		else if (typeof parsed?.unavailable === "string") text = parsed.unavailable;
 	} catch {
 		// Not JSON: the body text is the message.
 	}
 	if (text === "") text = `the app answered ${res.status}`;
 	return new ToolError("app_rejected", capText(text, ERROR_TEXT_CHARS));
+}
+
+/** The app's query embedding, checked: a vector of `dim` finite numbers, with the model it came from. */
+function parseEmbedAnswer(body: unknown): AppEmbedQueryResult {
+	const b = body as { vector?: unknown; modelId?: unknown; dim?: unknown } | null;
+	const ok =
+		typeof b === "object" &&
+		b !== null &&
+		Array.isArray(b.vector) &&
+		b.vector.every((x) => typeof x === "number" && Number.isFinite(x)) &&
+		typeof b.modelId === "string" &&
+		Number.isInteger(b.dim) &&
+		(b.dim as number) > 0 &&
+		b.vector.length === b.dim;
+	if (!ok) throw new ToolError("app_rejected", NO_VECTOR_MESSAGE);
+	return { vector: b.vector as number[], modelId: b.modelId as string, dim: b.dim as number };
 }
 
 export function createAppApi(opts: AppApiOptions): AppApiPort {
@@ -138,5 +157,6 @@ export function createAppApi(opts: AppApiOptions): AppApiPort {
 		post: (path, body) => request("POST", path, body),
 		put: (path, body) => request("PUT", path, body),
 		get: (path) => request("GET", path, undefined),
+		embedQuery: async (text) => parseEmbedAnswer(await request("POST", EMBED_QUERY_PATH, { text, kind: "query" })),
 	};
 }

@@ -324,6 +324,9 @@ describe("get_sandbox through the app port (REQ-graph-agent-22, 16)", () => {
 		const seen: string[] = [];
 		const reply = { path: "/data/ext/agent-sandbox", files: { items: [{ name: "a.pdf", size: 9, modifiedAt: NOW }], count: 1, truncated: false } };
 		const port: AppApiPort = {
+	embedQuery: async () => {
+		throw new Error("no query embedding in this test");
+	},
 			get: async (p) => {
 				seen.push(p);
 				return reply;
@@ -347,6 +350,9 @@ describe("get_sandbox through the app port (REQ-graph-agent-22, 16)", () => {
 		const f = makeFixture();
 		let called = false;
 		const port: AppApiPort = {
+	embedQuery: async () => {
+		throw new Error("no query embedding in this test");
+	},
 			get: async () => {
 				called = true;
 				return {};

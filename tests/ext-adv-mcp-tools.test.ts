@@ -128,6 +128,9 @@ function blankMem(): Mem {
 /** No write tool is exercised here: the port fails loudly if one is. */
 const NO_SOURCES = { labels: () => new Map<string, string>() };
 const UNUSED_APP = {
+	embedQuery: async () => {
+		throw new Error("no query embedding in this test");
+	},
 	post: async () => {
 		throw new Error("write tool in a read-only test");
 	},

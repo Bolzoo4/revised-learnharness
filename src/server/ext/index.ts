@@ -24,6 +24,7 @@ export {
 } from "./node-knowledge-live.ts";
 export { NodeKnowledgeError } from "./node-knowledge.ts";
 export { agentGoals, agentResponse } from "./agent-goals-live.ts";
+export { embedAgentQueryLive } from "./semantic-live.ts";
 export type { AgentGoalInput } from "./agent-goals.ts";
 export * from "./lecture-live.ts";
 export { audioRange, FAILED_TEXT } from "./lecture-audio.ts";

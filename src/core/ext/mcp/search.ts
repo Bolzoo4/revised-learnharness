@@ -108,7 +108,9 @@ export function searchNodes(call: Call, input: Record<string, unknown>, opts: Ru
 		let vector: Float32Array;
 		try {
 			vector = await state.embedQuery(query);
-		} catch {
+		} catch (error) {
+			// The app's own reason (no model, not running, stale) is the note; any other failure is generic.
+			if (error instanceof ToolError) return keywordAnswer(`semantic search unavailable: ${error.message}`);
 			return keywordAnswer("semantic search unavailable: query embedding failed");
 		}
 		if (vector.length !== state.index.dim) return keywordAnswer("semantic search unavailable: the query vector does not match the index");

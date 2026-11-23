@@ -59,6 +59,9 @@ const roots: string[] = [];
 
 /** An app that is never running: the default for fixtures, so a write tool in a test fails loudly, never reaches a real app. */
 const UNREACHABLE_APP: AppApiPort = {
+	embedQuery: async () => {
+		throw new Error("no query embedding in this test");
+	},
 	post: async () => {
 		throw new Error("no app in the fixture");
 	},

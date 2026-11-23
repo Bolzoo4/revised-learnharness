@@ -40,7 +40,7 @@ function fakeApi(reply: (sent: Sent) => unknown = () => ({})): { port: AppApiPor
 		sent.push(s);
 		return reply(s);
 	};
-	return { port: { post: send("post"), put: send("put"), get }, sent };
+	return { port: { post: send("post"), put: send("put"), get, embedQuery: async () => { throw new Error("no query embedding in this test"); } }, sent };
 }
 
 /** The fixture's deps with the fake port and stores that refuse every write (spied). */
