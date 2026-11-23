@@ -20,6 +20,7 @@ import {
 	type EmbedderLoad,
 	type EmbedderSpec,
 } from "../../core/ext/embedder.ts";
+import { loadWasmExtractor } from "./embedder-wasm.ts";
 import { EXT_PATHS } from "../../store/ext/paths.ts";
 
 /** The quantised weights for dtype q8 (the name Transformers.js uses). */
@@ -54,13 +55,11 @@ export interface TransformersOptions {
 	cacheDir?: string;
 	/** Allow the pipeline to download missing files. Default false. */
 	allowDownload?: boolean;
-	/** Test seam: the Electron version string, or undefined for plain Node. Default: process.versions.electron. */
-	electronVersion?: string | undefined;
 	/** Replaces the real pipeline (tests). */
 	factory?: ExtractorFactory;
 }
 
-/** The real pipeline. Per-call options only: no global library state is changed. */
+/** The download-time pipeline (scripts, plain Node only: onnxruntime-node aborts inside Electron). Per-call options only: no global library state is changed. */
 const loadPipeline: ExtractorFactory = async (modelId, { cacheDir, allowDownload }) => {
 	const lib = await import("@huggingface/transformers");
 	const build = lib.pipeline as unknown as (
@@ -82,7 +81,7 @@ export function createTransformersEmbedder(spec: EmbedderSpec, options: Transfor
 	if (problems.length > 0) throw new RangeError(`invalid embedder spec: ${problems.join("; ")}`);
 	const cacheDir = options.cacheDir ?? defaultModelCacheDir();
 	const allowDownload = options.allowDownload ?? false;
-	const factory = options.factory ?? loadPipeline;
+	const factory = options.factory ?? (allowDownload ? loadPipeline : loadWasmExtractor);
 
 	let pending: Promise<Extractor> | null = null;
 
@@ -122,18 +121,12 @@ export function createTransformersEmbedder(spec: EmbedderSpec, options: Transfor
  * refresh records the reason and writes nothing). Once they are present it returns one embedder for the life
  * of the process. No network is touched unless `allowDownload` is set.
  */
-export const ELECTRON_UNAVAILABLE = "unavailable: the local embedder does not run inside the desktop runtime yet";
-
 export function createTransformersLoader(spec: EmbedderSpec, options: TransformersOptions = {}): () => Promise<EmbedderLoad> {
 	const cacheDir = options.cacheDir ?? defaultModelCacheDir();
 	const allowDownload = options.allowDownload ?? false;
 	let embedder: Embedder | null = null;
-	const electron = "electronVersion" in options ? options.electronVersion : process.versions.electron;
 	return async () => {
 		if (embedder !== null) return { ok: true, embedder };
-		// onnxruntime-node aborts the whole process (SIGTRAP) on its first inference inside Electron's V8
-		// (checked 2026-11-23 with the packaged runtime): refuse instead of taking the service down.
-		if (options.factory === undefined && electron !== undefined) return { ok: false, reason: ELECTRON_UNAVAILABLE };
 		if (!allowDownload && missingModelFiles(spec, cacheDir).length > 0) {
 			return { ok: false, reason: MODEL_UNAVAILABLE };
 		}

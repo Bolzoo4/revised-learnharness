@@ -103,12 +103,13 @@ const nextConfig: NextConfig = {
 			// its private runtime chain. Includes are applied after traversal.
 			// This is the verified GoogleAuth closure, not a general dep copy;
 			// the offline native Pi gate must catch future SDK closure changes.
-			// Local embeddings (search spec): onnxruntime-node picks its native
-			// binding by platform at runtime (invisible to the tracer). Ship only
-			// this build's platform: the package carries every OS (~290 MB).
-			`node_modules/onnxruntime-node/bin/napi-v6/${process.platform}/**/*`,
-			"node_modules/onnxruntime-node/dist/**/*",
-			"node_modules/onnxruntime-node/package.json",
+			// Local embeddings (search spec): onnxruntime-web (WASM backend) loads its .wasm
+			// files and onnxruntime-common at runtime, invisible to the tracer. The native
+			// onnxruntime-node is NOT shipped: it aborts the process inside Electron.
+			"node_modules/onnxruntime-web/dist/**/*",
+			"node_modules/onnxruntime-web/package.json",
+			"node_modules/onnxruntime-common/**/*",
+			"node_modules/@huggingface/tokenizers/**/*",
 			"node_modules/gcp-metadata/**/*",
 			"node_modules/json-bigint/**/*",
 			"node_modules/bignumber.js/**/*",
@@ -124,8 +125,9 @@ const nextConfig: NextConfig = {
 		"@napi-rs/canvas", // native binding — bundling breaks the .node require
 		"@silvia-odwyer/photon-node", // CJS loads its adjacent WASM from disk
 		"@resvg/resvg-js", // native binding — same
-		"@huggingface/transformers", // loads onnxruntime-node natively; bundling breaks the binding lookup
-		"onnxruntime-node", // native binding — same
+		"onnxruntime-web", // WASM files are loaded from disk next to the package
+		"@huggingface/tokenizers",
+		"@huggingface/transformers", // scripts only (model download); never loaded by the service
 	],
 };
 
