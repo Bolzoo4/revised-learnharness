@@ -1,6 +1,22 @@
 "use strict";
 
-const SERVICE_LABEL = "org.revisedlearnharness.app";
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const DEFAULT_LABEL = "org.revisedlearnharness.app";
+
+/** The launchd label: the default, or the id in <support>/app-id (a per-Mac override kept out of the repository). */
+function readServiceLabel(home = os.homedir()) {
+	try {
+		const value = fs.readFileSync(path.join(home, "Library", "Application Support", "LearnHarness", "app-id"), "utf8").trim();
+		return /^[A-Za-z0-9.-]+$/.test(value) ? value : DEFAULT_LABEL;
+	} catch {
+		return DEFAULT_LABEL;
+	}
+}
+
+const SERVICE_LABEL = readServiceLabel();
 
 class ServiceUnavailableError extends Error {
 	constructor(message) { super(message); this.name = "ServiceUnavailableError"; }
@@ -52,4 +68,4 @@ async function stopService({ uid, launchctl }) {
 	await launchctl(["bootout", `gui/${uid}/${SERVICE_LABEL}`]);
 }
 
-module.exports = { ensureService, servicePort, stopService, ServiceUnavailableError, SERVICE_LABEL };
+module.exports = { readServiceLabel, DEFAULT_LABEL, ensureService, servicePort, stopService, ServiceUnavailableError, SERVICE_LABEL };

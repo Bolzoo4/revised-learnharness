@@ -7,7 +7,7 @@ LearnHarness can run its server as a launchd LaunchAgent. The desktop window and
 1. Build and install the app: `scripts/ext-build-mac-local.sh --install` (puts it in `/Applications`).
 2. Install the service: `scripts/service/install.sh`.
 
-The script creates the access token (`~/Library/Application Support/LearnHarness/access-token`, mode `0600`), writes `~/Library/LaunchAgents/org.revisedlearnharness.app.plist` and starts the service on `127.0.0.1:47890`. Set `LH_PORT` before installing to change the port. The service runs the installed app's own Electron binary as Node, with the bundled server, the same data folder and the same `auth.json` as the app.
+The script creates the access token (`~/Library/Application Support/LearnHarness/access-token`, mode `0600`), writes `~/Library/LaunchAgents/org.revisedlearnharness.app.plist` (to use another id on your Mac only, put it in `~/Library/Application Support/LearnHarness/app-id` before installing; `scripts/service/label.sh` prints the id in use) and starts the service on `127.0.0.1:47890`. Set `LH_PORT` before installing to change the port. The service runs the installed app's own Electron binary as Node, with the bundled server, the same data folder and the same `auth.json` as the app.
 
 Logs: `~/Library/Logs/learnharness-service.log`.
 

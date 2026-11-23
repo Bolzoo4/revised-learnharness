@@ -1,9 +1,12 @@
 // tests/service-client.test.ts
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { ensureService, servicePort, stopService, ServiceUnavailableError, SERVICE_LABEL } = require("../electron/service-client.cjs");
+const { ensureService, servicePort, stopService, ServiceUnavailableError, SERVICE_LABEL, readServiceLabel, DEFAULT_LABEL } = require("../electron/service-client.cjs");
 
 const target = `gui/501/${SERVICE_LABEL}`;
 function harness(opts: { health: Array<{ version: string } | null>; launchctl?: (args: string[]) => { code: number } }) {
@@ -78,4 +81,16 @@ test("stopService boots the service out of launchd", async () => {
 	const calls: string[][] = [];
 	await stopService({ uid: 501, launchctl: async (a: string[]) => { calls.push(a); return { code: 0 }; } });
 	assert.deepEqual(calls, [["bootout", target]]);
+});
+
+test("readServiceLabel defaults, and takes a valid per-Mac override from app-id", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "lh-label-"));
+	assert.equal(readServiceLabel(home), DEFAULT_LABEL);
+	const dir = path.join(home, "Library", "Application Support", "LearnHarness");
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, "app-id"), "com.example.mine\n");
+	assert.equal(readServiceLabel(home), "com.example.mine");
+	fs.writeFileSync(path.join(dir, "app-id"), "bad id/../x");
+	assert.equal(readServiceLabel(home), DEFAULT_LABEL);
+	fs.rmSync(home, { recursive: true, force: true });
 });

@@ -13,7 +13,8 @@ cd ios-shell && npm install
 npx cap sync ios
 xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
   -destination 'id=<device id>' -derivedDataPath ios/DerivedData -allowProvisioningUpdates \
-  DEVELOPMENT_TEAM=<your team id> CODE_SIGN_STYLE=Automatic build
+  DEVELOPMENT_TEAM=<your team id> CODE_SIGN_STYLE=Automatic \
+  PRODUCT_BUNDLE_IDENTIFIER="$(../scripts/service/label.sh)" build
 xcrun devicectl device install app --device <device id> ios/DerivedData/Build/Products/Debug-iphoneos/App.app
 ```
 

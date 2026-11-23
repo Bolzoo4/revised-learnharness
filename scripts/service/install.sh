@@ -9,7 +9,7 @@
 #   LH_SERVICE_DRY_RUN=1  write files, do not call launchctl (used by tests)
 set -euo pipefail
 
-LABEL="org.revisedlearnharness.app"
+LABEL="$("$(dirname "$0")/label.sh")"
 APP="${LH_APP:-/Applications/LearnHarness.app}"
 PORT="${LH_PORT:-47890}"
 SUPPORT="$HOME/Library/Application Support/LearnHarness"

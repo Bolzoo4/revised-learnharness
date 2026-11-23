@@ -29,7 +29,7 @@ echo "== built: $APP"
 if [ "${1:-}" = "--install" ]; then
   find "$APP" \( -name "auth.json" -o -name "*-credentials.json*" -o -path "*/standalone/data" \) | head || true
   codesign --force --deep --sign - "$APP"
-  LABEL="org.revisedlearnharness.app"; SERVICE_PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  LABEL="$(scripts/service/label.sh)"; SERVICE_PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
   # The service runs from inside the app bundle: stop it before the bundle is replaced.
   launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
   osascript -e 'quit app "LearnHarness"' || true; sleep 3
