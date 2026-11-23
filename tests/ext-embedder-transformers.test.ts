@@ -11,6 +11,7 @@ import { EMBEDDINGGEMMA_SPEC, MODEL_UNAVAILABLE } from "../src/core/ext/embedder
 import {
 	createTransformersEmbedder,
 	createTransformersLoader,
+	ELECTRON_UNAVAILABLE,
 	missingModelFiles,
 	type ExtractorFactory,
 } from "../src/server/ext/embedder-transformers.ts";
@@ -74,6 +75,14 @@ describe("missingModelFiles", () => {
 		const cache = emptyCache();
 		installModel(cache);
 		assert.deepEqual(missingModelFiles(SPEC, cache), []);
+	});
+});
+
+describe("createTransformersLoader inside Electron", () => {
+	it("refuses with a clear reason instead of loading onnxruntime-node (it aborts the process there)", async () => {
+		const load = createTransformersLoader(SPEC, { cacheDir: "/nonexistent", electronVersion: "44.9.3" });
+		const result = await load();
+		assert.deepEqual(result, { ok: false, reason: ELECTRON_UNAVAILABLE });
 	});
 });
 
