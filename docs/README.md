@@ -3,6 +3,7 @@
 ## User guides
 
 - [Getting started](getting-started.md) — connections, models, sessions, dictation, files, and notes imports.
+- [iPhone, start to finish](iphone-quickstart.md) — Tailscale, the always-on service, and pairing a phone.
 - [Keyboard shortcuts](keyboard.md) — defaults, rebinding, and navigation.
 - [Claude Code](claude-code.md) — use an installed CLI and troubleshoot its connection.
 - [Custom and local models](custom-providers.md) — configure an OpenAI-compatible endpoint.
